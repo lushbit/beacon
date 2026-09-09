@@ -68,6 +68,20 @@
   }
 
   /*
+   * Mobile browsers grow and shrink their own chrome as you scroll, so 100% of
+   * the viewport is not what is actually on screen. `dvh` tracks the visible
+   * area, which keeps the app filling the display instead of stopping short of
+   * it or running underneath the address bar.
+   */
+  @supports (height: 100dvh) {
+    html,
+    body,
+    #root {
+      height: 100dvh;
+    }
+  }
+
+  /*
    * Radix disables pointer events on the body while a modal layer is open and
    * restores them on close. If a dialog unmounts while still open — a route
    * change, or a re-render that drops it — that style is left behind and the
@@ -89,10 +103,15 @@
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
-    /* Notched phones: keep content clear of the rounded corners. */
-    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
-      env(safe-area-inset-left);
   }
+
+  /*
+   * Notched phones used to be handled by padding the body, which shrank the app
+   * by the size of the insets and left a band of bare background at the top and
+   * bottom. The layout now runs edge to edge and the pieces that hold content
+   * (the sidebar, the mobile header, the scrolling area) carry the insets in
+   * their own padding instead.
+   */
 
   /* Removes the 300ms tap delay and double-tap zoom on controls. */
   button,

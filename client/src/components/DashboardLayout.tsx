@@ -25,7 +25,7 @@ const MANAGE: NavItem[] = [
   { to: "/settings", label: "Settings", icon: Settings2 },
 ];
 
-function SidebarLink({ item, onNavigate }: { item: NavItem; onNavigate?: () => void }) {
+function SidebarLink({ item, onNavigate, scope }: { item: NavItem; onNavigate?: () => void; scope: string }) {
   const Icon = item.icon;
   return (
     <NavLink to={item.to} end={item.to === "/"} onClick={onNavigate}>
@@ -38,7 +38,7 @@ function SidebarLink({ item, onNavigate }: { item: NavItem; onNavigate?: () => v
         >
           {isActive ? (
             <motion.span
-              layoutId="sidebar-active"
+              layoutId={`sidebar-active-${scope}`}
               transition={{ type: "spring", stiffness: 420, damping: 34 }}
               className="absolute inset-0 rounded-xl border border-white/10 bg-white/[0.07]"
             />
@@ -60,7 +60,15 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return <p className="px-3 pb-2 pt-5 text-2xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">{children}</p>;
 }
 
-function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
+/**
+ * `scope` keeps the active pill's `layoutId` unique per instance. The desktop
+ * sidebar stays mounted at every width (it is only hidden with `lg:block`), so
+ * opening the mobile drawer puts a second copy of every link in the tree. Two
+ * elements sharing one `layoutId` make framer-motion animate between them, and
+ * the hidden copy measures zero, which wedges the projection and can leave the
+ * drawer's exit animation unfinished.
+ */
+function SidebarContent({ onNavigate, scope }: { onNavigate?: () => void; scope: string }) {
   const { session, signOut, siteName } = useAuth();
   const { info, appVersion, needsReload } = useVersion();
   const isAdmin = session?.user.role === "admin";
@@ -80,14 +88,14 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         <SectionLabel>Navigate</SectionLabel>
         <div className="space-y-1">
           {NAVIGATE.map((item) => (
-            <SidebarLink key={item.to} item={item} onNavigate={onNavigate} />
+            <SidebarLink key={item.to} item={item} onNavigate={onNavigate} scope={scope} />
           ))}
         </div>
 
         <SectionLabel>Manage</SectionLabel>
         <div className="space-y-1">
           {MANAGE.filter((item) => !item.adminOnly || isAdmin).map((item) => (
-            <SidebarLink key={item.to} item={item} onNavigate={onNavigate} />
+            <SidebarLink key={item.to} item={item} onNavigate={onNavigate} scope={scope} />
           ))}
         </div>
       </nav>
@@ -195,42 +203,65 @@ export function DashboardLayout() {
     setOpen(false);
   }, [location.pathname]);
 
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open]);
+
   return (
     <div className="flex h-full bg-background">
-      <aside className="hidden w-60 shrink-0 border-r border-border/60 bg-surface/40 px-3 py-4 lg:block">
-        <SidebarContent />
+      <aside className="hidden w-60 shrink-0 border-r border-border/60 bg-surface/40 pb-[calc(1rem+env(safe-area-inset-bottom))] pl-[calc(0.75rem+env(safe-area-inset-left))] pr-3 pt-[calc(1rem+env(safe-area-inset-top))] lg:block">
+        <SidebarContent scope="desktop" />
       </aside>
 
-      <AnimatePresence>
-        {open ? (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-40 lg:hidden"
-          >
-            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setOpen(false)} />
-            <motion.aside
-              initial={{ x: -280 }}
-              animate={{ x: 0 }}
-              exit={{ x: -280 }}
-              transition={{ type: "spring", stiffness: 360, damping: 34 }}
-              className="absolute inset-y-0 left-0 w-64 border-r border-border/60 bg-surface px-3 py-4"
+      {/*
+       * The container is always mounted and stops taking pointer events the
+       * instant the drawer is asked to close, rather than when its exit
+       * animation finishes. An animation that never completes then leaves at
+       * worst something invisible on screen, instead of a full-screen layer
+       * that swallows every tap until the page is reloaded.
+       */}
+      <div className={cn("fixed inset-0 z-40 lg:hidden", !open && "pointer-events-none")} aria-hidden={!open}>
+        <AnimatePresence>
+          {open ? (
+            <motion.div
+              key="drawer"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.18 }}
+              className="absolute inset-0"
             >
-              <SidebarContent onNavigate={() => setOpen(false)} />
-            </motion.aside>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+              <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setOpen(false)} />
+              <motion.aside
+                initial={{ x: -280 }}
+                animate={{ x: 0 }}
+                exit={{ x: -280 }}
+                transition={{ type: "tween", duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                className="absolute inset-y-0 left-0 w-64 border-r border-border/60 bg-surface pb-[calc(1rem+env(safe-area-inset-bottom))] pl-[calc(0.75rem+env(safe-area-inset-left))] pr-3 pt-[calc(1rem+env(safe-area-inset-top))]"
+              >
+                <SidebarContent scope="mobile" onNavigate={() => setOpen(false)} />
+              </motion.aside>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+      </div>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-border/60 bg-background/95 px-4 py-3 backdrop-blur lg:hidden">
+        <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-border/60 bg-background/95 pb-3 pl-[calc(1rem+env(safe-area-inset-left))] pr-[calc(1rem+env(safe-area-inset-right))] pt-[calc(0.75rem+env(safe-area-inset-top))] backdrop-blur lg:hidden">
           <Button variant="ghost" size="icon" aria-label="Open menu" onClick={() => setOpen(true)}>
             {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </Button>
           <span className="text-sm font-semibold">Beacon</span>
         </header>
-        <main ref={mainRef} className="scroll-slim scroll-contain min-h-0 flex-1 overflow-y-auto">
+        <main
+          ref={mainRef}
+          className="scroll-slim scroll-contain min-h-0 min-w-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]"
+        >
           <PageTransition scrollRef={mainRef} />
         </main>
       </div>

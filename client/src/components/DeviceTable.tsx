@@ -14,6 +14,7 @@ import {
 import { ChartLegend, TimeChart } from "@/components/charts/TimeChart";
 import { RangePicker } from "@/components/device/RangePicker";
 import { StatusDot } from "@/components/ui/misc";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useSeries } from "@/hooks/useSeries";
 import { SERIES, LEVEL_FILL, deviceColor, levelOf } from "@/lib/colors";
 import { formatDuration, formatPercent, formatRate, formatRelative, formatTemperature, platformName } from "@/lib/format";
@@ -44,6 +45,49 @@ const COLUMNS: Column[] = [
   { sort: "alerts", width: "w-[5.5rem]", visibility: "hidden 2xl:table-cell" },
   { sort: "agent", width: "w-[6rem]", visibility: "hidden 2xl:table-cell" },
 ];
+
+/**
+ * The sorts worth offering on a phone. The table's own headers are the sort
+ * controls everywhere else, but the phone layout is a list of cards with no
+ * headers to click, so it carries this row of buttons instead.
+ */
+const MOBILE_SORTS: DeviceSort[] = ["status", "name", "cpu", "memory", "disk"];
+
+function MobileSortBar({
+  sort,
+  direction,
+  onSort,
+}: {
+  sort: DeviceSort;
+  direction: SortDirection;
+  onSort: (sort: DeviceSort) => void;
+}) {
+  return (
+    <div className="scroll-slim -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-2">
+      {MOBILE_SORTS.map((option) => {
+        const active = sort === option;
+        const Arrow = !active ? ArrowUpDown : direction === "asc" ? ArrowUp : ArrowDown;
+        return (
+          <button
+            key={option}
+            type="button"
+            onClick={() => onSort(option)}
+            aria-label={DEVICE_SORT_DIRECTION_LABELS[option][active && direction === "asc" ? "desc" : "asc"]}
+            className={cn(
+              "tap-target flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+              active
+                ? "border-white/15 bg-white/[0.08] text-foreground"
+                : "border-border/70 bg-card text-muted-foreground"
+            )}
+          >
+            {DEVICE_SORT_LABELS[option]}
+            <Arrow className="h-3 w-3" />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function SortHeader({
   column,
@@ -217,6 +261,8 @@ export function DeviceTable({
   const reduceMotion = useReducedMotion();
   const [expanded, setExpanded] = useState<string | null>(null);
   const pad = compact ? "py-2" : "py-3";
+  // Tailwind's `sm`. Below it the table cannot fit, so the list takes over.
+  const wideEnoughForTable = useMediaQuery("(min-width: 640px)");
 
   const renderCell = (
     column: Column,
@@ -306,6 +352,107 @@ export function DeviceTable({
     }
   };
 
+  const renderExpansion = (device: DeviceSummaryDto, isExpanded: boolean) => (
+    <AnimatePresence initial={false}>
+      {isExpanded ? (
+        <motion.div
+          initial={reduceMotion ? false : { height: 0, opacity: 0 }}
+          animate={{ height: "auto", opacity: 1 }}
+          exit={reduceMotion ? { opacity: 0 } : { height: 0, opacity: 0 }}
+          transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+          className="overflow-hidden"
+        >
+          <RowDetail device={device} unitBase={unitBase} />
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
+  );
+
+  /*
+   * The table needs 44rem before its columns stop colliding, which is wider
+   * than any phone. Rather than leave people scrolling a cramped grid
+   * sideways, small screens get the same rows as full-width cards.
+   */
+  if (!wideEnoughForTable) {
+    return (
+      <>
+        <MobileSortBar sort={sort} direction={direction} onSort={onSort} />
+
+        <ul className="space-y-2">
+        {devices.map((device) => {
+          const online = isOnline(device);
+          const summary = (samples[device.id] ?? device.latest)?.summary ?? null;
+          const isExpanded = expanded === device.id;
+
+          return (
+            <li key={device.id} className="overflow-hidden rounded-lg border border-border/70 bg-card">
+              <div className="flex items-start gap-3 px-3 py-3">
+                <Link
+                  to={`/devices/${device.id}`}
+                  className="flex min-w-0 flex-1 items-start gap-2.5 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                >
+                  <span
+                    className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ background: deviceColor(device.color) }}
+                    aria-hidden
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2">
+                      <span className="truncate font-medium text-foreground">{device.name}</span>
+                      {device.activeAlerts > 0 ? (
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-danger/30 bg-danger/10 px-1.5 py-0.5 text-2xs font-medium text-danger">
+                          <Bell className="h-3 w-3" />
+                          {device.activeAlerts}
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <StatusDot online={online} />
+                      <span className="truncate">
+                        {online ? "Online" : device.lastSeenAt ? formatRelative(device.lastSeenAt) : "Offline"}
+                        {device.os ? ` · ${device.os}` : ""}
+                      </span>
+                    </span>
+                  </span>
+                </Link>
+
+                <button
+                  type="button"
+                  aria-expanded={isExpanded}
+                  aria-label={isExpanded ? `Hide charts for ${device.name}` : `Show charts for ${device.name}`}
+                  onClick={() => setExpanded(isExpanded ? null : device.id)}
+                  className="tap-target -mr-1 flex shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                >
+                  <ChevronDown className={cn("h-4 w-4 transition-transform duration-200", isExpanded && "rotate-180")} />
+                </button>
+              </div>
+
+              <dl className="space-y-1.5 px-3 pb-3">
+                {(
+                  [
+                    ["CPU", summary?.cpuPct],
+                    ["Memory", summary?.memPct],
+                    ["Disk", summary?.diskMaxPct],
+                  ] as const
+                ).map(([label, value]) => (
+                  <div key={label} className="flex items-center gap-3">
+                    <dt className="w-14 shrink-0 text-xs text-muted-foreground">{label}</dt>
+                    <dd className="min-w-0 flex-1">
+                      <UsageCell value={value} compact />
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+
+              {renderExpansion(device, isExpanded)}
+            </li>
+          );
+        })}
+        </ul>
+      </>
+    );
+  }
+
   return (
     <div className="scroll-slim overflow-x-auto rounded-lg border border-border/70 bg-card">
       <table className="w-full min-w-[44rem] table-fixed border-collapse text-left">
@@ -371,19 +518,7 @@ export function DeviceTable({
 
                 <tr>
                   <td colSpan={COLUMNS.length + 1} className="p-0">
-                    <AnimatePresence initial={false}>
-                      {isExpanded ? (
-                        <motion.div
-                          initial={reduceMotion ? false : { height: 0, opacity: 0 }}
-                          animate={{ height: "auto", opacity: 1 }}
-                          exit={reduceMotion ? { opacity: 0 } : { height: 0, opacity: 0 }}
-                          transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
-                          className="overflow-hidden"
-                        >
-                          <RowDetail device={device} unitBase={unitBase} />
-                        </motion.div>
-                      ) : null}
-                    </AnimatePresence>
+                    {renderExpansion(device, isExpanded)}
                   </td>
                 </tr>
               </Fragment>
