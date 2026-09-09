@@ -1,54 +1,64 @@
 # Beacon
 
-Beacon watches the machines you own and puts them on one dashboard.
+Beacon is a self-hosted dashboard that keeps an eye on all the machines you own,
+from one place.
 
-You run the hub on a machine of your choice. You install a small agent on every
-machine you want to keep an eye on. The agents connect outwards to the hub and
-send their readings, so nothing has to listen on the machines themselves and you
-never have to forward a port. A laptop behind a home router, a server behind a
-company firewall and a VPS in a data centre are all set up the same way.
+A small agent runs on each machine and reports back to a central hub. The agent
+connects outwards, so nothing needs to listen on the machine and you never have
+to forward a port. Your home server, your laptop and a VPS somewhere all get set
+up the same way.
 
-It all runs on your own hardware. There is nothing to sign up for, no telemetry
-and no third-party service in the middle. Beacon is free software under the
-AGPL-3.0-or-later.
+Everything stays on your own hardware. No account, no telemetry, no third party
+in the middle.
 
-## What it does
+## ✨ Features
 
-The dashboard shows you CPU, memory, disks, network, temperatures, GPUs,
-batteries and uptime for every machine, along with what is currently running and
-any Docker containers on it. Values arrive as they happen rather than on a
-refresh, so the page is live while you are looking at it.
+**📊 Live dashboard** - CPU, memory, disks, network, temperatures, GPUs,
+batteries and uptime for every machine. Readings show up as they arrive instead
+of when you refresh, so the page is always current.
 
-History is kept without the database growing out of hand. Recent readings are
-stored exactly as they came in, and older ones are averaged down as they age, so
-you can look back over a year and still have a small file to back up.
+**📈 History that stays small** - Recent readings are kept exactly as they came
+in, and older ones get averaged down over time. You can look back a year and
+still have a database small enough to back up.
 
-You can set alerts on anything you can see, and on a machine going offline. A
-rule waits for the condition to hold for a while before it fires, so a brief
-spike does not wake you up at three in the morning. Alerts go to ntfy, to
-Discord, or to any webhook you point them at.
+**🐳 Docker containers** - See which containers are running on a host and how
+much they are using, next to the host's own numbers.
 
-There is a view-only screen viewer for when you need to see what a machine is
-actually doing. It is off until you turn it on for that machine, and every
-session is written to the audit log. You can also end a process from the
-dashboard, if you have allowed it for that machine.
+**🔔 Alerts** - Set a threshold on anything you can see, or get told when a
+machine drops offline. A rule has to stay true for a set time before it fires,
+so a short spike does not wake you at 3am.
 
-Agents update themselves from your hub rather than from the internet. If a new
-version fails to start, the agent puts the old one back on its own, so a bad
-update cannot quietly leave a machine unwatched.
+**📬 Notifications** - Alerts reach you through ntfy, a Discord webhook, or any
+endpoint of your own that takes a JSON POST.
 
-Accounts come with two roles. Admins can change things and viewers can only
-look.
+**🖥️ Screen viewing** - Look at what a machine is actually doing without
+installing anything extra on it. It is view-only, off until you turn it on for
+that machine, and every session is logged.
 
-## Requirements
+**⚙️ Process list** - See what is running and, if you allow it for that machine,
+end a process straight from the dashboard.
 
-The hub needs either Docker or Node.js 20. The agent needs the same, and runs on
-Linux, macOS and Windows, on both x86-64 and arm64. The agent is plain
-JavaScript, so there is nothing to compile on the machines you are watching.
+**🔄 Self-updating agents** - Agents update from your hub, not from the
+internet. If a new build fails to start, the agent restores the old one by
+itself, so a bad update cannot leave a machine unwatched.
 
-The hub listens on port 4800 by default.
+**👥 Users and roles** - Admins can change things and viewers can only look.
+Everything that matters lands in an audit log.
 
-## Install the hub
+**🌍 Runs anywhere** - The agent is plain JavaScript, so there is nothing to
+compile and the same install works on a Raspberry Pi and a rack server.
+
+## 📦 Requirements
+
+| | |
+| --- | --- |
+| **Hub** | Docker, or Node.js 20 and above |
+| **Agent** | Node.js 20 and above, or Docker |
+| **Systems** | Linux, macOS, Windows |
+| **Architectures** | x86-64 and arm64 |
+| **Port** | `4800`, which you can change |
+
+## 🚀 Install the hub
 
 ```bash
 git clone https://github.com/lushbit/beacon.git
@@ -57,15 +67,15 @@ printf 'SESSION_SECRET=%s\n' "$(openssl rand -hex 48)" > .env
 docker compose up -d
 ```
 
-Open `http://your-host:4800` and create the first administrator account. Nothing
-else is reachable until that account exists.
+Open `http://your-host:4800` and make the first administrator account. Nothing
+else opens until that account exists.
 
-`SESSION_SECRET` signs the login cookies. Keep the `.env` file, because a fresh
-secret on every start signs everyone out. Compose reads the file itself, which
-is also why `sudo docker compose up -d` works when passing the variable on the
-command line would not.
+`SESSION_SECRET` is what signs your login cookies. Keep the `.env` file around,
+because a new secret on every start logs everyone out. Compose reads that file
+on its own, which is also why `sudo docker compose up -d` works while putting
+the variable on the command line would not.
 
-If you would rather not use Docker:
+Prefer to run it without Docker:
 
 ```bash
 git clone https://github.com/lushbit/beacon.git
@@ -76,69 +86,124 @@ cd release
 SESSION_SECRET=$(openssl rand -hex 48) node server/dist/index.js
 ```
 
-### Putting it behind a reverse proxy
+### Behind a reverse proxy
 
-Point your proxy at `127.0.0.1:4800` and set `TRUST_PROXY=1` so Beacon sees real
-client addresses instead of the proxy's.
+Point your proxy at `127.0.0.1:4800` and add `TRUST_PROXY=1` to the same `.env`
+file you put the secret in, next to `docker/compose.yaml`. Compose passes it
+through. Without it Beacon sees your proxy as the client for every request,
+which throws off the login rate limit. Running from source instead, set it in
+the environment next to `SESSION_SECRET`.
 
-The one thing to get right is WebSockets. Two paths need to be forwarded as
+The part worth getting right is WebSockets. Two paths have to be forwarded as
 upgrades, `/live` for the browser and `/agent` for your machines. Caddy does
-this on its own. nginx needs `proxy_http_version 1.1` along with the `Upgrade`
-and `Connection` headers. Without it the dashboard falls back to refreshing
-every five seconds and agents cannot connect at all.
+this by itself. On nginx you need `proxy_http_version 1.1` plus the `Upgrade`
+and `Connection` headers. Miss it and the dashboard drops back to refreshing
+every five seconds while agents cannot connect at all.
 
-## Add a device
+## 💻 Add a device
 
-Press **Add device** on the overview. Beacon gives you a token and the command
-to run on the machine.
+Press **Add device** on the overview. Beacon hands you a token and the right
+command for the machine. The token is shown once and only works for signing up.
+After a machine connects it keeps a key of its own, so you can throw the token
+away.
+
+If your hub uses a self-signed certificate, flip the toggle in the dialog first
+and the commands come back with the flags needed to accept it.
+
+### Linux
+
+```bash
+curl -sSL https://hub/install.sh | sh -s -- --url https://hub --token TOKEN
+```
+
+Installs into `~/.local/share/beacon-agent` and runs as a user service. Put
+`sudo` in front and it goes to `/opt/beacon-agent` as a system service instead,
+which starts before anyone logs in.
+
+### macOS
+
+```bash
+curl -sSL https://hub/install.sh | sh -s -- --url https://hub --token TOKEN
+```
+
+Same command as Linux. It sets up a launchd agent for your user and writes its
+log to `~/.local/share/beacon-agent/agent.log`.
+
+### Windows
+
+```powershell
+& ([scriptblock]::Create((irm https://hub/install.ps1))) -Url https://hub -Token TOKEN
+```
+
+Runs in your desktop session, which is what lets screen viewing work. On a
+server nobody signs into, add `-SystemService` from an admin prompt and it
+starts with the machine instead, without screen capture.
+
+### Docker
+
+```bash
+docker build -t beacon-agent https://hub/download/beacon-agent-docker.tar.gz
+```
+
+The build context comes from your hub, so the machine needs neither git nor
+access to this repository. Give it `--network host --pid host` and the Docker
+socket read-only to see both the host and its containers. Screen viewing is not
+possible from inside a container. The dialog prints the full `docker run` line
+for you.
+
+## 🔔 Alerts and notifications
+
+Every machine starts with sensible rules for high CPU, high memory, a filling
+disk and going offline. Edit those or add your own under **Alerts**, for one
+machine or for all of them at once.
+
+A rule is a metric, a threshold, and how long it has to hold before Beacon says
+anything. Each one carries a severity of info, warning or critical, plus a
+cooldown so you are not told the same thing over and over.
+
+What you can alert on:
 
 | | |
 | --- | --- |
-| Linux, macOS | `curl -sSL https://hub/install.sh \| sh -s -- --url https://hub --token TOKEN` |
-| Windows | `& ([scriptblock]::Create((irm https://hub/install.ps1))) -Url https://hub -Token TOKEN` |
-| Docker | `docker build -t beacon-agent https://hub/download/beacon-agent-docker.tar.gz` |
+| **CPU** | Usage, temperature, and 1-minute load average |
+| **Memory** | Memory and swap usage |
+| **Disk** | Usage on the busiest volume |
+| **Network** | Download and upload rate |
+| **GPU** | Usage |
+| **Battery** | Charge level |
+| **Docker** | Number of running containers |
+| **Status** | Machine went offline |
 
-The agent installs itself as a service and starts reporting. The token is shown
-once and is only good for enrolling. Once a machine has connected it holds a key
-of its own, so there is no need to keep the token around.
+Where they get sent, set under **Settings**:
 
-On Linux the agent runs as a user service, or as a system one if you install it
-with `sudo`. On Windows it runs in your desktop session, which is what makes
-screen viewing work. For a server nobody logs into, add `-SystemService` from an
-elevated prompt and it will start with the machine instead, without screen
-capture. If your hub uses a self-signed certificate, turn on the toggle in the
-dialog and the commands will come back with the flags needed to accept it.
+| | |
+| --- | --- |
+| **ntfy** | Your own server or the hosted `ntfy.sh`. Give it a URL and a topic |
+| **Discord** | Paste in a channel webhook URL |
+| **Webhook** | Any endpoint that accepts a JSON POST, for wiring into something else |
 
-## Alerts
+Each one has its own minimum severity, so you can send everything to ntfy but
+only wake Discord for critical alerts. There is a test button next to each.
 
-Every new machine starts with sensible rules for high CPU, high memory, a
-filling disk and going offline. You can edit those or write your own under
-**Alerts**, either for one machine or for all of them.
+## 🔄 Updating
 
-Where they go is set under **Settings**, and you can send them to ntfy, to a
-Discord webhook, or to any endpoint that accepts a JSON POST. Each one has a
-minimum severity and a button to send a test.
-
-## Updating
-
-Update the hub by pulling and rebuilding:
+The hub tells you when a new version is out and links the notes for it. To take
+it:
 
 ```bash
 cd beacon && git pull
 cd docker && docker compose up -d --build
 ```
 
-Your data lives on a volume and a rebuild does not touch it. Database changes
-are applied on startup. The hub also tells you when a new version exists and
-links the notes for it.
+Your data sits on a volume and a rebuild leaves it alone. Database changes are
+applied when it starts.
 
-Agents are updated from the dashboard, either one at a time, or all at once
-under **Settings**, or on a nightly schedule if you would rather not think about
-it.
+Agents are updated from the dashboard. Do one machine at a time, or all of them
+at once under **Settings**, or set a nightly window and stop thinking about it.
 
-## Removing things
+## 🗑️ Removing Beacon
 
-To remove an agent from a machine:
+### An agent, from a machine
 
 ```bash
 # Linux and macOS. Add sudo if you installed with sudo.
@@ -146,51 +211,67 @@ curl -sSL https://hub/install.sh | sh -s -- --uninstall
 
 # Windows
 & ([scriptblock]::Create((irm https://hub/install.ps1))) -Uninstall
-
-# Docker
-docker rm -f beacon-agent && docker volume rm beacon-agent-data
 ```
 
-Then delete the device in the dashboard to drop its history and alerts. Deleting
-it there without uninstalling the agent is fine too, because it can no longer
-connect.
+That stops the service, unregisters it, and deletes the install folder along
+with the machine's key. Nothing is left behind. For a Docker agent:
 
-To remove the hub and everything in it:
+```bash
+docker rm -f beacon-agent
+docker volume rm beacon-agent-data
+docker image rm beacon-agent
+```
+
+Afterwards, delete the device in the dashboard to drop its history and alerts.
+You can also delete it there first, since a removed device can no longer connect
+anyway.
+
+### The hub
 
 ```bash
 cd beacon/docker
-docker compose down --volumes
+docker compose down --volumes --rmi local
 ```
 
-Leave off `--volumes` to stop the hub but keep your data.
+`--volumes` deletes the database with all of your history and accounts, and
+`--rmi local` deletes the image that was built for it. Leave both off to just
+stop the hub and keep everything.
 
-## Troubleshooting
+Then delete the folder you cloned:
 
-**A machine never shows up.** Check it can actually reach the hub URL, then read
-the agent's log. On Linux that is `journalctl --user -u beacon-agent -f`, on
-macOS `~/.local/share/beacon-agent/agent.log`, and on Windows the "Beacon agent"
-task in Task Scheduler.
+```bash
+cd ../.. && rm -rf beacon
+```
 
-**Everything updates every five seconds instead of live.** The `/live` WebSocket
-is not getting through, usually because of a proxy that does not forward
-upgrades. Nothing is broken, it is just a few seconds behind.
+## 🛠️ Troubleshooting
+
+**A machine never turns up.** First check it can reach the hub URL at all, then
+read the agent log. On Linux run `journalctl --user -u beacon-agent -f`, or drop
+`--user` for a system install. On macOS run
+`tail -f ~/.local/share/beacon-agent/agent.log`. On Windows look up the "Beacon
+agent" task in Task Scheduler.
+
+**Numbers only move every five seconds.** The `/live` WebSocket is not getting
+through, almost always a proxy that will not forward upgrade requests. Nothing
+is broken, you are just seeing things a few seconds late.
 
 **An SSL error while installing an agent.** Turn on the self-signed certificate
-toggle in the Add device dialog and use the commands it gives you, or put a real
-certificate in front of the hub.
+toggle in the Add device dialog and use the commands it gives back, or put a
+proper certificate in front of the hub.
 
-**The screen tab is greyed out.** Not every machine can be captured. Headless
-servers, Wayland sessions, containers and `-SystemService` installs cannot be,
-and the tab says which one applies.
+**The screen tab is greyed out.** Some machines cannot be captured at all.
+Headless servers, Wayland sessions, containers and `-SystemService` installs are
+the usual ones, and the tab tells you which applies.
 
-**You forgot the admin password.** Stop the hub, delete `beacon.db` and start it
-again to be asked for a new first account. This wipes everything else too, so it
-really is a last resort.
+**You lost the admin password.** Stop the hub, delete `beacon.db`, and start it
+again to be asked for a new first account. This clears everything else too, so
+keep it as a last resort.
 
-## Licence
+## 📄 Licence
 
-GNU Affero General Public License v3.0 or later. See [LICENSE](LICENSE).
+Beacon is free software under the GNU Affero General Public License v3.0 or
+later. See [LICENSE](LICENSE).
 
-Run it, change it, share it. The only condition is that if you run a modified
+Run it, change it, pass it on. The one condition is that if you run a modified
 version and let other people use it over a network, you offer them your changes.
-Running it unmodified asks nothing of you.
+Running it as-is asks nothing of you.
