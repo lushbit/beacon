@@ -30,4 +30,4 @@ for (const manifest of ["package.json", "shared/package.json", "server/package.j
 }
 
 console.log(`version set to ${version}`);
-console.log("next: update CHANGELOG.md, commit, then tag v" + version);
+console.log("next: commit, tag v" + version + ", then write the notes on the GitHub release");

@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 /**
- * Publishes a release from a tag build: creates the GitHub release from the
- * matching CHANGELOG section and attaches the agent bundle and manifest, which
- * is what the hub's update check reads.
+ * Attaches the agent bundle and manifest to a tag's GitHub release, which is
+ * what the hub's update check reads.
+ *
+ * The release itself is the changelog, so its notes are written by hand when
+ * cutting the release. This script therefore reuses an existing release for the
+ * tag and only creates an empty one when it has to, which lets the notes be
+ * written either before or after the build without the step ever failing.
  *
  * Environment: GITHUB_TOKEN, GITHUB_REPO (owner/name), RELEASE_TAG.
  */
@@ -27,29 +31,6 @@ if (declared !== version) {
   process.exit(1);
 }
 
-/**
- * The section of CHANGELOG.md for this version, used as the release notes.
- *
- * Read line by line rather than with one regular expression: the previous
- * pattern ended at `(?=\n## |$)` under the `m` flag, where `$` matches the end
- * of every line, so it stopped on the heading's own newline and published an
- * empty release body.
- */
-function releaseNotes() {
-  const file = join(root, "CHANGELOG.md");
-  if (!existsSync(file)) return `Release ${version}`;
-
-  const lines = readFileSync(file, "utf8").split("\n");
-  const heading = /^## \[?([^\]\s]+)\]?/;
-  const start = lines.findIndex((line) => heading.exec(line)?.[1] === version);
-  if (start === -1) return `Release ${version}`;
-
-  const rest = lines.slice(start + 1);
-  const end = rest.findIndex((line) => line.startsWith("## "));
-  const notes = (end === -1 ? rest : rest.slice(0, end)).join("\n").trim();
-  return notes || `Release ${version}`;
-}
-
 const api = async (path, init = {}) => {
   const response = await fetch(`https://api.github.com${path}`, {
     ...init,
@@ -63,22 +44,28 @@ const api = async (path, init = {}) => {
   if (!response.ok) {
     throw new Error(`${init.method ?? "GET"} ${path} -> ${response.status} ${(await response.text()).slice(0, 300)}`);
   }
-  return response.json();
+  // Deleting an asset answers 204 with no body, which is not parsable JSON.
+  return response.status === 204 ? null : response.json();
 };
 
-const release = await api(`/repos/${repo}/releases`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    tag_name: tag,
-    name: `Beacon ${version}`,
-    body: releaseNotes(),
-    draft: false,
-    prerelease: version.includes("-"),
-  }),
-});
+// A release created by hand already holds the notes, so never overwrite it.
+const existing = await api(`/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`).catch(() => null);
 
-console.log(`created release ${release.html_url}`);
+const release =
+  existing ??
+  (await api(`/repos/${repo}/releases`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      tag_name: tag,
+      name: `Beacon ${version}`,
+      body: "",
+      draft: false,
+      prerelease: version.includes("-"),
+    }),
+  }));
+
+console.log(`${existing ? "using existing" : "created"} release ${release.html_url}`);
 
 const publicDir = join(root, "release", "public");
 for (const asset of [`agent-${version}.tar.gz`, "manifest.json"]) {
@@ -87,6 +74,12 @@ for (const asset of [`agent-${version}.tar.gz`, "manifest.json"]) {
     console.error(`missing release asset: ${asset}`);
     process.exit(1);
   }
+  const stale = (release.assets ?? []).find((a) => a.name === asset);
+  if (stale) {
+    await api(`/repos/${repo}/releases/assets/${stale.id}`, { method: "DELETE" });
+    console.log(`replaced existing ${asset}`);
+  }
+
   const body = readFileSync(file);
   const upload = await fetch(
     `https://uploads.github.com/repos/${repo}/releases/${release.id}/assets?name=${encodeURIComponent(asset)}`,
