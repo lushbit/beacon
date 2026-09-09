@@ -124,11 +124,11 @@ export function UsersPage() {
                     key={user.id}
                     className={cn(
                       ROW_GRID,
-                      "gap-4 px-5 py-4 transition-colors hover:bg-white/[0.02] lg:grid lg:items-center",
-                      "flex flex-wrap items-center"
+                      "flex flex-col gap-3 px-5 py-4 transition-colors hover:bg-white/[0.02]",
+                      "lg:grid lg:items-center lg:gap-4"
                     )}
                   >
-                    <div className="flex min-w-0 flex-1 items-center gap-3.5 lg:flex-none">
+                    <div className="flex min-w-0 items-center gap-3.5">
                       <span
                         className={cn(
                           "flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-semibold uppercase ring-1 ring-inset",
@@ -155,7 +155,8 @@ export function UsersPage() {
                       </div>
                     </div>
 
-                    <div className="shrink-0">
+                    <div className="flex items-center justify-between gap-3 lg:block">
+                      <span className="shrink-0 text-xs text-muted-foreground lg:hidden">Role</span>
                       <Select
                         value={user.role}
                         onValueChange={(value) => void update(user, { role: value as UserRole })}
@@ -170,24 +171,29 @@ export function UsersPage() {
                       </Select>
                     </div>
 
-                    <div className="flex shrink-0 items-center gap-2.5">
-                      <Switch
-                        checked={user.isActive}
-                        disabled={isSelf}
-                        aria-label={`Account active for ${user.username}`}
-                        onCheckedChange={(checked) => void update(user, { isActive: checked })}
-                      />
-                      <span className={cn("text-xs", user.isActive ? "text-foreground" : "text-muted-foreground")}>
-                        {user.isActive ? "Active" : "Disabled"}
+                    <div className="flex items-center justify-between gap-3 lg:block">
+                      <span className="shrink-0 text-xs text-muted-foreground lg:hidden">Access</span>
+                      <span className="flex items-center gap-2.5">
+                        <Switch
+                          checked={user.isActive}
+                          disabled={isSelf}
+                          aria-label={`Account active for ${user.username}`}
+                          onCheckedChange={(checked) => void update(user, { isActive: checked })}
+                        />
+                        <span className={cn("text-xs", user.isActive ? "text-foreground" : "text-muted-foreground")}>
+                          {user.isActive ? "Active" : "Disabled"}
+                        </span>
                       </span>
                     </div>
 
-                    <p className="min-w-0 shrink-0 text-xs text-muted-foreground lg:shrink">
-                      <span className="lg:hidden">Last sign-in </span>
-                      {user.lastLoginAt ? formatRelative(user.lastLoginAt) : "never"}
-                    </p>
+                    <div className="flex items-center justify-between gap-3 lg:block">
+                      <span className="shrink-0 text-xs text-muted-foreground lg:hidden">Last sign-in</span>
+                      <p className="min-w-0 truncate text-xs text-muted-foreground">
+                        {user.lastLoginAt ? formatRelative(user.lastLoginAt) : "never"}
+                      </p>
+                    </div>
 
-                    <div className="ml-auto flex shrink-0 items-center gap-1 lg:ml-0">
+                    <div className="flex items-center justify-end gap-1 lg:justify-start">
                       <Button
                         variant="ghost"
                         size="icon"
