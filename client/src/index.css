@@ -1,0 +1,207 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Canvas — neutral greys only, no hue in the chrome */
+    --background: 0 0% 0%;
+    --foreground: 0 0% 98%;
+
+    /* Layered surfaces */
+    --surface: 0 0% 7%;
+    --surface-2: 0 0% 11%;
+    --surface-3: 0 0% 16%;
+
+    --card: 0 0% 7%;
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 9%;
+    --popover-foreground: 0 0% 98%;
+
+    /* "Primary" is simply light-on-dark: white surfaces, black text */
+    --primary: 0 0% 92%;
+    --primary-strong: 0 0% 98%;
+    --primary-foreground: 0 0% 6%;
+
+    --secondary: 0 0% 11%;
+    --secondary-foreground: 0 0% 92%;
+    --muted: 0 0% 12%;
+    --muted-foreground: 0 0% 62%;
+    --accent: 0 0% 14%;
+    --accent-foreground: 0 0% 98%;
+
+    /* Status — the only colour in the chrome, reserved for state */
+    --success: 152 52% 45%;
+    --warning: 38 88% 56%;
+    --danger: 358 68% 60%;
+    --info: 205 80% 60%;
+
+    --border: 0 0% 17%;
+    --input: 0 0% 17%;
+    --ring: 0 0% 70%;
+
+    --radius: 0.875rem;
+
+    /*
+     * Chart series colours: the documented dark steps of the reference
+     * data-viz palette. Single-series charts draw in neutral ink to keep the
+     * dashboard monochrome; these hues appear only where a chart has more than
+     * one series and identity cannot rest on brightness alone.
+     */
+    --series-1: #3987e5; /* blue   — first slot  */
+    --series-2: #d95926; /* orange — second slot */
+    --series-3: #199e70; /* aqua   — third slot  */
+    --series-4: #c98500; /* yellow */
+    --series-5: #d55181; /* magenta */
+    --series-ink: 0 0% 88%; /* single-series line */
+    --chart-grid: 0 0% 17%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  /*
+   * Radix disables pointer events on the body while a modal layer is open and
+   * restores them on close. If a dialog unmounts while still open — a route
+   * change, or a re-render that drops it — that style is left behind and the
+   * whole page stops responding to taps until it is reloaded.
+   *
+   * This restores interaction only when no Radix layer is actually open, so a
+   * genuinely open dialog or menu still blocks what is behind it. `:has()` is
+   * unsupported on older mobile browsers, which is why lib/modalWatchdog.ts
+   * does the same job in JavaScript; this rule is the cheaper first line.
+   */
+  body:not(:has([role="dialog"][data-state="open"])):not(:has([data-radix-popper-content-wrapper])) {
+    pointer-events: auto !important;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    /* Notched phones: keep content clear of the rounded corners. */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+      env(safe-area-inset-left);
+  }
+
+  /* Removes the 300ms tap delay and double-tap zoom on controls. */
+  button,
+  a,
+  [role="button"],
+  [role="tab"],
+  [role="switch"],
+  input,
+  select,
+  textarea {
+    touch-action: manipulation;
+  }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.32);
+    color: hsl(var(--foreground));
+  }
+
+  :focus-visible {
+    outline: none;
+  }
+
+  select option {
+    background-color: hsl(var(--popover));
+    color: hsl(var(--foreground));
+  }
+
+  input[type="checkbox"],
+  input[type="range"] {
+    accent-color: hsl(var(--primary));
+  }
+}
+
+@layer components {
+  .panel {
+    @apply rounded-lg border border-border/70 bg-card;
+  }
+
+  .panel-header {
+    @apply flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3;
+  }
+
+  .focus-ring {
+    @apply focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+  }
+}
+
+@layer utilities {
+  .touch-target {
+    min-height: 2.75rem;
+    min-width: 2.75rem;
+  }
+
+  /* Numbers that line up in columns; never on hero figures. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .scroll-slim {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--surface-3)) transparent;
+    -webkit-overflow-scrolling: touch;
+    /*
+     * Deliberately no overscroll-behavior here. This class is also used on
+     * horizontal scrollers (tab bars, wide tables); containing the overscroll
+     * on those swallows vertical swipes and the page stops scrolling.
+     */
+  }
+
+  /* Only for the page's own scroll region, where chaining is unwanted. */
+  .scroll-contain {
+    overscroll-behavior-y: contain;
+  }
+
+  /* Comfortable tap targets on touch devices without changing the desktop look. */
+  @media (pointer: coarse) {
+    .tap-target {
+      min-height: 2.75rem;
+      min-width: 2.75rem;
+    }
+  }
+
+  .scroll-slim::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scroll-slim::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scroll-slim::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--surface-3));
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+
+  .grid-fade {
+    mask-image: linear-gradient(to bottom, transparent, black 12%, black 88%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,36 @@
+# Beacon agent as a container.
+#
+#   printf 'BEACON_URL=https://your-hub\nBEACON_TOKEN=your-token\n' > .env
+#   docker compose up -d
+#
+# The .env file beside this one is read by docker compose itself, so this also
+# works under sudo, which clears the environment.
+#
+# What this sees:
+#   - CPU, memory and network come from the host kernel thanks to host
+#     networking and PID namespace sharing.
+#   - Docker container stats come from the mounted socket (read-only).
+#   - Disk usage reflects what is mounted into the container; add host paths
+#     below if you want them reported.
+#
+# Screen viewing is not available from a container — install the agent directly
+# on the desktop session if you need it.
+
+services:
+  beacon-agent:
+    build:
+      context: ../..
+      dockerfile: docker/agent/Dockerfile
+    container_name: beacon-agent
+    restart: unless-stopped
+    network_mode: host
+    pid: host
+    environment:
+      BEACON_URL: "${BEACON_URL:?set BEACON_URL to your hub address}"
+      BEACON_TOKEN: "${BEACON_TOKEN:-}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - beacon-agent-data:/data
+
+volumes:
+  beacon-agent-data:

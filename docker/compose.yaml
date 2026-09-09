@@ -1,0 +1,30 @@
+# Beacon hub.
+#
+#   printf 'SESSION_SECRET=%s\n' "$(openssl rand -hex 48)" > .env
+#   docker compose up -d
+#
+# The secret lives in .env beside this file rather than in the command, so it
+# survives restarts — a new secret on every start would sign everyone out — and
+# so `sudo docker compose up -d` works, which clears the environment.
+#
+# Then open http://localhost:4800 and create the first administrator account.
+
+services:
+  beacon:
+    build:
+      context: ..
+      dockerfile: docker/hub/Dockerfile
+    container_name: beacon
+    restart: unless-stopped
+    ports:
+      - "4800:4800"
+    environment:
+      # Required. Signs session cookies; changing it signs everyone out.
+      SESSION_SECRET: "${SESSION_SECRET:?set SESSION_SECRET, for example with openssl rand -hex 48}"
+      # Set to 1 when running behind a TLS-terminating reverse proxy.
+      TRUST_PROXY: "${TRUST_PROXY:-0}"
+    volumes:
+      - beacon-data:/data
+
+volumes:
+  beacon-data:

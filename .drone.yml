@@ -1,0 +1,136 @@
+kind: pipeline
+type: docker
+name: default
+
+steps:
+  - name: Build
+    image: node:20
+    commands:
+      - node --version
+      - npm install
+      - RELEASE_TAG="$DRONE_TAG" sh scripts/build-release.sh
+      - node agent/dist/index.js --version
+      - node agent/dist/index.js --help > /dev/null
+      - test -s release/public/agent-bundle.tar.gz
+      - test -f release/public/install.sh
+      - test -f release/public/install.ps1
+      - test -f release/server/dist/index.js
+      - test -f release/client/dist/index.html
+      # The compose files are documentation people run verbatim, and nothing
+      # else in this pipeline reads them.
+      - node scripts/check-compose.mjs
+
+  # Proves the dashboard updates without a refresh: a sample sent by an agent
+  # has to reach a connected browser client over the live socket.
+  - name: Launcher rollback
+    image: node:20
+    commands:
+      - node scripts/test-launcher.mjs
+
+  - name: Login throttling
+    image: node:20
+    commands:
+      - node scripts/test-login-throttle.mjs
+
+  - name: Live pipeline
+    image: node:20
+    commands:
+      - node scripts/test-live.mjs
+
+  # Verifies the install command the documentation gives people for their own
+  # machines: a device must get the agent WITHOUT the dashboard's dependencies.
+  - name: Agent install check
+    image: node:20
+    commands:
+      - mkdir -p /tmp/device
+      - tar -cf - --exclude=./node_modules --exclude=./release --exclude=./.release-work --exclude=./.git . | tar -C /tmp/device -xf -
+      - cd /tmp/device
+      - npm install --workspace=shared --workspace=agent --include-workspace-root
+      - npm run build --workspace=shared
+      - npm run build --workspace=agent
+      - node agent/dist/index.js --version
+      - test -d node_modules/systeminformation
+      - test -d node_modules/ws
+      - test ! -d node_modules/express
+      - test ! -d node_modules/vite
+      - test ! -d node_modules/better-sqlite3
+
+  - name: Installer scripts
+    image: mcr.microsoft.com/powershell:latest
+    commands:
+      - sh -n scripts/install-agent.sh
+      - pwsh -NoProfile -File scripts/check-installer.ps1
+
+  - name: Docker images
+    image: docker:27-cli
+    commands:
+      # Both published images must build from a clean checkout.
+      - docker build -f docker/agent/Dockerfile -t beacon-agent:ci .
+      - docker run --rm beacon-agent:ci --version
+      - docker build -f docker/hub/Dockerfile -t beacon-hub:ci .
+      - docker image rm beacon-agent:ci beacon-hub:ci || true
+
+  # Publishes the release the hub's update check reads. Runs only for tag
+  # builds, and only when a token has been configured.
+  - name: Publish release
+    image: node:20
+    environment:
+      GITHUB_TOKEN:
+        from_secret: github_token
+      GITHUB_REPO:
+        from_secret: github_repo
+    commands:
+      - |
+        if [ -z "$GITHUB_TOKEN" ]; then
+          echo "no github_token secret configured — skipping release publication"
+          exit 0
+        fi
+        RELEASE_TAG="$DRONE_TAG" GITHUB_REPO="$${GITHUB_REPO:-$DRONE_REPO}" node scripts/publish-release.mjs
+    when:
+      event:
+        - tag
+
+  - name: Deploy
+    image: docker:27-cli
+    environment:
+      SESSION_SECRET:
+        from_secret: session_secret
+      DEPLOY_NAME:
+        from_secret: deploy_name
+      DEPLOY_PORT:
+        from_secret: deploy_port
+      UPDATE_REPO:
+        from_secret: update_repo
+      TRUST_PROXY:
+        from_secret: trust_proxy
+    commands:
+      # Every site-specific value comes from CI configuration, not the repo.
+      - NAME="$${DEPLOY_NAME:-beacon}"
+      - PORT="$${DEPLOY_PORT:-4800}"
+      - docker volume create "$NAME"
+      - tar -C release -cf - . | docker run --rm -i -v "$NAME":/target alpine sh -c "tar -C /target -xf -"
+      - docker stop "$NAME" || true
+      - docker rm "$NAME" || true
+      - |
+        docker run -d \
+          --name "$NAME" \
+          --restart always \
+          -p "$PORT":4800 \
+          -v "$NAME":/app \
+          -e PORT=4800 \
+          -e NODE_ENV=production \
+          -e SESSION_SECRET="$SESSION_SECRET" \
+          -e DATABASE_PATH=/app/data/beacon.db \
+          -e BEACON_UPDATE_REPO="$UPDATE_REPO" \
+          -e TRUST_PROXY="$${TRUST_PROXY:-0}" \
+          -w /app \
+          node:20-slim node server/dist/index.js
+      - sleep 6
+      - docker ps --filter name="$NAME" --filter status=running --format '{{.Names}}' | grep -qx "$NAME"
+      - |
+        docker exec "$NAME" node -e "fetch('http://127.0.0.1:4800/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+    when:
+      branch:
+        - main
+      event:
+        - push

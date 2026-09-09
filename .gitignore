@@ -1,0 +1,43 @@
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Dependencies & build output
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# Database & local data
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+data/
+
+# Agent runtime config
+agent/beacon-agent.json
+
+# Release build output
+release/
+.release-work/
+
+# Logs & runtime
+*.log
+npm-debug.log*
+logs/
+
+# OS & editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Test / coverage
+coverage/
+.nyc_output/
