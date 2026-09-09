@@ -324,10 +324,10 @@ export function DeviceSettingsTab({ device, onSaved }: Props) {
               onClick={() => {
                 if (rotated) {
                   const command = `curl -sSL ${window.location.origin}/install.sh | sh -s -- --url ${window.location.origin} --token ${rotated}`;
-                  void copyText(command, rotatedCommand.current).then((ok) =>
-                    ok
+                  void copyText(command, rotatedCommand.current).then((result) =>
+                    result === "copied"
                       ? notify("Command copied.", "success")
-                      : notify("Could not copy — select the command and copy it manually.", "error")
+                      : notify("This browser blocked the copy. The command is selected, so copy it from there.", "info")
                   );
                 }
               }}

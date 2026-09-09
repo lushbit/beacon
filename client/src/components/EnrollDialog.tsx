@@ -32,12 +32,12 @@ function CommandBlock({ step, index, total }: { step: Step; index: number; total
   const block = useRef<HTMLPreElement>(null);
 
   const copy = async () => {
-    if (await copyText(step.command, block.current)) {
+    if ((await copyText(step.command, block.current)) === "copied") {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
       return;
     }
-    notify("Could not copy — select the command and copy it manually.", "error");
+    notify("This browser blocked the copy. The command is selected, so copy it from there.", "info");
   };
 
   return (
