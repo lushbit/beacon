@@ -101,7 +101,9 @@ uninstall() {
 URL="$(printf '%s' "$URL" | sed 's#/*$##')"
 
 command -v node >/dev/null 2>&1 || die "Node.js 20 or newer is required but was not found.
-Install it from https://nodejs.org (or your package manager) and run this again."
+Install it from https://nodejs.org (or your package manager) and run this again.
+Devices without Node.js can run the agent with the Docker command instead, which
+the dashboard shows on the Docker tab of \"Add a device\"."
 
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
 [ "$NODE_MAJOR" -ge 20 ] 2>/dev/null || die "Node.js 20 or newer is required (found $(node -v 2>/dev/null || echo none))."
@@ -208,6 +210,14 @@ EXEC="$NODE_BIN $INSTALL_DIR/launcher.mjs --config $CONFIG_FILE"
 
 # -------------------------------------------------------------------- service
 
+# `systemctl --user` needs a login session with its own bus. Plenty of appliance
+# systems (NAS boxes especially) never start one, and the installer used to fail
+# there with systemd's own error, after writing the configuration.
+user_systemd_available() {
+  [ -n "${XDG_RUNTIME_DIR:-}" ] || return 1
+  systemctl --user show-environment >/dev/null 2>&1
+}
+
 install_systemd() {
   UNIT_BODY="[Unit]
 Description=Beacon monitoring agent
@@ -229,8 +239,16 @@ WorkingDirectory=$INSTALL_DIR
     systemctl daemon-reload
     systemctl enable "$SERVICE_NAME" >/dev/null 2>&1 || true
     systemctl restart "$SERVICE_NAME"
+    SERVICE_MODE="system"
     info "service: systemd (system) — journalctl -u $SERVICE_NAME -f"
   else
+    if ! user_systemd_available; then
+      die "this session has no systemd user instance, so a per-user service cannot be
+installed. Re-run the same command as root, which installs a system-wide
+service instead:
+
+  curl -sSL $URL/install.sh | sudo sh -s -- --url $URL --token <token>"
+    fi
     mkdir -p "$HOME/.config/systemd/user"
     printf '%sWantedBy=default.target\n' "$UNIT_BODY" > "$HOME/.config/systemd/user/$SERVICE_NAME.service"
     systemctl --user daemon-reload
@@ -238,6 +256,7 @@ WorkingDirectory=$INSTALL_DIR
     systemctl --user restart "$SERVICE_NAME"
     # Without lingering the agent stops the moment you log out.
     loginctl enable-linger "$(id -un)" >/dev/null 2>&1 || true
+    SERVICE_MODE="user"
     info "service: systemd (user) — journalctl --user -u $SERVICE_NAME -f"
   fi
 }
@@ -274,8 +293,11 @@ PLIST_BODY
 
   launchctl unload "$PLIST" 2>/dev/null || true
   launchctl load "$PLIST"
+  SERVICE_MODE="launchd"
   info "service: launchd — tail -f $INSTALL_DIR/agent.log"
 }
+
+SERVICE_MODE=""
 
 echo "Installing the service…"
 if [ "$PLATFORM" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
@@ -294,5 +316,61 @@ MANUAL
   exit 0
 fi
 
-echo
-echo "Done. The device should appear in the dashboard within a few seconds."
+# --------------------------------------------------------------------- verify
+
+# The installer used to announce success as soon as the service manager accepted
+# the unit. A service that dies on startup, an unreachable hub and a spent token
+# all looked exactly like a working install, and the device simply never
+# appeared. Wait for the agent to actually enroll, and show its log if it does
+# not.
+WAIT_SECONDS=45
+
+service_running() {
+  case "$SERVICE_MODE" in
+    system) systemctl is-active --quiet "$SERVICE_NAME" ;;
+    user) systemctl --user is-active --quiet "$SERVICE_NAME" ;;
+    launchd) launchctl list "dev.beacon.agent" >/dev/null 2>&1 ;;
+    *) return 1 ;;
+  esac
+}
+
+# The hub swaps the enrollment token for one unique to this device, and the agent
+# writes it to its config. Nothing else proves the two ends actually talked.
+enrolled() {
+  grep -q '"deviceToken"' "$CONFIG_FILE" 2>/dev/null
+}
+
+show_log() {
+  case "$SERVICE_MODE" in
+    system) journalctl -u "$SERVICE_NAME" -n 20 --no-pager 2>/dev/null || true ;;
+    user) journalctl --user -u "$SERVICE_NAME" -n 20 --no-pager 2>/dev/null || true ;;
+    launchd) tail -n 20 "$INSTALL_DIR/agent.log" 2>/dev/null || true ;;
+  esac
+}
+
+echo "Waiting for the agent to reach the hub…"
+WAITED=0
+while [ "$WAITED" -lt "$WAIT_SECONDS" ]; do
+  if service_running && enrolled; then
+    echo
+    echo "Done. This device is enrolled and reporting to $URL."
+    exit 0
+  fi
+  sleep 1
+  WAITED=$((WAITED + 1))
+done
+
+{
+  echo
+  if service_running; then
+    echo "The agent is running but has not reached $URL after ${WAIT_SECONDS}s."
+    echo "Check that the hub is reachable from this device, and that the enrollment"
+    echo "token has not expired or been used up."
+  else
+    echo "The agent was installed but its service is not running."
+  fi
+  echo
+  echo "Last log lines:"
+  show_log
+} >&2
+exit 1
