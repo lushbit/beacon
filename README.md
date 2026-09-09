@@ -120,6 +120,11 @@ Installs into `~/.local/share/beacon-agent` and runs as a user service. Put
 `sudo` in front and it goes to `/opt/beacon-agent` as a system service instead,
 which starts before anyone logs in.
 
+Some appliance systems, NAS boxes in particular, never start a systemd user
+instance. The installer detects that and asks you to run the same command with
+`sudo`. It also waits for the agent to reach the hub before it reports success,
+so a device that never appears on the dashboard tells you why on the spot.
+
 ### macOS
 
 ```bash
