@@ -3,7 +3,7 @@
  * dashboard all report this, and the update check compares it against the
  * latest published release.
  */
-export const BEACON_VERSION = "1.0.1";
+export const BEACON_VERSION = "1.0.2";
 
 /** Semver comparison limited to what releases actually use: MAJOR.MINOR.PATCH with an optional pre-release. */
 export function compareVersions(a: string, b: string): number {
