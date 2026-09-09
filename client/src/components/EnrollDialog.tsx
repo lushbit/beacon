@@ -9,6 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/context/ToastContext";
 import { api } from "@/lib/api";
+import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 
 const EXPIRY_OPTIONS = [
@@ -18,32 +19,55 @@ const EXPIRY_OPTIONS = [
   { id: "never", label: "Never" },
 ];
 
-function CommandBlock({ command, note }: { command: string; note?: string }) {
+interface Step {
+  /** Shown above the command when a platform needs more than one. */
+  title?: string;
+  command: string;
+  note?: string;
+}
+
+function CommandBlock({ step, index, total }: { step: Step; index: number; total: number }) {
   const { notify } = useToast();
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(command);
+    if (await copyText(step.command)) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
-    } catch {
-      notify("Could not copy — select the command and copy it manually.", "error");
+      return;
     }
+    notify("Could not copy — select the command and copy it manually.", "error");
   };
 
   return (
     <div className="space-y-2">
+      {total > 1 ? (
+        <p className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
+          Step {index + 1} of {total}
+          {step.title ? ` — ${step.title}` : ""}
+        </p>
+      ) : null}
       <pre className="scroll-slim max-h-56 overflow-auto whitespace-pre-wrap break-all rounded-md border border-border bg-surface-2 p-3 text-2xs leading-relaxed text-foreground">
-        {command}
+        {step.command}
       </pre>
       <div className="flex items-center justify-between gap-3">
-        {note ? <p className="text-2xs text-muted-foreground">{note}</p> : <span />}
+        {step.note ? <p className="text-2xs text-muted-foreground">{step.note}</p> : <span />}
         <Button variant="secondary" size="sm" onClick={() => void copy()} className="shrink-0">
           {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
           {copied ? "Copied" : "Copy"}
         </Button>
       </div>
+    </div>
+  );
+}
+
+/** Each command gets its own block and its own copy button, so nothing is pasted half. */
+function CommandSteps({ steps }: { steps: Step[] }) {
+  return (
+    <div className="space-y-4">
+      {steps.map((step, index) => (
+        <CommandBlock key={step.command} step={step} index={index} total={steps.length} />
+      ))}
     </div>
   );
 }
@@ -66,39 +90,63 @@ export function EnrollDialog({
 
   const hubUrl = `${window.location.protocol}//${window.location.host}`;
 
-  const commands = useMemo(() => {
+  const commands = useMemo((): Record<string, Step[]> => {
     const value = token ?? "<token>";
 
     // With a self-signed certificate the command that *fetches* the installer
     // has to skip verification too, not just the agent's own connection.
-    const linux = insecure
+    const shell = insecure
       ? `curl -sSLk ${hubUrl}/install.sh | sh -s -- --url ${hubUrl} --token ${value} --insecure-tls`
       : `curl -sSL ${hubUrl}/install.sh | sh -s -- --url ${hubUrl} --token ${value}`;
 
-    const windows = insecure
-      ? `[System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }\n& ([scriptblock]::Create((irm ${hubUrl}/install.ps1))) -Url ${hubUrl} -Token ${value} -InsecureTls`
-      : `& ([scriptblock]::Create((irm ${hubUrl}/install.ps1))) -Url ${hubUrl} -Token ${value}`;
+    const windows: Step[] = [];
+    if (insecure) {
+      windows.push({
+        title: "Trust the certificate for this session",
+        command: "[System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }",
+        note: "Run this first, in the same PowerShell window as the next command.",
+      });
+    }
+    windows.push({
+      title: "Install the agent",
+      command: `& ([scriptblock]::Create((irm ${hubUrl}/install.ps1))) -Url ${hubUrl} -Token ${value}${
+        insecure ? " -InsecureTls" : ""
+      }`,
+      note: "Starts with your session, so screen viewing works. Add -SystemService in an elevated prompt to start with the machine instead.",
+    });
 
     // The hub serves a ready-made build context, so the host needs neither git
     // nor access to the source repository. With a self-signed certificate the
     // daemon cannot fetch that URL itself, so curl pipes the context in instead.
     const contextUrl = `${hubUrl}/download/beacon-agent-docker.tar.gz`;
-    const dockerBuild = insecure
-      ? `curl -sSLk ${contextUrl} | docker build -t beacon-agent -`
-      : `docker build -t beacon-agent ${contextUrl}`;
+    const docker: Step[] = [
+      {
+        title: "Build the agent image",
+        command: insecure
+          ? `curl -sSLk ${contextUrl} | docker build -t beacon-agent -`
+          : `docker build -t beacon-agent ${contextUrl}`,
+      },
+      {
+        title: "Start the agent",
+        command: [
+          `docker run -d --name beacon-agent --restart unless-stopped \\`,
+          `  --network host --pid host \\`,
+          `  -v /var/run/docker.sock:/var/run/docker.sock:ro \\`,
+          `  -v beacon-agent-data:/data \\`,
+          `  -e BEACON_URL=${hubUrl} -e BEACON_TOKEN=${value}${insecure ? " -e BEACON_INSECURE_TLS=1" : ""} \\`,
+          `  beacon-agent`,
+        ].join("\n"),
+        note: "Reports host CPU, memory and network plus Docker container stats. Prefix both commands with sudo unless your user is in the docker group. Screen viewing is not available from a container.",
+      },
+    ];
 
     return {
-      linux,
+      linux: [{ command: shell, note: "Installs a systemd service. Run it with sudo for a system-wide service." }],
+      macos: [
+        { command: shell, note: "The same command as Linux. It installs a launchd agent for the current user." },
+      ],
       windows,
-      docker: [
-        dockerBuild,
-        `docker run -d --name beacon-agent --restart unless-stopped \\`,
-        `  --network host --pid host \\`,
-        `  -v /var/run/docker.sock:/var/run/docker.sock:ro \\`,
-        `  -v beacon-agent-data:/data \\`,
-        `  -e BEACON_URL=${hubUrl} -e BEACON_TOKEN=${value}${insecure ? " -e BEACON_INSECURE_TLS=1" : ""} \\`,
-        `  beacon-agent`,
-      ].join("\n"),
+      docker,
     };
   }, [token, hubUrl, insecure]);
 
@@ -131,7 +179,7 @@ export function EnrollDialog({
           title="Add a device"
           description={
             token
-              ? "Run one command on the device. It installs the agent, registers a service and enrolls."
+              ? "Run the commands below on the device. They install the agent, register it as a service and enroll it."
               : "Create an enrollment token, then run the install command on the device."
           }
         />
@@ -159,31 +207,19 @@ export function EnrollDialog({
               </TabsList>
 
               <TabsContent value="linux">
-                <CommandBlock
-                  command={commands.linux}
-                  note="Installs a systemd service. Run with sudo for a system-wide service."
-                />
+                <CommandSteps steps={commands.linux} />
               </TabsContent>
 
               <TabsContent value="macos">
-                <CommandBlock
-                  command={commands.linux}
-                  note="Same command as Linux; installs a launchd agent for the current user."
-                />
+                <CommandSteps steps={commands.macos} />
               </TabsContent>
 
               <TabsContent value="windows">
-                <CommandBlock
-                  command={commands.windows}
-                  note="Run in PowerShell. Starts with your session so screen viewing works; add -SystemService in an elevated prompt to start with the machine instead."
-                />
+                <CommandSteps steps={commands.windows} />
               </TabsContent>
 
               <TabsContent value="docker">
-                <CommandBlock
-                  command={commands.docker}
-                  note="Reports host CPU, memory and network plus Docker container stats. Prefix both commands with sudo unless your user is in the docker group. Screen viewing is not available from a container."
-                />
+                <CommandSteps steps={commands.docker} />
               </TabsContent>
             </Tabs>
 

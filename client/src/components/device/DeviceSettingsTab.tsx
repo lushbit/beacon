@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/context/ToastContext";
 import { api } from "@/lib/api";
+import { copyText } from "@/lib/clipboard";
 import { DEVICE_COLORS, deviceColor } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 
@@ -321,10 +322,12 @@ export function DeviceSettingsTab({ device, onSaved }: Props) {
               variant="secondary"
               onClick={() => {
                 if (rotated) {
-                  void navigator.clipboard
-                    .writeText(`curl -sSL ${window.location.origin}/install.sh | sh -s -- --url ${window.location.origin} --token ${rotated}`)
-                    .then(() => notify("Command copied.", "success"))
-                    .catch(() => notify("Could not copy the command.", "error"));
+                  const command = `curl -sSL ${window.location.origin}/install.sh | sh -s -- --url ${window.location.origin} --token ${rotated}`;
+                  void copyText(command).then((ok) =>
+                    ok
+                      ? notify("Command copied.", "success")
+                      : notify("Could not copy — select the command and copy it manually.", "error")
+                  );
                 }
               }}
             >
