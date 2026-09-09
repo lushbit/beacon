@@ -18,6 +18,7 @@ import { useAuth, useIsAdmin } from "@/context/AuthContext";
 import { useVersion } from "@/context/VersionContext";
 import { useToast } from "@/context/ToastContext";
 import { api } from "@/lib/api";
+import { HUB_UPDATE_COMMAND } from "@/lib/updateCommand";
 import { formatBytes, formatDateTime, formatRelative } from "@/lib/format";
 import { RANGES } from "@/lib/time";
 
@@ -661,11 +662,6 @@ function AboutTab() {
                 <ArrowUpCircle className="h-4 w-4 shrink-0" />
                 Version {info.latest.version} is available.
               </p>
-              {info.latest.notes ? (
-                <p className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap text-2xs text-muted-foreground scroll-slim">
-                  {info.latest.notes.slice(0, 800)}
-                </p>
-              ) : null}
               {info.latest.url ? (
                 <a
                   href={info.latest.url}
@@ -716,10 +712,11 @@ function AboutTab() {
             <div className="space-y-2 rounded-md border border-border/60 bg-surface-2 p-3">
               <p className="text-xs text-foreground">Update this hub</p>
               <pre className="scroll-slim overflow-x-auto rounded-md border border-border bg-card p-2 text-2xs text-muted-foreground">
-                docker compose pull &amp;&amp; docker compose up -d
+                {HUB_UPDATE_COMMAND}
               </pre>
               <p className="text-2xs text-muted-foreground">
-                Run it where your compose file lives. Your database and accounts are on a volume and are not touched.
+                Run this in the folder you cloned Beacon into. Your database and accounts are on a volume and are not
+                touched.
               </p>
             </div>
           ) : null}

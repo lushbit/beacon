@@ -12,6 +12,7 @@ const log = logger("updates");
  */
 const REPO = process.env.BEACON_UPDATE_REPO || "lushbit/beacon";
 const FEED = `https://api.github.com/repos/${REPO}/releases/latest`;
+const TAG_FEED = (version: string) => `https://api.github.com/repos/${REPO}/releases/tags/v${version}`;
 const CHECK_INTERVAL_MS = 6 * 3600_000;
 /**
  * Floor for a check triggered by someone signing in. Without it, a busy
@@ -37,6 +38,27 @@ function save(value: CachedCheck): void {
   setSetting("updateCheck", value);
 }
 
+/**
+ * Notes for the version this hub is actually running. The newest release cannot
+ * answer that once the two differ, and the dashboard needs it to show what
+ * changed after an update.
+ */
+interface CachedInstalled {
+  /** The hub version these notes belong to. Anything else is stale. */
+  version: string;
+  release: ReleaseInfo | null;
+  checkedAt: number;
+}
+
+function loadInstalled(): ReleaseInfo | null {
+  const cached = getSetting<CachedInstalled | null>("installedRelease", null);
+  return cached && cached.version === BEACON_VERSION ? cached.release : null;
+}
+
+function saveInstalled(release: ReleaseInfo | null): void {
+  setSetting("installedRelease", { version: BEACON_VERSION, release, checkedAt: Date.now() } satisfies CachedInstalled);
+}
+
 interface GithubRelease {
   tag_name?: string;
   name?: string;
@@ -47,6 +69,53 @@ interface GithubRelease {
   prerelease?: boolean;
 }
 
+function toReleaseInfo(release: GithubRelease, version: string): ReleaseInfo {
+  return {
+    version,
+    url: release.html_url ?? "",
+    publishedAt: release.published_at ? Date.parse(release.published_at) : null,
+    notes: (release.body ?? "").slice(0, 4000),
+  };
+}
+
+/**
+ * Fetched once per hub version and then remembered, so this costs one request
+ * after an update and nothing at all afterwards.
+ */
+export async function refreshInstalledRelease(): Promise<void> {
+  // Turning update checks off means this hub does not reach out, and that has
+  // to hold for these notes too.
+  if (!getServerSettings().updateChecks) return;
+
+  const cached = getSetting<CachedInstalled | null>("installedRelease", null);
+  if (cached && cached.version === BEACON_VERSION) return;
+
+  // The newest release is often the installed one, and then no request is needed.
+  const check = load();
+  if (check.latest && check.latest.version === BEACON_VERSION) {
+    saveInstalled(check.latest);
+    return;
+  }
+
+  try {
+    const response = await fetch(TAG_FEED(BEACON_VERSION), {
+      headers: { Accept: "application/vnd.github+json", "User-Agent": `beacon/${BEACON_VERSION}` },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    // A build with no matching release, a fork, or a source checkout: remember
+    // that there is nothing to show rather than asking again every few hours.
+    if (response.status === 404) {
+      saveInstalled(null);
+      return;
+    }
+    if (!response.ok) return;
+    const release = (await response.json()) as GithubRelease;
+    saveInstalled(toReleaseInfo(release, BEACON_VERSION));
+  } catch {
+    /* the next check tries again */
+  }
+}
+
 export function versionInfo(): VersionDto {
   const cached = load();
   const checksEnabled = getServerSettings().updateChecks;
@@ -55,6 +124,7 @@ export function versionInfo(): VersionDto {
     protocol: PROTOCOL_VERSION,
     sourceUrl: `https://github.com/${REPO}`,
     latest: cached.latest,
+    installed: loadInstalled(),
     updateAvailable: Boolean(cached.latest && isNewer(cached.latest.version, BEACON_VERSION)),
     checkedAt: cached.checkedAt,
     checksEnabled,
@@ -98,15 +168,11 @@ export async function checkForUpdates(force = false, maxAgeMs = CHECK_INTERVAL_M
       return versionInfo();
     }
 
-    const latest: ReleaseInfo = {
-      version,
-      url: release.html_url ?? "",
-      publishedAt: release.published_at ? Date.parse(release.published_at) : null,
-      notes: (release.body ?? "").slice(0, 4000),
-    };
+    const latest = toReleaseInfo(release, version);
     save({ latest, checkedAt: Date.now(), error: null });
 
     if (isNewer(version, BEACON_VERSION)) log.info(`update available: ${BEACON_VERSION} -> ${version}`);
+    await refreshInstalledRelease();
     return versionInfo();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -125,7 +191,9 @@ export function checkForUpdatesOnLogin(): void {
 
 export function startUpdateChecks(): void {
   const run = () => {
-    void checkForUpdates().catch(() => undefined);
+    void checkForUpdates()
+      .then(() => refreshInstalledRelease())
+      .catch(() => undefined);
   };
   // Give the hub a moment to finish starting before reaching out.
   setTimeout(run, 15_000).unref();

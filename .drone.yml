@@ -19,6 +19,8 @@ steps:
       # The compose files are documentation people run verbatim, and nothing
       # else in this pipeline reads them.
       - node scripts/check-compose.mjs
+      # The dashboard and the README have to give the same update command.
+      - node scripts/check-docs.mjs
 
   # Proves the dashboard updates without a refresh: a sample sent by an agent
   # has to reach a connected browser client over the live socket.

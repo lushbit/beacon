@@ -318,6 +318,8 @@ export interface VersionDto {
   /** Where this build came from; used to build install commands. */
   sourceUrl: string;
   latest: ReleaseInfo | null;
+  /** The release matching the version this hub runs, for the "what changed" notice. */
+  installed: ReleaseInfo | null;
   updateAvailable: boolean;
   checkedAt: number | null;
   checksEnabled: boolean;

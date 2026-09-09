@@ -4,6 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ArrowUpCircle, Bell, ExternalLink, Gauge, LogOut, Menu, RadioTower, RotateCw, Settings2, Tag, Users as UsersIcon, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { UpdateNotices } from "@/components/UpdateNotices";
 import { useAuth } from "@/context/AuthContext";
 import { useVersion } from "@/context/VersionContext";
 import { cn } from "@/lib/utils";
@@ -265,6 +266,8 @@ export function DashboardLayout() {
           <PageTransition scrollRef={mainRef} />
         </main>
       </div>
+
+      <UpdateNotices />
     </div>
   );
 }

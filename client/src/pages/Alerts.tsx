@@ -340,7 +340,11 @@ export function AlertsPage() {
                   ))}
                 </div>
               ) : firing.length === 0 ? (
-                <EmptyState icon={BellOff} title="Nothing is firing." description="Every device is inside its limits." />
+                <EmptyState
+                  icon={BellOff}
+                  title="No alerts are firing."
+                  description="Alerts appear here when a rule is triggered."
+                />
               ) : (
                 <ul className="divide-y divide-border/50">
                   {firing.map((alert) => (
