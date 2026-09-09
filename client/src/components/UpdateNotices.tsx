@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowUpCircle, Sparkles } from "lucide-react";
+import { ArrowUpCircle, Github, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { ReleaseNotes } from "@/components/ReleaseNotes";
@@ -86,14 +86,12 @@ export function UpdateNotices() {
           </div>
           <DialogFooter>
             {installed?.url ? (
-              <a
-                href={installed.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-              >
-                Open on GitHub
-              </a>
+              <Button variant="secondary" asChild>
+                <a href={installed.url} target="_blank" rel="noopener noreferrer">
+                  <Github className="h-4 w-4" />
+                  Open on GitHub
+                </a>
+              </Button>
             ) : null}
             <Button variant="primary" onClick={closeNotes}>
               Got it
@@ -122,14 +120,12 @@ export function UpdateNotices() {
           </div>
           <DialogFooter>
             {latest?.url ? (
-              <a
-                href={latest.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-              >
-                Read the release notes
-              </a>
+              <Button variant="secondary" asChild>
+                <a href={latest.url} target="_blank" rel="noopener noreferrer">
+                  <Github className="h-4 w-4" />
+                  Read the release notes
+                </a>
+              </Button>
             ) : null}
             <Button variant="primary" onClick={closeUpdate}>
               Got it
