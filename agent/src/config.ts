@@ -10,6 +10,8 @@ export interface AgentFileConfig {
   /** Set once the hub swaps the enrollment token for a device token. */
   deviceToken?: string;
   insecureTls?: boolean;
+  /** Written on every successful handshake. The installer reads it as proof. */
+  lastConnectedAt?: number;
 }
 
 /** Per-user config directory, so the agent works without admin rights. */
@@ -112,6 +114,7 @@ export function loadConfig(options: CliOptions): AgentFileConfig {
     insecureTls: options.insecureTls || stored.insecureTls === true,
   };
   if (stored.deviceToken) merged.deviceToken = stored.deviceToken;
+  if (stored.lastConnectedAt) merged.lastConnectedAt = stored.lastConnectedAt;
   return merged;
 }
 

@@ -252,7 +252,17 @@ function handleMessage(message: HubMessage): void {
         fileConfig.deviceToken = message.deviceToken;
         // The one-time enrollment token is no longer needed once we have our own.
         fileConfig.token = "";
-        saveConfig(options.configPath, fileConfig);
+      } else if (fileConfig.token) {
+        // The device token still works, so the spare enrollment token the
+        // installer left behind can go.
+        fileConfig.token = "";
+      }
+      // The installer waits for this to move before it reports success. Without
+      // it, a device token the hub no longer knows looks exactly like a working
+      // install.
+      fileConfig.lastConnectedAt = Date.now();
+      saveConfig(options.configPath, fileConfig);
+      if (message.deviceToken) {
         log(`enrolled as "${message.deviceName}" — device token saved to ${options.configPath}`);
       }
       log(`connected to hub as "${message.deviceName}" (every ${Math.round(hubConfig.sampleIntervalMs / 1000)}s)`);
@@ -278,6 +288,16 @@ function handleMessage(message: HubMessage): void {
     case "error":
       logError(`hub rejected the agent (${message.code}): ${message.message}`);
       if (message.code === "unauthorized") {
+        if (fileConfig.deviceToken && fileConfig.token) {
+          // A hub rebuilt from an empty database does not know this device any
+          // more. The installer leaves its enrollment token in place for
+          // exactly this, so enroll again instead of waiting for a human.
+          log("the device token was refused, enrolling again with the enrollment token");
+          delete fileConfig.deviceToken;
+          saveConfig(options.configPath, fileConfig);
+          reconnectDelayMs = 1000;
+          return;
+        }
         // Back off hard: a bad token will not fix itself in a second.
         reconnectDelayMs = 60_000;
       }

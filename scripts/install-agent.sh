@@ -187,56 +187,65 @@ STATE
 
 CONFIG_FILE="$INSTALL_DIR/agent.json"
 
-write_config() {
-  # Keeping the install id matters when the same hub is reached under another
-  # name: the hub recognises the device and keeps its history instead of
-  # creating a second entry for it.
-  INSTALL_ID="$EXISTING_INSTALL_ID"
-  [ -n "$INSTALL_ID" ] || INSTALL_ID="$(node -e 'process.stdout.write(require("crypto").randomUUID())')"
-  UMASK_OLD="$(umask)"
-  umask 077
-  cat > "$CONFIG_FILE" <<CONFIG
-{
-  "url": "$URL",
-  "token": "$TOKEN",
-  "installId": "$INSTALL_ID",
-  "insecureTls": $([ -n "$INSECURE_TLS" ] && echo true || echo false)
+read_config_field() {
+  [ -f "$CONFIG_FILE" ] || return 0
+  node -e '
+    try {
+      const config = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+      process.stdout.write(String(config[process.argv[2]] ?? ""));
+    } catch { process.stdout.write(""); }
+  ' "$CONFIG_FILE" "$1"
 }
-CONFIG
-  umask "$UMASK_OLD"
+
+# Written by node so a token never has to survive shell quoting, and so the
+# device token can be kept or dropped without hand-built JSON.
+write_config() {
+  node -e '
+    const [file, url, token, deviceToken, installId, insecureTls] = process.argv.slice(1);
+    const config = {
+      url,
+      token,
+      installId: installId || require("crypto").randomUUID(),
+      insecureTls: insecureTls === "1",
+    };
+    if (deviceToken) config.deviceToken = deviceToken;
+    require("fs").writeFileSync(file, JSON.stringify(config, null, 2) + "\n", { mode: 0o600 });
+  ' "$CONFIG_FILE" "$URL" "$TOKEN" "$1" "$EXISTING_INSTALL_ID" "${INSECURE_TLS:-0}"
   chmod 600 "$CONFIG_FILE"
 }
 
-EXISTING_URL=""
-EXISTING_INSTALL_ID=""
-if [ -f "$CONFIG_FILE" ]; then
-  read_config_field() {
-    node -e '
-      try {
-        const config = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-        process.stdout.write(String(config[process.argv[2]] || ""));
-      } catch { process.stdout.write(""); }
-    ' "$CONFIG_FILE" "$1"
-  }
-  EXISTING_URL="$(read_config_field url)"
-  EXISTING_INSTALL_ID="$(read_config_field installId)"
-fi
+EXISTING_URL="$(read_config_field url)"
+# Keeping the install id matters when the same hub is reached under another
+# name: the hub recognises the device and keeps its history instead of creating
+# a second entry for it.
+EXISTING_INSTALL_ID="$(read_config_field installId)"
+EXISTING_DEVICE_TOKEN="$(read_config_field deviceToken)"
+CONNECTED_BEFORE="$(read_config_field lastConnectedAt)"
+[ -n "$CONNECTED_BEFORE" ] || CONNECTED_BEFORE="0"
 
 if [ ! -f "$CONFIG_FILE" ]; then
   [ -n "$TOKEN" ] || die "--token is required the first time (create one in the dashboard)"
-  write_config
-elif [ "$EXISTING_URL" = "$URL" ]; then
-  info "keeping the existing configuration (this device stays enrolled)"
-elif [ -n "$TOKEN" ]; then
-  # A device already reporting somewhere else used to keep its old hub silently,
-  # whatever --url said, and never appeared on the new dashboard. Moving it is
-  # a deliberate act, so it needs a token and the old device token is dropped.
-  info "moving this device from $EXISTING_URL to $URL"
-  write_config
-else
+  write_config ""
+elif [ "$EXISTING_URL" != "$URL" ] && [ -z "$TOKEN" ]; then
   die "this device is already enrolled with $EXISTING_URL.
 To move it to $URL, run the installer again with a fresh enrollment
 token from that dashboard. To start over, run it with --uninstall first."
+elif [ "$EXISTING_URL" != "$URL" ]; then
+  # A device already reporting somewhere else used to keep its old hub silently,
+  # whatever --url said, and never appeared on the new dashboard. Moving it is a
+  # deliberate act, so it needs a token and the old device token is dropped.
+  info "moving this device from $EXISTING_URL to $URL"
+  write_config ""
+elif [ -n "$TOKEN" ]; then
+  # Same hub, and a token was supplied. The device token is kept and still tried
+  # first, so an install that only refreshes the agent keeps working. The
+  # enrollment token sits beside it, which is what lets the agent enroll again by
+  # itself when the hub no longer knows the device, after a database was replaced
+  # or restored from empty.
+  info "keeping the existing enrollment, with the new token as a fallback"
+  write_config "$EXISTING_DEVICE_TOKEN"
+else
+  info "keeping the existing configuration (this device stays enrolled)"
 fi
 
 NODE_BIN="$(command -v node)"
@@ -368,16 +377,17 @@ service_running() {
   esac
 }
 
-# The hub swaps the enrollment token for one unique to this device, and the agent
-# writes it to its config. Nothing else proves the two ends actually talked. The
-# url has to match too, or a device token from a previous hub would count.
-enrolled() {
+# The agent stamps its config every time it completes a handshake. Waiting for
+# that stamp to move is the only check that cannot be fooled by a device token
+# the hub has forgotten, which is what a rebuilt database leaves behind.
+connected() {
   node -e '
     try {
       const config = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-      process.exit(config.deviceToken && config.url === process.argv[2] ? 0 : 1);
+      const moved = Number(config.lastConnectedAt || 0) > Number(process.argv[3] || 0);
+      process.exit(config.url === process.argv[2] && moved ? 0 : 1);
     } catch { process.exit(1); }
-  ' "$CONFIG_FILE" "$URL" 2>/dev/null
+  ' "$CONFIG_FILE" "$URL" "$CONNECTED_BEFORE" 2>/dev/null
 }
 
 show_log() {
@@ -391,7 +401,7 @@ show_log() {
 echo "Waiting for the agent to reach the hub…"
 WAITED=0
 while [ "$WAITED" -lt "$WAIT_SECONDS" ]; do
-  if service_running && enrolled; then
+  if service_running && connected; then
     echo
     echo "Done. This device is enrolled and reporting to $URL."
     exit 0
