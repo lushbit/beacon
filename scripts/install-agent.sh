@@ -186,11 +186,13 @@ STATE
 # --------------------------------------------------------------------- config
 
 CONFIG_FILE="$INSTALL_DIR/agent.json"
-if [ -f "$CONFIG_FILE" ]; then
-  info "keeping the existing configuration (this device stays enrolled)"
-else
-  [ -n "$TOKEN" ] || die "--token is required the first time (create one in the dashboard)"
-  INSTALL_ID="$(node -e 'process.stdout.write(require("crypto").randomUUID())')"
+
+write_config() {
+  # Keeping the install id matters when the same hub is reached under another
+  # name: the hub recognises the device and keeps its history instead of
+  # creating a second entry for it.
+  INSTALL_ID="$EXISTING_INSTALL_ID"
+  [ -n "$INSTALL_ID" ] || INSTALL_ID="$(node -e 'process.stdout.write(require("crypto").randomUUID())')"
   UMASK_OLD="$(umask)"
   umask 077
   cat > "$CONFIG_FILE" <<CONFIG
@@ -203,6 +205,38 @@ else
 CONFIG
   umask "$UMASK_OLD"
   chmod 600 "$CONFIG_FILE"
+}
+
+EXISTING_URL=""
+EXISTING_INSTALL_ID=""
+if [ -f "$CONFIG_FILE" ]; then
+  read_config_field() {
+    node -e '
+      try {
+        const config = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+        process.stdout.write(String(config[process.argv[2]] || ""));
+      } catch { process.stdout.write(""); }
+    ' "$CONFIG_FILE" "$1"
+  }
+  EXISTING_URL="$(read_config_field url)"
+  EXISTING_INSTALL_ID="$(read_config_field installId)"
+fi
+
+if [ ! -f "$CONFIG_FILE" ]; then
+  [ -n "$TOKEN" ] || die "--token is required the first time (create one in the dashboard)"
+  write_config
+elif [ "$EXISTING_URL" = "$URL" ]; then
+  info "keeping the existing configuration (this device stays enrolled)"
+elif [ -n "$TOKEN" ]; then
+  # A device already reporting somewhere else used to keep its old hub silently,
+  # whatever --url said, and never appeared on the new dashboard. Moving it is
+  # a deliberate act, so it needs a token and the old device token is dropped.
+  info "moving this device from $EXISTING_URL to $URL"
+  write_config
+else
+  die "this device is already enrolled with $EXISTING_URL.
+To move it to $URL, run the installer again with a fresh enrollment
+token from that dashboard. To start over, run it with --uninstall first."
 fi
 
 NODE_BIN="$(command -v node)"
@@ -335,9 +369,15 @@ service_running() {
 }
 
 # The hub swaps the enrollment token for one unique to this device, and the agent
-# writes it to its config. Nothing else proves the two ends actually talked.
+# writes it to its config. Nothing else proves the two ends actually talked. The
+# url has to match too, or a device token from a previous hub would count.
 enrolled() {
-  grep -q '"deviceToken"' "$CONFIG_FILE" 2>/dev/null
+  node -e '
+    try {
+      const config = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+      process.exit(config.deviceToken && config.url === process.argv[2] ? 0 : 1);
+    } catch { process.exit(1); }
+  ' "$CONFIG_FILE" "$URL" 2>/dev/null
 }
 
 show_log() {

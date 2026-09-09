@@ -110,6 +110,10 @@ away.
 If your hub uses a self-signed certificate, flip the toggle in the dialog first
 and the commands come back with the flags needed to accept it.
 
+A device that already reports to another hub moves across when you run the
+installer again with a token from the new dashboard. Without a token it refuses
+rather than quietly staying where it was.
+
 ### Linux
 
 ```bash
