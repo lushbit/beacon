@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Apple, Check, Container, Copy, KeyRound, MonitorSmartphone, ShieldAlert, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
@@ -29,9 +29,10 @@ interface Step {
 function CommandBlock({ step, index, total }: { step: Step; index: number; total: number }) {
   const { notify } = useToast();
   const [copied, setCopied] = useState(false);
+  const block = useRef<HTMLPreElement>(null);
 
   const copy = async () => {
-    if (await copyText(step.command)) {
+    if (await copyText(step.command, block.current)) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
       return;
@@ -47,7 +48,10 @@ function CommandBlock({ step, index, total }: { step: Step; index: number; total
           {step.title ? ` — ${step.title}` : ""}
         </p>
       ) : null}
-      <pre className="scroll-slim max-h-56 overflow-auto whitespace-pre-wrap break-all rounded-md border border-border bg-surface-2 p-3 text-2xs leading-relaxed text-foreground">
+      <pre
+        ref={block}
+        className="scroll-slim max-h-56 overflow-auto whitespace-pre-wrap break-all rounded-md border border-border bg-surface-2 p-3 text-2xs leading-relaxed text-foreground"
+      >
         {step.command}
       </pre>
       <div className="flex items-center justify-between gap-3">

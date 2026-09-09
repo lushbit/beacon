@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { KeyRound, RefreshCw, Save, Trash2 } from "lucide-react";
 import { UPDATE_POLICIES, UPDATE_POLICY_LABELS } from "@beacon/shared";
@@ -32,6 +32,7 @@ export function DeviceSettingsTab({ device, onSaved }: Props) {
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [rotated, setRotated] = useState<string | null>(null);
+  const rotatedCommand = useRef<HTMLPreElement>(null);
 
   const patch = <K extends keyof DeviceSettingsDto>(key: K, value: DeviceSettingsDto[K]) =>
     setSettings((current) => ({ ...current, [key]: value }));
@@ -313,7 +314,7 @@ export function DeviceSettingsTab({ device, onSaved }: Props) {
             title="New device token"
             description="The agent was disconnected. Re-run the installer on the device with this token — it is shown only once."
           />
-          <pre className="scroll-slim overflow-x-auto rounded-md border border-border bg-surface-2 p-3 text-xs">
+          <pre ref={rotatedCommand} className="scroll-slim overflow-x-auto rounded-md border border-border bg-surface-2 p-3 text-xs">
             curl -sSL {window.location.origin}/install.sh | sh -s -- --url {window.location.origin} --token{" "}
             {rotated}
           </pre>
@@ -323,7 +324,7 @@ export function DeviceSettingsTab({ device, onSaved }: Props) {
               onClick={() => {
                 if (rotated) {
                   const command = `curl -sSL ${window.location.origin}/install.sh | sh -s -- --url ${window.location.origin} --token ${rotated}`;
-                  void copyText(command).then((ok) =>
+                  void copyText(command, rotatedCommand.current).then((ok) =>
                     ok
                       ? notify("Command copied.", "success")
                       : notify("Could not copy — select the command and copy it manually.", "error")
