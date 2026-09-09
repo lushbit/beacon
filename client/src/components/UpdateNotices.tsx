@@ -117,8 +117,7 @@ export function UpdateNotices() {
               {HUB_UPDATE_COMMAND}
             </pre>
             <p className="text-2xs text-muted-foreground">
-              Run this in the folder you cloned Beacon into. Your database and accounts are on a volume and are not
-              touched.
+              Run this in your Beacon folder. Your database and accounts remain untouched.
             </p>
           </div>
           <DialogFooter>

@@ -114,7 +114,7 @@ export function DeviceDetailPage() {
             {device.activeAlerts > 0 ? (
               <Badge tone="danger">
                 <Bell className="h-3 w-3" />
-                {device.activeAlerts} firing
+                {device.activeAlerts} active
               </Badge>
             ) : null}
             <RangePicker value={rangeSeconds} onChange={setRangeSeconds} />

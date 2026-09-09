@@ -287,7 +287,7 @@ export function AlertsPage() {
     if (lastAlert) void load();
   }, [lastAlert, load]);
 
-  const firing = useMemo(() => (alerts ?? []).filter((alert) => alert.state === "firing"), [alerts]);
+  const active = useMemo(() => (alerts ?? []).filter((alert) => alert.state === "firing"), [alerts]);
   const history = useMemo(() => (alerts ?? []).filter((alert) => alert.state !== "firing"), [alerts]);
 
   const acknowledge = async (id: string) => {
@@ -305,7 +305,7 @@ export function AlertsPage() {
       <PageHeader
         title="Alerts"
         description={
-          alerts === null ? "Loading…" : `${firing.length} firing · ${rules?.length ?? 0} rules`
+          alerts === null ? "Loading…" : `${active.length} active · ${rules?.length ?? 0} rules`
         }
         actions={
           isAdmin ? (
@@ -324,14 +324,14 @@ export function AlertsPage() {
       />
 
       <div className="p-4 sm:p-6">
-        <Tabs defaultValue="firing" className="space-y-4">
+        <Tabs defaultValue="active" className="space-y-4">
           <TabsList className="w-full sm:w-auto">
-            <TabsTrigger value="firing">Firing</TabsTrigger>
+            <TabsTrigger value="active">Active</TabsTrigger>
             <TabsTrigger value="history">History</TabsTrigger>
             <TabsTrigger value="rules">Rules</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="firing">
+          <TabsContent value="active">
             <div className="overflow-hidden rounded-lg border border-border/70 bg-card">
               {alerts === null ? (
                 <div className="space-y-2 p-4">
@@ -339,15 +339,15 @@ export function AlertsPage() {
                     <Skeleton key={index} className="h-10" />
                   ))}
                 </div>
-              ) : firing.length === 0 ? (
+              ) : active.length === 0 ? (
                 <EmptyState
                   icon={BellOff}
-                  title="No alerts are firing."
+                  title="No active alerts."
                   description="Alerts appear here when a rule is triggered."
                 />
               ) : (
                 <ul className="divide-y divide-border/50">
-                  {firing.map((alert) => (
+                  {active.map((alert) => (
                     <AlertRow key={alert.id} alert={alert} onAcknowledge={(id) => void acknowledge(id)} />
                   ))}
                 </ul>
