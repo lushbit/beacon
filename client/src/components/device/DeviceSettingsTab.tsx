@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { KeyRound, RefreshCw, Save, Trash2 } from "lucide-react";
 import { UPDATE_POLICIES, UPDATE_POLICY_LABELS } from "@beacon/shared";
 import type { DeviceDto, DeviceSettingsDto, UpdatePolicy } from "@beacon/shared";
+import { RemoveAgentDialog } from "@/components/device/RemoveAgentDialog";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/label";
@@ -31,6 +32,7 @@ export function DeviceSettingsTab({ device, onSaved }: Props) {
   const [settings, setSettings] = useState<DeviceSettingsDto>(device.settings);
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [removed, setRemoved] = useState(false);
   const [rotated, setRotated] = useState<string | null>(null);
   const rotatedCommand = useRef<HTMLPreElement>(null);
 
@@ -82,7 +84,9 @@ export function DeviceSettingsTab({ device, onSaved }: Props) {
   const remove = async () => {
     const done = await attempt(() => api.deleteDevice(device.id), "Device removed.");
     setConfirmDelete(false);
-    if (done) navigate("/");
+    // The agent is still on the device, so show how to uninstall it before
+    // leaving the page of a device that no longer exists.
+    if (done) setRemoved(true);
   };
 
   return (
@@ -289,7 +293,7 @@ export function DeviceSettingsTab({ device, onSaved }: Props) {
         <DialogContent>
           <DialogHeader
             title={`Remove ${device.name}?`}
-            description="This deletes the device, its metric history and its alerts. The agent can enroll again with a new token."
+            description="This deletes the device, its metric history and its alerts. Afterwards you get the command that removes the agent from the device."
           />
           <DialogFooter>
             <Button variant="ghost" onClick={() => setConfirmDelete(false)}>
@@ -301,6 +305,16 @@ export function DeviceSettingsTab({ device, onSaved }: Props) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <RemoveAgentDialog
+        open={removed}
+        deviceName={device.name}
+        platform={device.platform}
+        onClose={() => {
+          setRemoved(false);
+          navigate("/");
+        }}
+      />
     </div>
   );
 }
