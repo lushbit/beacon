@@ -70,8 +70,15 @@ export default {
       },
       keyframes: {
         "fade-in": {
-          from: { opacity: "0", transform: "translateY(4px)" },
-          to: { opacity: "1", transform: "translateY(0)" },
+          from: { opacity: "0" },
+          to: { opacity: "1" },
+        },
+        // Dialogs are centred with a translate, so their entrance has to carry
+        // that translate too. A bare translateY replaced it while the animation
+        // ran, and the dialog opened off to the side before jumping to the middle.
+        "dialog-in": {
+          from: { opacity: "0", transform: "translate(-50%, calc(-50% + 4px))" },
+          to: { opacity: "1", transform: "translate(-50%, -50%)" },
         },
         "pulse-ring": {
           "0%": { opacity: "0.6", transform: "scale(1)" },
@@ -81,6 +88,7 @@ export default {
       },
       animation: {
         "fade-in": "fade-in 200ms ease-out",
+        "dialog-in": "dialog-in 200ms ease-out",
         "pulse-ring": "pulse-ring 2.4s ease-out infinite",
       },
     },

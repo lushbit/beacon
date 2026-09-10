@@ -21,7 +21,7 @@ export const DialogContent = forwardRef<
         // the buttons off the screen where they cannot be reached.
         "max-h-[85dvh] overflow-y-auto scroll-slim",
         "rounded-lg border border-border bg-popover p-4 shadow-2xl shadow-black/60 sm:p-5",
-        "data-[state=open]:animate-fade-in",
+        "data-[state=open]:animate-dialog-in",
         className
       )}
       {...props}
