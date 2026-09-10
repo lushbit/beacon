@@ -60,8 +60,13 @@ let sampleTimer: NodeJS.Timeout | null = null;
 let reconnectDelayMs = 1000;
 let staticInfo: DeviceStaticInfo | null = null;
 let stopping = false;
+/** The newest sample, so a reconnect can describe the device in full at once. */
+let lastSample: MetricSample | null = null;
+/** What the hub was last told this device can do. */
+let announced: DeviceCapabilities | null = null;
 
-function emptyCapabilities(): DeviceCapabilities {
+/** What is known without a sample, which is all a first hello can carry. */
+function baseCapabilities(): DeviceCapabilities {
   return {
     docker: isDockerAvailable(),
     selfUpdate: detectLayout() !== null,
@@ -88,6 +93,23 @@ function capabilities(probe: MetricSample): DeviceCapabilities {
   };
 }
 
+function sameCapabilities(a: DeviceCapabilities, b: DeviceCapabilities): boolean {
+  return (Object.keys(a) as (keyof DeviceCapabilities)[]).every((key) => a[key] === b[key]);
+}
+
+/**
+ * The hello goes out before the first sample, and several probes only answer a
+ * few seconds after startup. Whatever they find later is sent on its own, so the
+ * dashboard still offers exactly what this device reports.
+ */
+function announceCapabilities(sample: MetricSample): void {
+  if (!announced) return;
+  const next = capabilities(sample);
+  if (sameCapabilities(next, announced)) return;
+  announced = next;
+  send({ type: "capabilities", capabilities: next });
+}
+
 function send(message: AgentMessage): void {
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify(message));
@@ -105,6 +127,8 @@ function startSampling(): void {
   const tick = async () => {
     try {
       const sample = await collectSample();
+      lastSample = sample;
+      announceCapabilities(sample);
       send({ type: "sample", sample });
     } catch (error) {
       logError(`sample failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -242,19 +266,19 @@ async function connect(): Promise<void> {
   socket = ws;
 
   ws.on("open", () => {
-    void (async () => {
-      // The first sample doubles as a capability probe.
-      const probe = await collectSample().catch(() => null);
-      send({
-        type: "hello",
-        protocolVersion: PROTOCOL_VERSION,
-        token: fileConfig.deviceToken || fileConfig.token,
-        installId: fileConfig.installId,
-        staticInfo: staticInfo!,
-        capabilities: probe ? capabilities(probe) : emptyCapabilities(),
-      });
-      if (probe) send({ type: "sample", sample: probe });
-    })();
+    // Say hello straight away. Waiting for a first sample held this up for as
+    // long as the slowest probe took. On Windows, where most probes start
+    // PowerShell, that could outlast the hub's wait for a hello and cost a
+    // whole reconnect. Sampling starts once the hub has accepted us.
+    announced = lastSample ? capabilities(lastSample) : baseCapabilities();
+    send({
+      type: "hello",
+      protocolVersion: PROTOCOL_VERSION,
+      token: fileConfig.deviceToken || fileConfig.token,
+      installId: fileConfig.installId,
+      staticInfo: staticInfo!,
+      capabilities: announced,
+    });
   });
 
   ws.on("message", (raw) => {
@@ -287,8 +311,10 @@ log(`Beacon agent ${AGENT_VERSION} starting (${process.platform}/${process.arch}
 
 void (async () => {
   // The docker probe settles before the first hello, so the hub is told what
-  // this device can actually do rather than what its platform usually can.
-  const docker = await probeDocker();
+  // this device can actually do rather than what its platform usually can. It
+  // runs beside the static info rather than before it, since both can be slow.
+  const [docker, info] = await Promise.all([probeDocker(), collectStaticInfo()]);
+  staticInfo = info;
   if (docker) log("docker detected — container stats enabled");
   void connect();
 })();

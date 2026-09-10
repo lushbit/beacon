@@ -224,11 +224,12 @@ export async function listProcesses(limit: number, sortBy: "cpu" | "mem"): Promi
 /* ----------------------------------------------------------------- static info */
 
 export async function collectStaticInfo(): Promise<DeviceStaticInfo> {
-  const [osInfo, cpu, system, mem, time] = await Promise.all([
+  // Memory comes from Node rather than si.mem(), which gives the same total but
+  // starts PowerShell on Windows, and this runs before the agent can connect.
+  const [osInfo, cpu, system, time] = await Promise.all([
     si.osInfo(),
     si.cpu(),
     si.system(),
-    si.mem(),
     Promise.resolve(si.time()),
   ]);
 
@@ -243,7 +244,7 @@ export async function collectStaticInfo(): Promise<DeviceStaticInfo> {
     cpuBrand: cpu.brand ?? "",
     cpuCores: cpu.cores ?? os.cpus().length,
     cpuPhysicalCores: cpu.physicalCores ?? cpu.cores ?? os.cpus().length,
-    memTotalBytes: mem.total,
+    memTotalBytes: os.totalmem(),
     isVirtual: Boolean(system.virtual),
     manufacturer: system.manufacturer ?? "",
     model: system.model ?? "",

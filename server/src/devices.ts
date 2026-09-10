@@ -114,6 +114,10 @@ export function updateDeviceIdentity(
   );
 }
 
+export function updateDeviceCapabilities(id: string, capabilities: DeviceCapabilities): void {
+  db.prepare("UPDATE devices SET capabilities = ? WHERE id = ?").run(JSON.stringify(capabilities), id);
+}
+
 export function createDevice(input: {
   installId: string;
   name: string;

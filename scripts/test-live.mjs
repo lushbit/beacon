@@ -248,6 +248,12 @@ async function main() {
     check(false, `further samples keep arriving without reconnecting (${error.message})`);
   }
 
+  console.log("Reporting capabilities found after the hello…");
+  agent.send(JSON.stringify({ type: "capabilities", capabilities: { ...capabilities, temperatures: true } }));
+  await wait(250);
+  const device = await (await fetch(`${BASE}/api/devices/${ack.deviceId}`, { headers: { Cookie: cookie } })).json();
+  check(device.capabilities?.temperatures === true, "capabilities sent after the hello are stored");
+
   console.log("Checking the offline notice…");
   const statusPending = expectMessage(
     live,

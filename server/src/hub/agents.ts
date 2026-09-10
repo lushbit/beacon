@@ -21,6 +21,7 @@ import {
   getDeviceRow,
   rotateDeviceToken,
   touchDevice,
+  updateDeviceCapabilities,
   updateDeviceIdentity,
 } from "../devices.js";
 import { bus } from "../events.js";
@@ -207,6 +208,9 @@ function handleMessage(connection: AgentConnection, message: AgentMessage, remot
       }
       return;
     }
+    case "capabilities":
+      updateDeviceCapabilities(connection.deviceId, message.capabilities);
+      return;
     case "rpc_result":
       connection.settle(message.id, message.ok, message.result, message.error);
       return;

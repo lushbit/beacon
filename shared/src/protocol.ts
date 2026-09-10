@@ -44,6 +44,16 @@ export interface AgentSampleMessage {
   sample: MetricSample;
 }
 
+/**
+ * Sent when the agent learns more about the device than its hello could say.
+ * The hello goes out before the first sample so a connection is not held up by
+ * slow probes, and what those probes find arrives here afterwards.
+ */
+export interface AgentCapabilitiesMessage {
+  type: "capabilities";
+  capabilities: DeviceCapabilities;
+}
+
 export interface AgentRpcResultMessage {
   type: "rpc_result";
   id: string;
@@ -60,6 +70,7 @@ export interface AgentPongMessage {
 export type AgentMessage =
   | AgentHelloMessage
   | AgentSampleMessage
+  | AgentCapabilitiesMessage
   | AgentRpcResultMessage
   | AgentPongMessage;
 
