@@ -219,6 +219,20 @@ function handleMessage(connection: AgentConnection, message: AgentMessage, remot
   }
 }
 
+/**
+ * A new device takes the name typed in when its token was created, or its
+ * hostname when none was. A token for several devices would give them all the
+ * same name, so there the hostname is added to tell them apart. Kept within the
+ * 60 characters a rename allows, so the device settings can still be saved.
+ */
+function deviceNameFor(label: string, maxUses: number, hostname: string): string {
+  const base = label.trim();
+  if (!base) return hostname;
+  if (maxUses === 1 || !hostname) return base;
+  const suffix = ` (${hostname})`;
+  return `${base.slice(0, Math.max(1, 60 - suffix.length))}${suffix}`.slice(0, 60);
+}
+
 function handleHello(connection: AgentConnection, message: AgentMessage, remote: string): void {
   if (message.type !== "hello") return;
   if (connection.deviceId) return;
@@ -260,7 +274,9 @@ function handleHello(connection: AgentConnection, message: AgentMessage, remote:
       issuedToken = rotateDeviceToken(existing.id);
       deviceRow = getDeviceRow(existing.id)!;
     } else {
-      const name = message.staticInfo.hostname || `Device ${message.installId.slice(0, 6)}`;
+      const name =
+        deviceNameFor(enrollment.label, enrollment.max_uses, message.staticInfo.hostname) ||
+        `Device ${message.installId.slice(0, 6)}`;
       const created = createDevice({
         installId: message.installId,
         name,

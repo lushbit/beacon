@@ -383,8 +383,20 @@ export function EnrollDialog({
           </div>
         ) : (
           <div className="space-y-4">
-            <Field label="Label" hint="Only used to recognise the token in the list.">
-              <Input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Office laptop" />
+            <Field
+              label="Device name"
+              hint={
+                Number(maxUses) === 1
+                  ? "Shown in the device list. Leave it empty to use the device's hostname."
+                  : "Each device is listed under this name with its hostname added. Leave it empty to use the hostname alone."
+              }
+            >
+              <Input
+                value={label}
+                onChange={(event) => setLabel(event.target.value)}
+                placeholder="Office laptop"
+                maxLength={60}
+              />
             </Field>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Expires">

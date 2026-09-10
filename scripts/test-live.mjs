@@ -206,6 +206,7 @@ async function main() {
   const ack = await expectMessage(agent, (m) => m.type === "hello_ack", "hello_ack");
   check(Boolean(ack.deviceId), "agent is accepted and given a device id");
   check(Boolean(ack.deviceToken), "agent receives its own device token");
+  check(ack.deviceName === "test", "the device takes the name given to its token");
 
   console.log("Connecting a browser-style live client…");
   const live = new WebSocket(`ws://127.0.0.1:${PORT}/live`, { headers: { Cookie: cookie } });

@@ -86,6 +86,9 @@ export function DeviceDetailPage() {
       <PageHeader
         title={device.name}
         description={[
+          // A device can be named something other than its hostname, so the
+          // hostname stays visible whenever the two differ.
+          device.hostname.toLowerCase() !== device.name.toLowerCase() ? device.hostname : null,
           platformName(device.platform),
           device.os,
           staticInfo?.cpuBrand,

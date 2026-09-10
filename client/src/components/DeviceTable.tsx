@@ -130,6 +130,11 @@ function SortHeader({
   );
 }
 
+/** The hostname, when the device has been given a different name to show. */
+function otherHostname(device: DeviceSummaryDto): string | null {
+  return device.hostname && device.hostname.toLowerCase() !== device.name.toLowerCase() ? device.hostname : null;
+}
+
 /** A number beside the same severity fill the meters use, so a hot value shows. */
 function UsageCell({ value, compact }: { value: number | null | undefined; compact: boolean }) {
   const known = typeof value === "number" && Number.isFinite(value);
@@ -301,8 +306,7 @@ export function DeviceTable({
               </span>
               {!compact ? (
                 <span className="block truncate text-xs text-muted-foreground">
-                  {platformName(device.platform)}
-                  {device.os ? ` · ${device.os}` : ""}
+                  {[otherHostname(device), platformName(device.platform), device.os].filter(Boolean).join(" · ")}
                 </span>
               ) : null}
             </span>
@@ -409,8 +413,13 @@ export function DeviceTable({
                     <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                       <StatusDot online={online} />
                       <span className="truncate">
-                        {online ? "Online" : device.lastSeenAt ? formatRelative(device.lastSeenAt) : "Offline"}
-                        {device.os ? ` · ${device.os}` : ""}
+                        {[
+                          online ? "Online" : device.lastSeenAt ? formatRelative(device.lastSeenAt) : "Offline",
+                          otherHostname(device),
+                          device.os,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
                       </span>
                     </span>
                   </span>
