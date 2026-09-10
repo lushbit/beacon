@@ -270,12 +270,15 @@ if ($connected) {
   $logFile = Join-Path $InstallDir "agent.log"
   if (Test-Path $logFile) {
     Write-Host ""
-    Write-Host "Last lines of $logFile:"
+    Write-Host "Last lines of ${logFile}:"
     Get-Content $logFile -Tail 20 | ForEach-Object { Write-Host "  $_" }
   } else {
+    # Built by concatenation so the quoting stays readable and cannot trip the
+    # parser the way nested escaped quotes do.
+    $manualRun = '  & "' + $node.Source + '" "' + $launcher + '" --config "' + $configFile + '"'
     Write-Host ""
-    Write-Host "No $logFile was written, so the agent never started. Run this to see why:"
-    Write-Host "  & `"$($node.Source)`" `"$launcher`" --config `"$configFile`""
+    Write-Host "No ${logFile} was written, so the agent never started. Run this to see why:"
+    Write-Host $manualRun
   }
 }
 Write-Host "Remove it later from an elevated prompt with:"
