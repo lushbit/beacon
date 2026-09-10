@@ -1,3 +1,5 @@
+import { serverNow } from "@/lib/clock";
+
 export type UnitBase = 1000 | 1024;
 
 export function formatBytes(bytes: number | null | undefined, base: UnitBase = 1024, digits = 1): string {
@@ -40,9 +42,10 @@ export function formatDuration(seconds: number | null | undefined): string {
   return `${days}d ${hours % 24}h`;
 }
 
-export function formatRelative(timestamp: number | null | undefined): string {
+/** Measured against the hub's clock, since the hub wrote the timestamp. */
+export function formatRelative(timestamp: number | null | undefined, now = serverNow()): string {
   if (!timestamp) return "never";
-  const delta = Date.now() - timestamp;
+  const delta = now - timestamp;
   if (delta < 5000) return "just now";
   if (delta < 60_000) return `${Math.round(delta / 1000)}s ago`;
   if (delta < 3_600_000) return `${Math.round(delta / 60_000)}m ago`;

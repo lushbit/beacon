@@ -17,7 +17,8 @@ import { StatusDot } from "@/components/ui/misc";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useSeries } from "@/hooks/useSeries";
 import { SERIES, LEVEL_FILL, deviceColor, levelOf } from "@/lib/colors";
-import { formatDuration, formatPercent, formatRate, formatRelative, formatTemperature, platformName } from "@/lib/format";
+import { RelativeTime } from "@/components/RelativeTime";
+import { formatDuration, formatPercent, formatRate, formatTemperature, platformName } from "@/lib/format";
 import type { UnitBase } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -336,7 +337,7 @@ export function DeviceTable({
             {online
               ? formatDuration(summary?.uptimeSec ?? null)
               : device.lastSeenAt
-                ? formatRelative(device.lastSeenAt)
+                ? <RelativeTime value={device.lastSeenAt} />
                 : "—"}
           </span>
         );
@@ -413,13 +414,11 @@ export function DeviceTable({
                     <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                       <StatusDot online={online} />
                       <span className="truncate">
-                        {[
-                          online ? "Online" : device.lastSeenAt ? formatRelative(device.lastSeenAt) : "Offline",
-                          otherHostname(device),
-                          device.os,
-                        ]
+                        {online ? "Online" : device.lastSeenAt ? <RelativeTime value={device.lastSeenAt} /> : "Offline"}
+                        {[otherHostname(device), device.os]
                           .filter(Boolean)
-                          .join(" · ")}
+                          .map((part) => ` · ${part}`)
+                          .join("")}
                       </span>
                     </span>
                   </span>

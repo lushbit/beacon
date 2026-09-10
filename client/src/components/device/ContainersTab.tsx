@@ -2,7 +2,8 @@ import { Container } from "lucide-react";
 import type { DeviceDto, MetricSample } from "@beacon/shared";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/misc";
-import { formatBytes, formatPercent, formatRelative, type UnitBase } from "@/lib/format";
+import { RelativeTime } from "@/components/RelativeTime";
+import { formatBytes, formatPercent, type UnitBase } from "@/lib/format";
 
 function stateTone(state: string): "success" | "warning" | "danger" | "neutral" {
   switch (state) {
@@ -80,7 +81,9 @@ export function ContainersTab({
                 {entry.createdAt ? (
                   <div className="flex gap-1">
                     <dt>Created</dt>
-                    <dd className="tabular">{formatRelative(entry.createdAt)}</dd>
+                    <dd className="tabular">
+                      <RelativeTime value={entry.createdAt} />
+                    </dd>
                   </div>
                 ) : null}
               </dl>
@@ -129,7 +132,7 @@ export function ContainersTab({
                       : `↓ ${formatBytes(entry.netRxBytes ?? 0, unitBase)} · ↑ ${formatBytes(entry.netTxBytes ?? 0, unitBase)}`}
                   </td>
                   <td className="px-3 py-2 text-right text-muted-foreground tabular">
-                    {entry.createdAt ? formatRelative(entry.createdAt) : "—"}
+                    {entry.createdAt ? <RelativeTime value={entry.createdAt} /> : "—"}
                   </td>
                 </tr>
               ))}

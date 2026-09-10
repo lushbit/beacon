@@ -18,6 +18,7 @@ import type {
   UserPreferences,
   VersionDto,
 } from "@beacon/shared";
+import { noteServerTime } from "@/lib/clock";
 
 /** Fired when the hub rejects a request because the session is gone. */
 export const UNAUTHORIZED_EVENT = "beacon:unauthorized";
@@ -33,11 +34,13 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const sentAt = Date.now();
   const response = await fetch(`/api${path}`, {
     credentials: "same-origin",
     headers: init?.body ? { "Content-Type": "application/json" } : undefined,
     ...init,
   });
+  noteServerTime(Number(response.headers.get("X-Beacon-Time")), sentAt, Date.now());
 
   if (response.status === 204) return undefined as T;
 

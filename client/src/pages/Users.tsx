@@ -12,7 +12,8 @@ import { EmptyState, Skeleton } from "@/components/ui/misc";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/context/ToastContext";
 import { api } from "@/lib/api";
-import { formatDateTime, formatRelative } from "@/lib/format";
+import { RelativeTime } from "@/components/RelativeTime";
+import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 /** Shared column template so the header and every row line up on desktop. */
@@ -189,7 +190,7 @@ export function UsersPage() {
                     <div className="flex items-center justify-between gap-3 lg:block">
                       <span className="shrink-0 text-xs text-muted-foreground lg:hidden">Last sign-in</span>
                       <p className="min-w-0 truncate text-xs text-muted-foreground">
-                        {user.lastLoginAt ? formatRelative(user.lastLoginAt) : "never"}
+                        {user.lastLoginAt ? <RelativeTime value={user.lastLoginAt} /> : "never"}
                       </p>
                     </div>
 

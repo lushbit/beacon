@@ -24,7 +24,8 @@ import { useIsAdmin } from "@/context/AuthContext";
 import { useLive } from "@/context/LiveContext";
 import { useToast } from "@/context/ToastContext";
 import { api } from "@/lib/api";
-import { formatDateTime, formatRelative } from "@/lib/format";
+import { RelativeTime } from "@/components/RelativeTime";
+import { formatDateTime } from "@/lib/format";
 
 const SEVERITY_TONE = { info: "info", warning: "warning", critical: "danger" } as const;
 const SEVERITY_ICON = { info: Info, warning: AlertTriangle, critical: Siren };
@@ -62,8 +63,14 @@ function AlertRow({ alert, onAcknowledge }: { alert: AlertDto; onAcknowledge: (i
           <span aria-hidden>·</span>
           <span>{alert.ruleName}</span>
           <span aria-hidden>·</span>
-          <span title={formatDateTime(alert.startedAt)}>started {formatRelative(alert.startedAt)}</span>
-          {alert.resolvedAt ? <span>· resolved {formatRelative(alert.resolvedAt)}</span> : null}
+          <span title={formatDateTime(alert.startedAt)}>
+            started <RelativeTime value={alert.startedAt} />
+          </span>
+          {alert.resolvedAt ? (
+            <span>
+              · resolved <RelativeTime value={alert.resolvedAt} />
+            </span>
+          ) : null}
           {alert.acknowledgedBy ? <span>· acknowledged by {alert.acknowledgedBy}</span> : null}
         </p>
       </div>

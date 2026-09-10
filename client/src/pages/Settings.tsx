@@ -4,7 +4,9 @@ import { useSearchParams } from "react-router-dom";
 import { UPDATE_POLICIES, UPDATE_POLICY_LABELS } from "@beacon/shared";
 import type { AuditEntryDto, ChannelDto, DeviceSummaryDto, EnrollTokenDto, ServerSettingsDto } from "@beacon/shared";
 import { PageHeader } from "@/components/DashboardLayout";
+import { CommandSteps } from "@/components/CommandSteps";
 import { EnrollDialog } from "@/components/EnrollDialog";
+import { RelativeTime } from "@/components/RelativeTime";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
@@ -22,7 +24,7 @@ import { useToast } from "@/context/ToastContext";
 import { api } from "@/lib/api";
 import { agentUpdateStage, isUpdating } from "@/lib/agentUpdate";
 import { HUB_UPDATE_COMMAND } from "@/lib/updateCommand";
-import { formatBytes, formatDateTime, formatRelative } from "@/lib/format";
+import { formatBytes, formatDateTime } from "@/lib/format";
 import { RANGES } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
@@ -237,7 +239,12 @@ function NotificationsTab() {
                   <p className="truncate text-sm text-foreground">{channel.name}</p>
                   <p className="truncate text-2xs text-muted-foreground">
                     {channel.type} · {channel.config.url ?? ""} · at least {channel.minSeverity}
-                    {channel.lastSentAt ? ` · last sent ${formatRelative(channel.lastSentAt)}` : ""}
+                    {channel.lastSentAt ? (
+                      <>
+                        {" "}
+                        · last sent <RelativeTime value={channel.lastSentAt} />
+                      </>
+                    ) : null}
                   </p>
                   {channel.lastError ? <p className="mt-0.5 text-2xs text-danger">{channel.lastError}</p> : null}
                 </div>
@@ -729,19 +736,27 @@ function AboutTab() {
 
           <p className="text-2xs text-muted-foreground">
             Protocol v{info?.protocol ?? "—"} ·{" "}
-            {info?.checkedAt ? `checked ${formatRelative(info.checkedAt)}` : "never checked"}
+            {info?.checkedAt ? (
+              <>
+                checked <RelativeTime value={info.checkedAt} />
+              </>
+            ) : (
+              "never checked"
+            )}
           </p>
           {info?.error ? <p className="text-2xs text-warning">{info.error}</p> : null}
 
           {info?.updateAvailable && isAdmin ? (
             <div className="space-y-2 rounded-md border border-border/60 bg-surface-2 p-3">
               <p className="text-xs text-foreground">Update this hub</p>
-              <pre className="scroll-slim overflow-x-auto rounded-md border border-border bg-card p-2 text-2xs text-muted-foreground">
-                {HUB_UPDATE_COMMAND}
-              </pre>
-              <p className="text-2xs text-muted-foreground">
-                Run this in your Beacon folder. Your database and accounts remain untouched.
-              </p>
+              <CommandSteps
+                steps={[
+                  {
+                    command: HUB_UPDATE_COMMAND,
+                    note: "Run this in your Beacon folder. Your database and accounts remain untouched.",
+                  },
+                ]}
+              />
             </div>
           ) : null}
 

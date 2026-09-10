@@ -9,6 +9,7 @@ import { ContainersTab } from "@/components/device/ContainersTab";
 import { OverviewTab } from "@/components/device/OverviewTab";
 import { ProcessesTab } from "@/components/device/ProcessesTab";
 import { RangePicker } from "@/components/device/RangePicker";
+import { RelativeTime } from "@/components/RelativeTime";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState, Skeleton, StatusDot } from "@/components/ui/misc";
@@ -85,17 +86,28 @@ export function DeviceDetailPage() {
     <>
       <PageHeader
         title={device.name}
-        description={[
-          // A device can be named something other than its hostname, so the
-          // hostname stays visible whenever the two differ.
-          device.hostname.toLowerCase() !== device.name.toLowerCase() ? device.hostname : null,
-          platformName(device.platform),
-          device.os,
-          staticInfo?.cpuBrand,
-          online ? "online" : `last seen ${formatRelative(device.lastSeenAt)}`,
-        ]
-          .filter(Boolean)
-          .join(" · ")}
+        description={
+          <>
+            {[
+              // A device can be named something other than its hostname, so the
+              // hostname stays visible whenever the two differ.
+              device.hostname.toLowerCase() !== device.name.toLowerCase() ? device.hostname : null,
+              platformName(device.platform),
+              device.os,
+              staticInfo?.cpuBrand,
+            ]
+              .filter(Boolean)
+              .map((part) => `${part} · `)
+              .join("")}
+            {online ? (
+              "online"
+            ) : (
+              <>
+                last seen <RelativeTime value={device.lastSeenAt} />
+              </>
+            )}
+          </>
+        }
         actions={
           <>
             <Button variant="ghost" size="icon" asChild aria-label="Back to overview">

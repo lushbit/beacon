@@ -7,7 +7,7 @@ import { useLive } from "@/context/LiveContext";
 import { useToast } from "@/context/ToastContext";
 import { useVersion } from "@/context/VersionContext";
 import { api } from "@/lib/api";
-import { formatRelative } from "@/lib/format";
+import { RelativeTime } from "@/components/RelativeTime";
 
 const BUSY_STATES = new Set(["requested", "downloading", "restarting"]);
 
@@ -59,11 +59,17 @@ export function AgentVersionPanel({ device, online, onChanged }: { device: Devic
 
       {state !== "idle" ? (
         <p className="mt-3 text-2xs text-muted-foreground">
-          {state === "confirmed"
-            ? `Updated to ${target ?? device.agentVersion} ${
-                device.updateState.finishedAt ? formatRelative(device.updateState.finishedAt) : ""
-              }`
-            : state === "failed"
+          {state === "confirmed" ? (
+            <>
+              Updated to {target ?? device.agentVersion}
+              {device.updateState.finishedAt ? (
+                <>
+                  {" "}
+                  <RelativeTime value={device.updateState.finishedAt} />
+                </>
+              ) : null}
+            </>
+          ) : state === "failed"
               ? `Last update failed: ${error ?? "unknown error"}`
               : `Updating to ${target ?? ""}…`}
         </p>

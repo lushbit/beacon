@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ArrowUpCircle, Github, Sparkles } from "lucide-react";
+import { CommandSteps } from "@/components/CommandSteps";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { ReleaseNotes } from "@/components/ReleaseNotes";
@@ -111,12 +112,14 @@ export function UpdateNotices() {
               <ArrowUpCircle className="h-4 w-4 shrink-0 text-info" />
               Update this hub
             </p>
-            <pre className="scroll-slim overflow-x-auto rounded-md border border-border bg-card p-2 text-2xs text-muted-foreground">
-              {HUB_UPDATE_COMMAND}
-            </pre>
-            <p className="text-2xs text-muted-foreground">
-              Run this in your Beacon folder. Your database and accounts remain untouched.
-            </p>
+            <CommandSteps
+              steps={[
+                {
+                  command: HUB_UPDATE_COMMAND,
+                  note: "Run this in your Beacon folder. Your database and accounts remain untouched.",
+                },
+              ]}
+            />
           </div>
           <DialogFooter>
             {latest?.url ? (

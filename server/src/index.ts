@@ -55,6 +55,12 @@ app.use(express.json({ limit: "256kb" }));
 app.use(cookieParser());
 app.use(loadSession);
 app.use("/api", verifyOrigin);
+// Lets the dashboard measure "checked 2m ago" against this clock rather than
+// the browser's, which may be minutes off in either direction.
+app.use("/api", (_req, res, next) => {
+  res.setHeader("X-Beacon-Time", String(Date.now()));
+  next();
+});
 
 app.use(downloadsRouter);
 
