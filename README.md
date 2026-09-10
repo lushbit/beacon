@@ -149,14 +149,23 @@ it and approve the prompt.
 
 ```bash
 docker build -t beacon-agent https://hub/download/beacon-agent-docker.tar.gz
+
+docker run -d --name beacon-agent --restart unless-stopped \
+  --network host --pid host \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -v beacon-agent-data:/data \
+  -e BEACON_URL=https://hub -e BEACON_TOKEN=TOKEN \
+  beacon-agent
 ```
 
+Both commands are needed: the first builds the image, the second starts the
+agent. Prefix them with `sudo` unless your user is in the docker group.
+
 The build context comes from your hub, so the machine needs neither git nor
-access to this repository. Give it `--network host --pid host` and the Docker
-socket read-only, and it reports host CPU, memory and network alongside Docker
+access to this repository. Given `--network host --pid host` and the Docker
+socket read-only, it reports host CPU, memory and network alongside Docker
 container stats. Disk usage only covers what is mounted into the container, so
-mount the host paths you want reported. The dialog prints the full `docker run`
-line for you.
+mount the host paths you want reported.
 
 ## 🔔 Alerts and notifications
 
