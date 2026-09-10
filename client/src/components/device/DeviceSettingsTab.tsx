@@ -293,7 +293,7 @@ export function DeviceSettingsTab({ device, onSaved }: Props) {
         <DialogContent>
           <DialogHeader
             title={`Remove ${device.name}?`}
-            description="This deletes the device, its metric history and its alerts. Afterwards you get the command that removes the agent from the device."
+            description="Are you sure you want to delete this device? Its metric history and alerts are deleted too."
           />
           <DialogFooter>
             <Button variant="ghost" onClick={() => setConfirmDelete(false)}>
