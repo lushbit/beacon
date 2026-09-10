@@ -6,7 +6,7 @@ import { actorOf, ipOf, requireAdmin } from "../auth/middleware.js";
 import { db } from "../db/index.js";
 import { pruneSamples, storageStats } from "../metrics/store.js";
 import { getServerSettings, saveServerSettings } from "../settings.js";
-import { checkForUpdates, versionInfo } from "../updates.js";
+import { checkForUpdates, LOGIN_CHECK_MAX_AGE_MS, versionInfo } from "../updates.js";
 import { handler, parseBody } from "./helpers.js";
 
 export const settingsRouter = Router();
@@ -23,8 +23,12 @@ versionRouter.get(
 versionRouter.post(
   "/check",
   requireAdmin,
-  handler(async (_req, res) => {
-    res.json(await checkForUpdates(true));
+  handler(async (req, res) => {
+    // The dashboard asks on every load, so that path reuses a recent result
+    // rather than reaching out to the release feed each time. The button in
+    // Settings means "look now" and always does.
+    const automatic = req.query.auto === "1";
+    res.json(automatic ? await checkForUpdates(false, LOGIN_CHECK_MAX_AGE_MS) : await checkForUpdates(true));
   })
 );
 
