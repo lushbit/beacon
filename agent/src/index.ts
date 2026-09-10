@@ -12,11 +12,9 @@ import {
   type AgentUpdateParams,
   type ListProcessesParams,
   type MetricSample,
-  type ScreenStartParams,
 } from "@beacon/shared";
 import { collectSample, collectStaticInfo, isDockerAvailable, listProcesses, probeDocker } from "./collect.js";
 import { HELP_TEXT, loadConfig, parseArgs, saveConfig, toSocketUrl, type AgentFileConfig } from "./config.js";
-import { detectScreenCapability, probeCapture, ScreenStream } from "./screen.js";
 import { applyUpdate, confirmRunningVersion, detectLayout } from "./update.js";
 import { AGENT_VERSION } from "./version.js";
 
@@ -61,35 +59,12 @@ let hubConfig: AgentConfig = DEFAULT_AGENT_CONFIG;
 let sampleTimer: NodeJS.Timeout | null = null;
 let reconnectDelayMs = 1000;
 let staticInfo: DeviceStaticInfo | null = null;
-let screenStream: ScreenStream | null = null;
-let screenSessionId: string | null = null;
-let screenSeq = 0;
 let stopping = false;
-
-const screenCapability = detectScreenCapability();
-
-/**
- * Platform detection only says capture *should* work. A single throwaway probe
- * confirms it really does, so the hub is never told about a screen tab that
- * would fail the first time someone opened it. The frame is discarded
- * immediately and never leaves this process.
- */
-async function verifyScreenCapability(): Promise<void> {
-  if (!screenCapability.screen) return;
-  log("verifying screen capture support…");
-  const result = await probeCapture();
-  if (result.ok) return;
-  screenCapability.screen = false;
-  screenCapability.screenReason = `Screen capture failed on this device: ${result.error ?? "unknown error"}`;
-  logError(screenCapability.screenReason);
-}
 
 function emptyCapabilities(): DeviceCapabilities {
   return {
     docker: isDockerAvailable(),
     selfUpdate: detectLayout() !== null,
-    screen: screenCapability.screen,
-    screenReason: screenCapability.screenReason,
     temperatures: false,
     gpu: false,
     battery: false,
@@ -104,8 +79,6 @@ function capabilities(probe: MetricSample): DeviceCapabilities {
   return {
     docker: isDockerAvailable(),
     selfUpdate: detectLayout() !== null,
-    screen: screenCapability.screen,
-    screenReason: screenCapability.screenReason,
     temperatures: probe.summary.cpuTempC !== null,
     gpu: probe.detail.gpus.length > 0,
     battery: probe.detail.battery !== null,
@@ -141,15 +114,6 @@ function startSampling(): void {
   void tick();
 }
 
-function stopScreen(reason: string): void {
-  if (screenStream) screenStream.stop();
-  screenStream = null;
-  if (screenSessionId) {
-    send({ type: "screen_ended", sessionId: screenSessionId, reason });
-    screenSessionId = null;
-  }
-}
-
 async function handleRpc(id: string, method: string, params: unknown): Promise<void> {
   const reply = (ok: boolean, result?: unknown, error?: string) => {
     send({ type: "rpc_result", id, ok, result, error });
@@ -169,46 +133,6 @@ async function handleRpc(id: string, method: string, params: unknown): Promise<v
         if (!Number.isInteger(input?.pid) || input.pid <= 0) throw new Error("Invalid process id.");
         if (input.pid === process.pid) throw new Error("The agent will not end itself.");
         process.kill(input.pid, input.signal === "kill" ? "SIGKILL" : "SIGTERM");
-        reply(true, { ok: true });
-        return;
-      }
-      case "screen_start": {
-        const input = params as ScreenStartParams;
-        if (!hubConfig.screenEnabled) throw new Error("Screen access is disabled for this device.");
-        if (!screenCapability.screen) throw new Error(screenCapability.screenReason ?? "Screen capture unavailable.");
-        if (screenStream) stopScreen("restarted");
-
-        screenSessionId = input.sessionId;
-        screenSeq = 0;
-        screenStream = new ScreenStream({
-          fps: Math.min(input.fps || hubConfig.screenFps, 15),
-          quality: input.quality || hubConfig.screenQuality,
-          maxWidth: input.maxWidth || hubConfig.screenMaxWidth,
-          onFrame: (frame) => {
-            if (!screenSessionId) return;
-            screenSeq += 1;
-            send({
-              type: "screen_frame",
-              sessionId: screenSessionId,
-              seq: screenSeq,
-              ts: Date.now(),
-              width: frame.width,
-              height: frame.height,
-              format: frame.format,
-              data: frame.data,
-            });
-          },
-          onError: (message) => {
-            logError(`screen capture failed: ${message}`);
-            stopScreen(message);
-          },
-        });
-        screenStream.start();
-        reply(true, { ok: true });
-        return;
-      }
-      case "screen_stop": {
-        stopScreen("stopped by hub");
         reply(true, { ok: true });
         return;
       }
@@ -275,7 +199,6 @@ function handleMessage(message: HubMessage): void {
     case "config": {
       const previousInterval = hubConfig.sampleIntervalMs;
       hubConfig = message.config;
-      if (!hubConfig.screenEnabled) stopScreen("screen access disabled");
       if (hubConfig.sampleIntervalMs !== previousInterval) startSampling();
       return;
     }
@@ -344,7 +267,6 @@ async function connect(): Promise<void> {
 
   ws.on("close", () => {
     stopSampling();
-    stopScreen("disconnected");
     socket = null;
     if (stopping) return;
     const delay = reconnectDelayMs + Math.round(Math.random() * 1000);
@@ -362,14 +284,11 @@ async function connect(): Promise<void> {
 saveConfig(options.configPath, fileConfig);
 
 log(`Beacon agent ${AGENT_VERSION} starting (${process.platform}/${process.arch})`);
-if (!screenCapability.screen && screenCapability.screenReason) {
-  log(`screen capture unavailable: ${screenCapability.screenReason}`);
-}
 
 void (async () => {
-  // Both probes settle before the first hello, so the hub is told what this
-  // device can actually do rather than what its platform usually can.
-  const [, docker] = await Promise.all([verifyScreenCapability(), probeDocker()]);
+  // The docker probe settles before the first hello, so the hub is told what
+  // this device can actually do rather than what its platform usually can.
+  const docker = await probeDocker();
   if (docker) log("docker detected — container stats enabled");
   void connect();
 })();
@@ -377,7 +296,6 @@ void (async () => {
 function shutdown(): void {
   stopping = true;
   stopSampling();
-  stopScreen("agent shutting down");
   socket?.close();
   setTimeout(() => process.exit(0), 500).unref();
 }

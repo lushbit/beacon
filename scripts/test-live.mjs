@@ -116,8 +116,6 @@ const staticInfo = {
 
 const capabilities = {
   docker: false,
-  screen: false,
-  screenReason: "test agent",
   temperatures: false,
   gpu: false,
   battery: false,

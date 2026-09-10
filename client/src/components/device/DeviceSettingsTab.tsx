@@ -172,62 +172,6 @@ export function DeviceSettingsTab({ device, onSaved }: Props) {
           />
         </div>
 
-        <div className="space-y-3 rounded-md border border-border/60 bg-surface-2 p-3">
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <p className="text-sm text-foreground">Screen viewing</p>
-              <p className="mt-0.5 text-2xs text-muted-foreground">
-                {device.capabilities.screen
-                  ? "Read-only view of the device's display, streamed by the agent."
-                  : device.capabilities.screenReason ?? "This device cannot be captured."}
-              </p>
-            </div>
-            <Switch
-              checked={settings.screenEnabled}
-              disabled={!device.capabilities.screen}
-              onCheckedChange={(checked) => patch("screenEnabled", checked)}
-              aria-label="Enable screen viewing"
-            />
-          </div>
-
-          {settings.screenEnabled ? (
-            <div className="grid gap-3 sm:grid-cols-3">
-              <Field label="FPS">
-                <Input
-                  type="number"
-                  min={1}
-                  max={15}
-                  value={settings.screenFps}
-                  onChange={(event) => patch("screenFps", Math.min(15, Math.max(1, Number(event.target.value) || 4)))}
-                />
-              </Field>
-              <Field label="Quality">
-                <Input
-                  type="number"
-                  min={20}
-                  max={95}
-                  value={settings.screenQuality}
-                  onChange={(event) =>
-                    patch("screenQuality", Math.min(95, Math.max(20, Number(event.target.value) || 60)))
-                  }
-                />
-              </Field>
-              <Field label="Max width">
-                <Input
-                  type="number"
-                  min={480}
-                  max={3840}
-                  step={80}
-                  value={settings.screenMaxWidth}
-                  onChange={(event) =>
-                    patch("screenMaxWidth", Math.min(3840, Math.max(480, Number(event.target.value) || 1280)))
-                  }
-                />
-              </Field>
-            </div>
-          ) : null}
-        </div>
-
         <div className="flex flex-wrap items-center gap-2 pt-1">
           <Button variant="primary" onClick={() => void save()} disabled={saving}>
             <Save className="h-4 w-4" />

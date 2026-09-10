@@ -4,8 +4,8 @@
  * Two WebSocket endpoints exist on the hub:
  *  - `/agent`  — devices connect outward and authenticate with a device token,
  *                so nothing has to be exposed on the device itself.
- *  - `/live`   — browsers subscribe to live metrics, alerts and screen frames
- *                using their normal session cookie.
+ *  - `/live`   — browsers subscribe to live metrics and alerts using their
+ *                normal session cookie.
  */
 
 import type {
@@ -52,24 +52,6 @@ export interface AgentRpcResultMessage {
   error?: string;
 }
 
-export interface AgentScreenFrameMessage {
-  type: "screen_frame";
-  sessionId: string;
-  seq: number;
-  ts: number;
-  width: number;
-  height: number;
-  /** Base64 encoded image, `format` tells the browser how to render it. */
-  format: "jpeg" | "png";
-  data: string;
-}
-
-export interface AgentScreenEndedMessage {
-  type: "screen_ended";
-  sessionId: string;
-  reason: string;
-}
-
 export interface AgentPongMessage {
   type: "pong";
   ts: number;
@@ -79,8 +61,6 @@ export type AgentMessage =
   | AgentHelloMessage
   | AgentSampleMessage
   | AgentRpcResultMessage
-  | AgentScreenFrameMessage
-  | AgentScreenEndedMessage
   | AgentPongMessage;
 
 /* ------------------------------------------------------------------ hub -> agent */
@@ -88,11 +68,6 @@ export type AgentMessage =
 export interface AgentConfig {
   /** How often the agent samples and reports, in milliseconds. */
   sampleIntervalMs: number;
-  /** Screen streaming is refused outright unless the hub enables it. */
-  screenEnabled: boolean;
-  screenFps: number;
-  screenQuality: number;
-  screenMaxWidth: number;
   /** Terminating processes from the dashboard can be disabled per device. */
   allowProcessKill: boolean;
 }
@@ -143,13 +118,7 @@ export type HubMessage =
 
 /* ------------------------------------------------------------------------- rpc */
 
-export type AgentRpcMethod =
-  | "list_processes"
-  | "kill_process"
-  | "screen_start"
-  | "screen_stop"
-  | "refresh_static"
-  | "agent_update";
+export type AgentRpcMethod = "list_processes" | "kill_process" | "refresh_static" | "agent_update";
 
 export interface AgentUpdateParams {
   version: string;
@@ -189,18 +158,6 @@ export interface KillProcessParams {
   signal: "term" | "kill";
 }
 
-export interface ScreenStartParams {
-  sessionId: string;
-  fps: number;
-  quality: number;
-  maxWidth: number;
-  displayIndex?: number;
-}
-
-export interface ScreenStopParams {
-  sessionId: string;
-}
-
 /* ---------------------------------------------------------------- browser live */
 
 export interface LiveSubscribeMessage {
@@ -208,13 +165,7 @@ export interface LiveSubscribeMessage {
   deviceIds: string[] | "all";
 }
 
-export interface LiveScreenControlMessage {
-  type: "screen";
-  action: "start" | "stop";
-  deviceId: string;
-}
-
-export type LiveClientMessage = LiveSubscribeMessage | LiveScreenControlMessage;
+export type LiveClientMessage = LiveSubscribeMessage;
 
 export interface LiveSampleMessage {
   type: "sample";
@@ -245,23 +196,6 @@ export interface LiveAlertMessage {
   };
 }
 
-export interface LiveScreenFrameMessage {
-  type: "screen_frame";
-  deviceId: string;
-  ts: number;
-  width: number;
-  height: number;
-  format: "jpeg" | "png";
-  data: string;
-}
-
-export interface LiveScreenStateMessage {
-  type: "screen_state";
-  deviceId: string;
-  state: "starting" | "streaming" | "stopped" | "error";
-  message?: string;
-}
-
 export interface LiveAgentUpdateMessage {
   type: "agent_update";
   deviceId: string;
@@ -276,15 +210,9 @@ export type LiveServerMessage =
   | LiveSampleMessage
   | LiveDeviceStatusMessage
   | LiveAlertMessage
-  | LiveScreenFrameMessage
-  | LiveScreenStateMessage
   | LiveAgentUpdateMessage;
 
 export const DEFAULT_AGENT_CONFIG: AgentConfig = {
   sampleIntervalMs: 5000,
-  screenEnabled: false,
-  screenFps: 4,
-  screenQuality: 60,
-  screenMaxWidth: 1280,
   allowProcessKill: false,
 };

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, ArrowUpCircle, Bell, Container, Cpu, ListTree, Monitor, Settings2 } from "lucide-react";
+import { ArrowLeft, ArrowUpCircle, Bell, Container, Cpu, ListTree, Settings2 } from "lucide-react";
 import type { DeviceDto } from "@beacon/shared";
 import { PageHeader } from "@/components/DashboardLayout";
 import { DeviceSettingsTab } from "@/components/device/DeviceSettingsTab";
@@ -9,7 +9,6 @@ import { ContainersTab } from "@/components/device/ContainersTab";
 import { OverviewTab } from "@/components/device/OverviewTab";
 import { ProcessesTab } from "@/components/device/ProcessesTab";
 import { RangePicker } from "@/components/device/RangePicker";
-import { ScreenTab } from "@/components/device/ScreenTab";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState, Skeleton, StatusDot } from "@/components/ui/misc";
@@ -139,10 +138,6 @@ export function DeviceDetailPage() {
                 Containers
               </TabsTrigger>
             ) : null}
-            <TabsTrigger value="screen">
-              <Monitor className="mr-1.5 inline h-3.5 w-3.5" />
-              Screen
-            </TabsTrigger>
             {isAdmin ? (
               <TabsTrigger value="settings">
                 <Settings2 className="mr-1.5 inline h-3.5 w-3.5" />
@@ -170,10 +165,6 @@ export function DeviceDetailPage() {
               <ContainersTab device={device} sample={sample} unitBase={preferences.unitBase} />
             </TabsContent>
           ) : null}
-
-          <TabsContent value="screen" className="focus-visible:outline-none">
-            <ScreenTab device={device} online={online} />
-          </TabsContent>
 
           {isAdmin ? (
             <TabsContent value="settings" className="focus-visible:outline-none">

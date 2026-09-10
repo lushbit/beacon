@@ -45,7 +45,6 @@ export class AgentConnection {
   deviceId: string | null = null;
   deviceName = "";
   lastMessageAt = Date.now();
-  screenSessionId: string | null = null;
 
   constructor(readonly socket: WebSocket) {}
 
@@ -111,10 +110,6 @@ export function configFor(deviceId: string): AgentConfig {
   const settings = deviceSettings(row);
   return {
     sampleIntervalMs: settings.sampleIntervalMs,
-    screenEnabled: settings.screenEnabled,
-    screenFps: settings.screenFps,
-    screenQuality: settings.screenQuality,
-    screenMaxWidth: settings.screenMaxWidth,
     allowProcessKill: settings.allowProcessKill,
   };
 }
@@ -214,28 +209,6 @@ function handleMessage(connection: AgentConnection, message: AgentMessage, remot
     case "rpc_result":
       connection.settle(message.id, message.ok, message.result, message.error);
       return;
-    case "screen_frame": {
-      if (message.sessionId !== connection.screenSessionId) return;
-      bus.emit("screen_frame", {
-        deviceId: connection.deviceId,
-        ts: message.ts,
-        width: message.width,
-        height: message.height,
-        format: message.format,
-        data: message.data,
-      });
-      return;
-    }
-    case "screen_ended": {
-      if (message.sessionId !== connection.screenSessionId) return;
-      connection.screenSessionId = null;
-      bus.emit("screen_state", {
-        deviceId: connection.deviceId,
-        state: "stopped",
-        message: message.reason,
-      });
-      return;
-    }
     default:
       return;
   }
@@ -335,45 +308,3 @@ function handleHello(connection: AgentConnection, message: AgentMessage, remote:
   });
 }
 
-/* ------------------------------------------------------------------- screen */
-
-export async function startScreen(deviceId: string): Promise<void> {
-  const connection = connections.get(deviceId);
-  if (!connection) throw new Error("Device is offline.");
-  const row = getDeviceRow(deviceId);
-  if (!row) throw new Error("Unknown device.");
-  const settings = deviceSettings(row);
-  if (!settings.screenEnabled) throw new Error("Screen access is disabled for this device.");
-  if (connection.screenSessionId) return;
-
-  const sessionId = newId();
-  connection.screenSessionId = sessionId;
-  bus.emit("screen_state", { deviceId, state: "starting" });
-  try {
-    await connection.call("screen_start", {
-      sessionId,
-      fps: settings.screenFps,
-      quality: settings.screenQuality,
-      maxWidth: settings.screenMaxWidth,
-    });
-    bus.emit("screen_state", { deviceId, state: "streaming" });
-  } catch (error) {
-    connection.screenSessionId = null;
-    const message = error instanceof Error ? error.message : String(error);
-    bus.emit("screen_state", { deviceId, state: "error", message });
-    throw error;
-  }
-}
-
-export async function stopScreen(deviceId: string): Promise<void> {
-  const connection = connections.get(deviceId);
-  if (!connection?.screenSessionId) return;
-  const sessionId = connection.screenSessionId;
-  connection.screenSessionId = null;
-  bus.emit("screen_state", { deviceId, state: "stopped" });
-  await connection.call("screen_stop", { sessionId }).catch(() => undefined);
-}
-
-export function isScreenStreaming(deviceId: string): boolean {
-  return connections.get(deviceId)?.screenSessionId != null;
-}

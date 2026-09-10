@@ -22,7 +22,7 @@ import {
   updateDevice,
   updateDeviceIdentity,
 } from "../devices.js";
-import { agentFor, isOnline, isScreenStreaming, onlineDeviceIds, pushConfig } from "../hub/agents.js";
+import { agentFor, isOnline, onlineDeviceIds, pushConfig } from "../hub/agents.js";
 import {
   agentManifest,
   requestAgentUpdate,
@@ -90,10 +90,6 @@ devicesRouter.get(
 
 const settingsSchema = z.object({
   sampleIntervalMs: z.number().int().min(1000).max(300_000).optional(),
-  screenEnabled: z.boolean().optional(),
-  screenFps: z.number().int().min(1).max(15).optional(),
-  screenQuality: z.number().int().min(20).max(95).optional(),
-  screenMaxWidth: z.number().int().min(480).max(3840).optional(),
   allowProcessKill: z.boolean().optional(),
   updatePolicy: z.enum(UPDATE_POLICIES).nullable().optional(),
   offlineAfterSec: z.number().int().min(15).max(86_400).optional(),
@@ -268,20 +264,6 @@ devicesRouter.post(
       const message = error instanceof Error ? error.message : "Could not start the update.";
       res.status(error instanceof UpdateNotPossible ? 409 : 500).json({ error: message });
     }
-  })
-);
-
-devicesRouter.get(
-  "/:id/screen-state",
-  handler((req, res) => {
-    const row = getDeviceRow(req.params.id);
-    if (!row) return notFound(res, "Device not found.");
-    const settings = deviceSettings(row);
-    res.json({
-      enabled: settings.screenEnabled,
-      streaming: isScreenStreaming(row.id),
-      online: isOnline(row.id),
-    });
   })
 );
 

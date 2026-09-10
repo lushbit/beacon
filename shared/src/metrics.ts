@@ -148,10 +148,6 @@ export interface DeviceCapabilities {
   docker: boolean;
   /** Installed by the installer, so the hub can update it remotely. */
   selfUpdate: boolean;
-  /** Agent-native, view-only screen capture is usable on this device. */
-  screen: boolean;
-  /** Why screen capture is unavailable, shown in the UI instead of a dead tab. */
-  screenReason: string | null;
   temperatures: boolean;
   gpu: boolean;
   battery: boolean;

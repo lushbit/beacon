@@ -588,7 +588,7 @@ function AuditTab() {
   }, []);
 
   return (
-    <Section title="Audit log" description="Sign-ins, device changes, screen viewing and administrative actions.">
+    <Section title="Audit log" description="Sign-ins, device changes and administrative actions.">
       {entries.length === 0 ? (
         <EmptyState icon={ScrollText} title="Nothing recorded yet." />
       ) : (

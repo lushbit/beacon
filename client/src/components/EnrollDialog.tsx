@@ -103,21 +103,18 @@ export function EnrollDialog({
       ? `curl -sSLk ${hubUrl}/install.sh | sh -s -- --url ${hubUrl} --token ${value} --insecure-tls`
       : `curl -sSL ${hubUrl}/install.sh | sh -s -- --url ${hubUrl} --token ${value}`;
 
-    const windows: Step[] = [];
-    if (insecure) {
-      windows.push({
-        title: "Trust the certificate for this session",
-        command: "[System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }",
-        note: "Run this first, in the same PowerShell window as the next command.",
-      });
-    }
-    windows.push({
-      title: "Install the agent",
-      command: `& ([scriptblock]::Create((irm ${hubUrl}/install.ps1))) -Url ${hubUrl} -Token ${value}${
-        insecure ? " -InsecureTls" : ""
-      }`,
-      note: "Starts with your session, so screen viewing works. Add -SystemService in an elevated prompt to start with the machine instead.",
-    });
+    // One command. It installs a background service and elevates itself, so the
+    // -InsecureTls flag it carries is enough for a self-signed hub. No separate
+    // certificate step is needed the way the shell installers need one.
+    const windows: Step[] = [
+      {
+        title: "Install the agent",
+        command: `& ([scriptblock]::Create((irm ${hubUrl}/install.ps1))) -Url ${hubUrl} -Token ${value}${
+          insecure ? " -InsecureTls" : ""
+        }`,
+        note: "Approve the administrator prompt. Installs a service that starts with the machine, so it reports whether or not anyone is signed in.",
+      },
+    ];
 
     // The hub serves a ready-made build context, so the host needs neither git
     // nor access to the source repository. With a self-signed certificate the
@@ -140,7 +137,7 @@ export function EnrollDialog({
           `  -e BEACON_URL=${hubUrl} -e BEACON_TOKEN=${value}${insecure ? " -e BEACON_INSECURE_TLS=1" : ""} \\`,
           `  beacon-agent`,
         ].join("\n"),
-        note: "Reports host CPU, memory and network plus Docker container stats. Prefix both commands with sudo unless your user is in the docker group. Screen viewing is not available from a container.",
+        note: "Reports host CPU, memory and network plus Docker container stats. Prefix both commands with sudo unless your user is in the docker group.",
       },
     ];
 

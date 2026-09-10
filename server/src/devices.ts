@@ -36,8 +36,6 @@ export interface DeviceRow {
 const EMPTY_CAPABILITIES: DeviceCapabilities = {
   docker: false,
   selfUpdate: false,
-  screen: false,
-  screenReason: null,
   temperatures: false,
   gpu: false,
   battery: false,

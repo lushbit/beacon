@@ -12,9 +12,6 @@
 #   - Docker container stats come from the mounted socket (read-only).
 #   - Disk usage reflects what is mounted into the container; add host paths
 #     below if you want them reported.
-#
-# Screen viewing is not available from a container — install the agent directly
-# on the desktop session if you need it.
 
 services:
   beacon-agent:

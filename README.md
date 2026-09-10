@@ -31,10 +31,6 @@ so a short spike does not wake you at 3am.
 **📬 Notifications** - Alerts reach you through ntfy, a Discord webhook, or any
 endpoint of your own that takes a JSON POST.
 
-**🖥️ Screen viewing** - Look at what a machine is actually doing without
-installing anything extra on it. It is view-only, off until you turn it on for
-that machine, and every session is logged.
-
 **⚙️ Process list** - See what is running and, if you allow it for that machine,
 end a process straight from the dashboard.
 
@@ -144,9 +140,10 @@ log to `~/.local/share/beacon-agent/agent.log`.
 & ([scriptblock]::Create((irm https://hub/install.ps1))) -Url https://hub -Token TOKEN
 ```
 
-Runs in your desktop session, which is what lets screen viewing work. On a
-server nobody signs into, add `-SystemService` from an admin prompt and it
-starts with the machine instead, without screen capture.
+Installs a background service that starts with the machine, so the device
+reports whether or not anyone is signed in, the same as the Linux system
+install. The install needs administrator rights and asks for them itself, so run
+it and approve the prompt.
 
 ### Docker
 
@@ -156,9 +153,8 @@ docker build -t beacon-agent https://hub/download/beacon-agent-docker.tar.gz
 
 The build context comes from your hub, so the machine needs neither git nor
 access to this repository. Give it `--network host --pid host` and the Docker
-socket read-only to see both the host and its containers. Screen viewing is not
-possible from inside a container. The dialog prints the full `docker run` line
-for you.
+socket read-only to see both the host and its containers. The dialog prints the
+full `docker run` line for you.
 
 ## 🔔 Alerts and notifications
 
@@ -218,7 +214,7 @@ at once under **Settings**, or set a nightly window and stop thinking about it.
 # Linux and macOS. Add sudo if you installed with sudo.
 curl -sSL https://hub/install.sh | sh -s -- --uninstall
 
-# Windows
+# Windows, in an elevated PowerShell
 & ([scriptblock]::Create((irm https://hub/install.ps1))) -Uninstall
 ```
 
@@ -267,10 +263,6 @@ is broken, you are just seeing things a few seconds late.
 **An SSL error while installing an agent.** Turn on the self-signed certificate
 toggle in the Add device dialog and use the commands it gives back, or put a
 proper certificate in front of the hub.
-
-**The screen tab is greyed out.** Some machines cannot be captured at all.
-Headless servers, Wayland sessions, containers and `-SystemService` installs are
-the usual ones, and the tab tells you which applies.
 
 **You lost the admin password.** Stop the hub, delete `beacon.db`, and start it
 again to be asked for a new first account. This clears everything else too, so

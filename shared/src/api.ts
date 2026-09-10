@@ -115,10 +115,6 @@ export interface DeviceSettingsDto {
   sampleIntervalMs: number;
   /** Empty means "follow the server default". */
   updatePolicy: UpdatePolicy | null;
-  screenEnabled: boolean;
-  screenFps: number;
-  screenQuality: number;
-  screenMaxWidth: number;
   allowProcessKill: boolean;
   offlineAfterSec: number;
   panels: DevicePanelSettings;

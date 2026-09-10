@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { LiveServerMessage, MetricSample } from "@beacon/shared";
 import { api } from "@/lib/api";
 import { useAuth } from "./AuthContext";
@@ -16,13 +16,6 @@ export interface LiveAlert {
   value: number | null;
 }
 
-export interface ScreenFrame {
-  src: string;
-  width: number;
-  height: number;
-  ts: number;
-}
-
 /**
  * How values are currently being refreshed. The socket is preferred, but some
  * setups block it — a proxy that does not forward upgrades, or a self-signed
@@ -37,11 +30,7 @@ interface LiveValue {
   samples: Record<string, MetricSample>;
   statuses: Record<string, { status: "online" | "offline"; lastSeenAt: number | null }>;
   lastAlert: LiveAlert | null;
-  frames: Record<string, ScreenFrame>;
   updates: Record<string, { state: string; targetVersion: string | null; error: string | null }>;
-  screenStates: Record<string, { state: string; message?: string }>;
-  startScreen: (deviceId: string) => void;
-  stopScreen: (deviceId: string) => void;
 }
 
 const LiveContext = createContext<LiveValue | null>(null);
@@ -57,19 +46,11 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const [samples, setSamples] = useState<Record<string, MetricSample>>({});
   const [statuses, setStatuses] = useState<LiveValue["statuses"]>({});
   const [lastAlert, setLastAlert] = useState<LiveAlert | null>(null);
-  const [frames, setFrames] = useState<Record<string, ScreenFrame>>({});
-  const [screenStates, setScreenStates] = useState<Record<string, { state: string; message?: string }>>({});
   const [socketFailed, setSocketFailed] = useState(false);
   const [updates, setUpdates] = useState<LiveValue["updates"]>({});
 
   const socketRef = useRef<WebSocket | null>(null);
   const retryRef = useRef(1000);
-  const watchedRef = useRef<Set<string>>(new Set());
-
-  const sendJson = useCallback((payload: unknown) => {
-    const socket = socketRef.current;
-    if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
-  }, []);
 
   useEffect(() => {
     if (!session) {
@@ -92,10 +73,6 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         setSocketFailed(false);
         retryRef.current = 1000;
         socket.send(JSON.stringify({ type: "subscribe", deviceIds: "all" }));
-        // Re-open any screen the user was watching before the drop.
-        for (const deviceId of watchedRef.current) {
-          socket.send(JSON.stringify({ type: "screen", action: "start", deviceId }));
-        }
       };
 
       socket.onmessage = (event: MessageEvent<string>) => {
@@ -118,25 +95,8 @@ export function LiveProvider({ children }: { children: ReactNode }) {
           case "alert":
             setLastAlert(message.alert);
             return;
-          case "screen_frame":
-            setFrames((current) => ({
-              ...current,
-              [message.deviceId]: {
-                src: `data:image/${message.format};base64,${message.data}`,
-                width: message.width,
-                height: message.height,
-                ts: message.ts,
-              },
-            }));
-            return;
           case "agent_update":
             setUpdates((current) => ({ ...current, [message.deviceId]: message.state }));
-            return;
-          case "screen_state":
-            setScreenStates((current) => ({
-              ...current,
-              [message.deviceId]: { state: message.state, message: message.message },
-            }));
             return;
           default:
             return;
@@ -204,34 +164,11 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     };
   }, [session, connected, socketFailed]);
 
-  const startScreen = useCallback(
-    (deviceId: string) => {
-      watchedRef.current.add(deviceId);
-      setScreenStates((current) => ({ ...current, [deviceId]: { state: "starting" } }));
-      sendJson({ type: "screen", action: "start", deviceId });
-    },
-    [sendJson]
-  );
-
-  const stopScreen = useCallback(
-    (deviceId: string) => {
-      watchedRef.current.delete(deviceId);
-      sendJson({ type: "screen", action: "stop", deviceId });
-      setScreenStates((current) => ({ ...current, [deviceId]: { state: "stopped" } }));
-      setFrames((current) => {
-        const next = { ...current };
-        delete next[deviceId];
-        return next;
-      });
-    },
-    [sendJson]
-  );
-
   const mode: LiveMode = connected ? "live" : socketFailed ? "polling" : "connecting";
 
   const value = useMemo<LiveValue>(
-    () => ({ connected, mode, samples, statuses, lastAlert, frames, updates, screenStates, startScreen, stopScreen }),
-    [connected, mode, samples, statuses, lastAlert, frames, updates, screenStates, startScreen, stopScreen]
+    () => ({ connected, mode, samples, statuses, lastAlert, updates }),
+    [connected, mode, samples, statuses, lastAlert, updates]
   );
 
   return <LiveContext.Provider value={value}>{children}</LiveContext.Provider>;

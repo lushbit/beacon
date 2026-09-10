@@ -6,8 +6,10 @@
   & ([scriptblock]::Create((irm https://your-hub/install.ps1))) -Url https://your-hub -Token TOKEN
 
 .DESCRIPTION
-  Installs the agent, registers a scheduled task that keeps it running, and
-  starts it. Run in an elevated prompt to install for all users.
+  Installs the agent as a background service that starts with the machine and
+  reports whether or not anyone is signed in, the same way the Linux system
+  install does. The install needs administrator rights and elevates itself if
+  you let it.
 #>
 [CmdletBinding()]
 param(
@@ -15,11 +17,7 @@ param(
   [string]$Token,
   [string]$InstallDir,
   [switch]$InsecureTls,
-  [switch]$Uninstall,
-  # Run as SYSTEM from boot instead of in your desktop session. Use this for
-  # headless machines and servers. It starts before anyone logs in, but SYSTEM
-  # has no desktop, so screen viewing is not available.
-  [switch]$SystemService
+  [switch]$Uninstall
 )
 
 $ErrorActionPreference = "Stop"
@@ -33,10 +31,37 @@ function Test-Admin {
   return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
-$isAdmin = Test-Admin
-if (-not $InstallDir) {
-  $InstallDir = if ($isAdmin) { Join-Path $env:ProgramData "BeaconAgent" } else { Join-Path $env:LOCALAPPDATA "BeaconAgent" }
+# ------------------------------------------------------------------ elevation
+
+# A machine-wide service and its scheduled task can only be managed elevated.
+# Installing re-fetches the script into an elevated window so a single command
+# works from an ordinary prompt. Uninstalling cannot re-fetch (it carries no
+# URL), so it asks for an elevated prompt instead.
+if (-not (Test-Admin)) {
+  if ($Uninstall) {
+    throw "Removing the agent needs administrator rights. Open Windows PowerShell as Administrator and run the uninstall command again."
+  }
+  if (-not $Url) { throw "-Url is required, for example -Url https://beacon.example.com" }
+
+  Write-Host "This install needs administrator rights. Approve the prompt to continue in an elevated window."
+  $inner = "& ([scriptblock]::Create((irm '$Url/install.ps1'))) -Url '$Url'"
+  if ($Token) { $inner += " -Token '$Token'" }
+  if ($InsecureTls) { $inner += " -InsecureTls" }
+  if ($InstallDir) { $inner += " -InstallDir '$InstallDir'" }
+
+  try {
+    Start-Process -FilePath "powershell" -Verb RunAs -ArgumentList @(
+      "-NoProfile", "-ExecutionPolicy", "Bypass", "-NoExit", "-Command", $inner
+    )
+  } catch {
+    throw "Could not elevate automatically. Open Windows PowerShell as Administrator and run the command again."
+  }
+  return
 }
+
+if (-not $InstallDir) { $InstallDir = Join-Path $env:ProgramData "BeaconAgent" }
+
+# ----------------------------------------------------------------- uninstall
 
 if ($Uninstall) {
   Write-Host "Removing the Beacon agent..."
@@ -111,8 +136,7 @@ try {
   # Windows refuses to create a symlink unless the prompt is elevated or
   # developer mode is on, and tar abandons the whole archive at the first one
   # it cannot make. Current bundles contain none; these two paths are where
-  # older ones kept theirs, and nothing the agent runs comes from them, so an
-  # older hub still installs from a plain PowerShell window.
+  # older ones kept theirs, and nothing the agent runs comes from them.
   & tar -xzf $archive -C $versionDir --exclude "node_modules/.bin/*" --exclude "node_modules/@beacon/agent"
   if ($LASTEXITCODE -ne 0) { throw "could not unpack the agent bundle" }
 }
@@ -160,58 +184,62 @@ if (Test-Path $configFile) {
   }
   $config | ConvertTo-Json | Set-Content -Path $configFile -Encoding UTF8
 
-  # Readable only by this account and administrators.
+  # The token lives here, and the service runs as SYSTEM, so lock the file down
+  # to the service account and administrators.
   $acl = Get-Acl $configFile
   $acl.SetAccessRuleProtection($true, $false)
-  $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-    [System.Security.Principal.WindowsIdentity]::GetCurrent().Name, "FullControl", "Allow")
-  $acl.SetAccessRule($rule)
+  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule("SYSTEM", "FullControl", "Allow")))
+  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule("BUILTIN\Administrators", "FullControl", "Allow")))
   Set-Acl -Path $configFile -AclObject $acl
 }
 
 # ---------------------------------------------------------------------- task
 
-Write-Host "Registering the scheduled task..."
+Write-Host "Registering the service..."
 
+# SYSTEM, from boot, always reporting. StartWhenAvailable catches the trigger
+# even if the machine was off at boot time, and the restart settings bring the
+# agent back if it ever exits.
 $action = New-ScheduledTaskAction -Execute $node.Source `
   -Argument "`"$launcher`" --config `"$configFile`"" -WorkingDirectory $InstallDir
-
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
   -StartWhenAvailable -RestartInterval (New-TimeSpan -Minutes 1) -RestartCount 999 `
   -ExecutionTimeLimit ([TimeSpan]::Zero)
+$principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+$trigger = New-ScheduledTaskTrigger -AtStartup
 
 Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
+Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
+  -Settings $settings -Principal $principal | Out-Null
 
-if ($SystemService) {
-  # Starts with the machine. No desktop session, so no screen viewing.
-  if (-not $isAdmin) { throw "-SystemService needs an elevated PowerShell prompt." }
-  $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
-  $triggers = @(New-ScheduledTaskTrigger -AtStartup)
-  Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $triggers `
-    -Settings $settings -Principal $principal | Out-Null
-  Write-Step "runs as SYSTEM from boot, before anyone logs in"
-  Write-Step "screen viewing is unavailable in this mode - SYSTEM has no desktop"
-} else {
-  # Runs in your own desktop session, which is the only place a screen exists to
-  # capture. Elevated installs additionally get full rights over processes.
-  $userId = "$env:USERDOMAIN\$env:USERNAME"
-  $level = if ($isAdmin) { "Highest" } else { "Limited" }
-  $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel $level
-  $triggers = @(New-ScheduledTaskTrigger -AtLogOn -User $userId)
-  Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $triggers `
-    -Settings $settings -Principal $principal | Out-Null
-  Write-Step "starts when $env:USERNAME logs in, in that desktop session"
-  if ($isAdmin) {
-    Write-Step "elevated: full process visibility and screen viewing both work"
-  } else {
-    Write-Step "not elevated: screen viewing works, process control is limited to your account"
-    Write-Step "re-run in an elevated prompt for full process rights"
-  }
-  Write-Step "nothing is reported while no one is logged in - use -SystemService for that instead"
+# The agent stamps its config every time it reaches the hub. Read the previous
+# stamp so a re-install waits for a fresh connection rather than an old one.
+function Read-LastConnected {
+  try { return [long]((Get-Content $configFile -Raw | ConvertFrom-Json).lastConnectedAt) } catch { return 0 }
 }
+$before = Read-LastConnected
 
 Start-ScheduledTask -TaskName $TaskName
 
+# Waiting for the stamp to move is what turns "should appear" into proof. It is
+# why a device that silently never enrolls tells you here instead of just being
+# missing from the dashboard.
+Write-Host "Waiting for the device to reach the hub..."
+$connected = $false
+for ($i = 0; $i -lt 30; $i++) {
+  Start-Sleep -Seconds 1
+  if ((Read-LastConnected) -gt $before) { $connected = $true; break }
+}
+
 Write-Host ""
-Write-Host "Done. The device should appear in the dashboard within a few seconds."
-Write-Host "Remove it later with:  & ([scriptblock]::Create((irm $Url/install.ps1))) -Uninstall"
+Write-Step "runs as a service from boot, so it reports whether or not anyone is signed in"
+Write-Host ""
+if ($connected) {
+  Write-Host "Done. The device is enrolled and reporting to the hub."
+} else {
+  Write-Host "The service is installed, but the device has not reached the hub yet."
+  Write-Host "Check that this machine can open $Url, then look at the 'Beacon agent'"
+  Write-Host "task in Task Scheduler. It keeps trying, so the device may still appear."
+}
+Write-Host "Remove it later from an elevated prompt with:"
+Write-Host "  & ([scriptblock]::Create((irm $Url/install.ps1))) -Uninstall"

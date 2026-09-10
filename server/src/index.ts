@@ -41,7 +41,7 @@ app.use((_req, res, next) => {
       "object-src 'none'",
       "script-src 'self'",
       "style-src 'self' 'unsafe-inline'",
-      // Remote screen frames arrive over the socket as data URLs.
+      // Allow inline data/blob images (generated avatars, chart exports).
       "img-src 'self' data: blob:",
       "font-src 'self' data:",
       "connect-src 'self' ws: wss:",

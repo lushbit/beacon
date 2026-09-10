@@ -15,8 +15,6 @@
   },
   "dependencies": {
     "@beacon/shared": "*",
-    "jimp": "^1.6.0",
-    "screenshot-desktop": "^1.15.0",
     "systeminformation": "^5.25.11",
     "ws": "^8.18.0"
   },

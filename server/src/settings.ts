@@ -41,10 +41,6 @@ export function defaultDeviceSettings(): DeviceSettingsDto {
   const server = getServerSettings();
   return {
     sampleIntervalMs: server.defaultSampleIntervalMs,
-    screenEnabled: false,
-    screenFps: 4,
-    screenQuality: 60,
-    screenMaxWidth: 1280,
     allowProcessKill: false,
     updatePolicy: null,
     offlineAfterSec: server.defaultOfflineAfterSec,

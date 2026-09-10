@@ -6,15 +6,6 @@ export interface BeaconEvents {
   sample: { deviceId: string; sample: MetricSample };
   alert: AlertDto;
   device_status: { deviceId: string; status: "online" | "offline"; lastSeenAt: number | null };
-  screen_frame: {
-    deviceId: string;
-    ts: number;
-    width: number;
-    height: number;
-    format: "jpeg" | "png";
-    data: string;
-  };
-  screen_state: { deviceId: string; state: "starting" | "streaming" | "stopped" | "error"; message?: string };
   agent_update: { deviceId: string; state: AgentUpdateStateDto };
 }
 
