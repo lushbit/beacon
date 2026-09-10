@@ -6,22 +6,21 @@ import {
   KeyRound,
   Loader2,
   MonitorSmartphone,
-  ShieldAlert,
   Terminal,
   TriangleAlert,
 } from "lucide-react";
 import type { EnrollStatusDto, EnrollTokenDto } from "@beacon/shared";
 import { CommandSteps, type Step } from "@/components/CommandSteps";
+import { SelfSignedToggle } from "@/components/SelfSignedToggle";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/context/ToastContext";
 import { api } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { shellScriptDownload, windowsScriptCommand } from "@/lib/installCommands";
 
 /** How long to watch for the device before offering to stop. */
 const WAIT_TIMEOUT_MS = 5 * 60_000;
@@ -146,19 +145,15 @@ export function EnrollDialog({
 
     // With a self-signed certificate the command that *fetches* the installer
     // has to skip verification too, not just the agent's own connection.
-    const shell = insecure
-      ? `curl -sSLk ${hubUrl}/install.sh | sh -s -- --url ${hubUrl} --token ${value} --insecure-tls`
-      : `curl -sSL ${hubUrl}/install.sh | sh -s -- --url ${hubUrl} --token ${value}`;
+    const shell = `${shellScriptDownload(hubUrl, insecure)} | sh -s -- --url ${hubUrl} --token ${value}${
+      insecure ? " --insecure-tls" : ""
+    }`;
 
-    // One command. It installs a background service and elevates itself, so the
-    // -InsecureTls flag it carries is enough for a self-signed hub. No separate
-    // certificate step is needed the way the shell installers need one.
+    // One command. It installs a background service and elevates itself.
     const windows: Step[] = [
       {
         title: "Install the agent",
-        command: `& ([scriptblock]::Create((irm ${hubUrl}/install.ps1))) -Url ${hubUrl} -Token ${value}${
-          insecure ? " -InsecureTls" : ""
-        }`,
+        command: windowsScriptCommand(hubUrl, `-Token ${value}`, insecure),
         note: "Approve the administrator prompt. Installs a service that starts with the machine, so it reports whether or not anyone is signed in.",
       },
     ];
@@ -305,24 +300,7 @@ export function EnrollDialog({
               />
             ) : null}
 
-            <div
-              className={cn(
-                "flex items-start justify-between gap-4 rounded-md border p-3 transition-colors",
-                insecure ? "border-warning/50 bg-warning/10" : "border-warning/25 bg-warning/[0.04]"
-              )}
-            >
-              <div className="min-w-0">
-                <p className="flex items-center gap-1.5 text-sm font-medium text-warning">
-                  <ShieldAlert className="h-4 w-4 shrink-0" />
-                  This hub uses a self-signed certificate
-                </p>
-                <p className="mt-1 text-2xs text-warning/80">
-                  Adds the flags needed to skip certificate verification. Prefer a real certificate where you can — this
-                  turns off the check that proves the device is talking to your hub.
-                </p>
-              </div>
-              <Switch checked={insecure} onCheckedChange={setInsecure} aria-label="Hub uses a self-signed certificate" />
-            </div>
+            <SelfSignedToggle checked={insecure} onCheckedChange={setInsecure} />
 
             <p className="text-2xs text-muted-foreground">
               The installers need Node.js 20 or newer on the device. The token is shown once — it is stored hashed and

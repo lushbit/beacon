@@ -64,6 +64,9 @@ if (-not (Test-Admin)) {
     Write-Host "This install needs administrator rights. Approve the prompt to continue in an elevated window."
   }
   $inner = "& ([scriptblock]::Create((irm '$Url/install.ps1'))) -Url '$Url'"
+  # The elevated window downloads the script again, so with a self-signed
+  # certificate the check has to be off before that download, not only after.
+  if ($InsecureTls) { $inner = '[System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }; ' + $inner }
   if ($Uninstall) { $inner += " -Uninstall" }
   if ($Token) { $inner += " -Token '$Token'" }
   if ($InsecureTls) { $inner += " -InsecureTls" }
@@ -314,5 +317,9 @@ if ($connected) {
     Write-Host $manualRun
   }
 }
+$removeCommand = "& ([scriptblock]::Create((irm $Url/install.ps1))) -Url $Url -Uninstall"
+if ($InsecureTls) {
+  $removeCommand = '[System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }; ' + $removeCommand + " -InsecureTls"
+}
 Write-Host "Remove it later with:"
-Write-Host "  & ([scriptblock]::Create((irm $Url/install.ps1))) -Url $Url -Uninstall"
+Write-Host "  $removeCommand"
