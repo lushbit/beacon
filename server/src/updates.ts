@@ -182,8 +182,8 @@ export async function checkForUpdates(force = false, maxAgeMs = CHECK_INTERVAL_M
 }
 
 /**
- * Refreshes the release information after a sign-in, without making anyone wait
- * for it. Rate limited by `LOGIN_CHECK_MAX_AGE_MS`.
+ * Refreshes the release information after an admin signs in, without making
+ * them wait for it. Rate limited by `LOGIN_CHECK_MAX_AGE_MS`.
  */
 export function checkForUpdatesOnLogin(): void {
   void checkForUpdates(false, LOGIN_CHECK_MAX_AGE_MS).catch(() => undefined);

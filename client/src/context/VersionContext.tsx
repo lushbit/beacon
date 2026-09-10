@@ -25,49 +25,38 @@ const VersionContext = createContext<VersionValue | null>(null);
 
 export function VersionProvider({ children }: { children: ReactNode }) {
   const { session } = useAuth();
-  const isAdmin = session?.user.role === "admin";
+  // Keyed on the user rather than the session object, which is replaced every
+  // time a preference is saved and would otherwise restart the reads below.
+  const userId = session?.user.id ?? null;
   const [info, setInfo] = useState<VersionDto | null>(null);
   const [checking, setChecking] = useState(false);
 
+  /** Reads what the hub already knows. This never reaches the release feed. */
   const reload = useCallback(async () => {
-    if (!session) return;
+    if (!userId) return;
     try {
       setInfo(await api.version());
     } catch {
       /* the badge simply stays hidden */
     }
-  }, [session]);
+  }, [userId]);
 
-  /**
-   * Admins ask the hub to look at the release feed whenever the dashboard
-   * loads, so a new version announces itself instead of waiting for the next
-   * six-hourly check or for someone to open Settings. The hub reuses a result
-   * from the last few minutes, so reloading repeatedly costs nothing, and this
-   * deliberately does not touch `checking` because no button is waiting on it.
+  /*
+   * Loading the dashboard only reads. The release feed is asked by the hub's
+   * own schedule, by an admin signing in and by the Check now button, so
+   * reloads and page changes never cost a request against its rate limit.
    */
-  const autoCheck = useCallback(async () => {
-    if (!session) return;
-    try {
-      setInfo(await api.checkVersion(true));
-    } catch {
-      /* fall back to the plain read below */
-      await reload();
-    }
-  }, [session, reload]);
-
   useEffect(() => {
-    if (!session) return;
-    const refresh = () => (isAdmin ? autoCheck() : reload());
-    void refresh();
-    // Signing in also triggers a check on the hub. Readers cannot ask for one
-    // themselves, so a second read picks up that result for them.
-    const settle = isAdmin ? undefined : window.setTimeout(() => void reload(), 8000);
-    const timer = window.setInterval(() => void refresh(), 3600_000);
+    if (!userId) return;
+    void reload();
+    // An admin's sign-in starts a check on the hub, and this picks up its answer.
+    const settle = window.setTimeout(() => void reload(), 8000);
+    const timer = window.setInterval(() => void reload(), 3600_000);
     return () => {
-      if (settle !== undefined) window.clearTimeout(settle);
+      window.clearTimeout(settle);
       window.clearInterval(timer);
     };
-  }, [session, isAdmin, autoCheck, reload]);
+  }, [userId, reload]);
 
   const check = useCallback(async () => {
     setChecking(true);

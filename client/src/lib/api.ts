@@ -147,7 +147,7 @@ export const api = {
       "/agent/update-all"
     ),
   /** `auto` lets the hub reuse a recent result; the Settings button forces a look. */
-  checkVersion: (auto = false) => post<VersionDto>(`/version/check${auto ? "?auto=1" : ""}`),
+  checkVersion: () => post<VersionDto>("/version/check"),
 
   settings: () => request<ServerSettingsDto>("/settings"),
   updateSettings: (body: Partial<ServerSettingsDto>) => patch<ServerSettingsDto>("/settings", body),

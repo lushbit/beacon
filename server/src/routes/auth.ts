@@ -117,9 +117,11 @@ authRouter.post(
 
     clearAttempts(keys);
     db.prepare("UPDATE users SET last_login_at = ? WHERE id = ?").run(Date.now(), user.id);
-    // Someone is about to look at the dashboard, so make sure the release
-    // information is fresh. Deliberately not awaited: sign-in stays instant.
-    checkForUpdatesOnLogin();
+    // An admin is about to look at the dashboard, so make sure the release
+    // information is fresh. Nobody else can act on a new version, so nobody
+    // else's sign-in reaches out to the release feed. Not awaited, so signing
+    // in stays instant.
+    if (user.role === "admin") checkForUpdatesOnLogin();
     createSession(user.id, req, res);
     audit({ actor: user.username, action: "auth.login", target: user.id, ip });
 
