@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { AgentUpdateParams } from "@beacon/shared";
+import { parseJsonFile } from "./config.js";
 
 const run = promisify(execFile);
 
@@ -37,7 +38,8 @@ export function detectLayout(): InstallLayout | null {
 }
 
 function readState(layout: InstallLayout): CurrentState {
-  return JSON.parse(fs.readFileSync(layout.statePath, "utf8")) as CurrentState;
+  // The installer's state file can carry a UTF-8 BOM on Windows.
+  return parseJsonFile<CurrentState>(fs.readFileSync(layout.statePath, "utf8"));
 }
 
 function writeState(layout: InstallLayout, state: CurrentState): void {

@@ -97,11 +97,21 @@ Options:
 Environment: BEACON_URL, BEACON_TOKEN, BEACON_CONFIG, BEACON_INSECURE_TLS.
 `;
 
+/**
+ * Windows PowerShell writes JSON with a UTF-8 BOM, and `JSON.parse` rejects it.
+ * A config that failed to parse used to fall back to an empty object, which read
+ * as "no hub URL configured" and killed the agent on startup with nothing in the
+ * dashboard to show for it. Strip the BOM instead.
+ */
+export function parseJsonFile<T>(text: string): T {
+  return JSON.parse(text.replace(/^﻿/, "")) as T;
+}
+
 export function loadConfig(options: CliOptions): AgentFileConfig {
   let stored: Partial<AgentFileConfig> = {};
   if (fs.existsSync(options.configPath)) {
     try {
-      stored = JSON.parse(fs.readFileSync(options.configPath, "utf8")) as Partial<AgentFileConfig>;
+      stored = parseJsonFile<Partial<AgentFileConfig>>(fs.readFileSync(options.configPath, "utf8"));
     } catch {
       stored = {};
     }

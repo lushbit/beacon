@@ -19,12 +19,53 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const installDir = path.dirname(fileURLToPath(import.meta.url));
 const statePath = path.join(installDir, "current.json");
+const logPath = path.join(installDir, "agent.log");
 
 const FAILURES_BEFORE_ROLLBACK = 2;
 
+/**
+ * A Windows service has nowhere to send stdout, so mirror both streams to a
+ * file next to the install. Without this, a crash during startup is completely
+ * invisible: the process exits, nothing appears in the dashboard, and there is
+ * nothing anywhere to say why.
+ */
+function teeOutputToLog() {
+  try {
+    if (fs.existsSync(logPath) && fs.statSync(logPath).size > 1024 * 1024) {
+      fs.rmSync(logPath, { force: true });
+    }
+    const log = fs.createWriteStream(logPath, { flags: "a" });
+    for (const name of ["stdout", "stderr"]) {
+      const stream = process[name];
+      const original = stream.write.bind(stream);
+      stream.write = (chunk, encoding, callback) => {
+        try {
+          log.write(chunk);
+        } catch {
+          /* logging must never take the agent down */
+        }
+        return original(chunk, encoding, callback);
+      };
+    }
+  } catch {
+    /* an unwritable install directory must not stop the agent */
+  }
+}
+
+teeOutputToLog();
+
+/**
+ * Windows PowerShell writes JSON with a UTF-8 BOM, and `JSON.parse` rejects it.
+ * Stripping it here is what keeps an agent installed by such a script from
+ * dying on startup with an unreadable state file.
+ */
+function parseJson(text) {
+  return JSON.parse(text.replace(/^﻿/, ""));
+}
+
 function readState() {
   try {
-    return JSON.parse(fs.readFileSync(statePath, "utf8"));
+    return parseJson(fs.readFileSync(statePath, "utf8"));
   } catch {
     return null;
   }

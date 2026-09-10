@@ -25,6 +25,15 @@ $TaskName = "Beacon agent"
 
 function Write-Step($message) { Write-Host "  $message" }
 
+# Windows PowerShell's `Set-Content -Encoding UTF8` prepends a UTF-8 BOM, and
+# Node's JSON.parse refuses to read one. That left the agent exiting on startup
+# with an unreadable state file, no process running and nothing in the
+# dashboard, so every JSON file this script writes goes through here instead.
+function Write-JsonFile($Path, $Value) {
+  $json = $Value | ConvertTo-Json
+  [System.IO.File]::WriteAllText($Path, $json, (New-Object System.Text.UTF8Encoding($false)))
+}
+
 function Test-Admin {
   $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
   $principal = New-Object Security.Principal.WindowsPrincipal($identity)
@@ -65,14 +74,30 @@ if (-not $InstallDir) { $InstallDir = Join-Path $env:ProgramData "BeaconAgent" }
 
 if ($Uninstall) {
   Write-Host "Removing the Beacon agent..."
-  Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue | ForEach-Object {
+
+  # Each step says what it actually did, so a removal can be trusted rather than
+  # assumed.
+  if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
     Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+    Write-Step "removed the '$TaskName' scheduled task"
+  } else {
+    Write-Step "no '$TaskName' scheduled task was registered"
   }
+
+  $stopped = 0
   Get-Process -Name node -ErrorAction SilentlyContinue |
-    Where-Object { $_.Path -and $_.Path -like "*node*" -and (Get-CimInstance Win32_Process -Filter "ProcessId=$($_.Id)").CommandLine -like "*BeaconAgent*" } |
-    Stop-Process -Force -ErrorAction SilentlyContinue
-  if (Test-Path $InstallDir) { Remove-Item -Recurse -Force $InstallDir }
+    Where-Object { $_.Path -and (Get-CimInstance Win32_Process -Filter "ProcessId=$($_.Id)").CommandLine -like "*BeaconAgent*" } |
+    ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue; $stopped++ }
+  Write-Step "stopped $stopped running agent process(es)"
+
+  if (Test-Path $InstallDir) {
+    Remove-Item -Recurse -Force $InstallDir
+    Write-Step "deleted $InstallDir"
+  } else {
+    Write-Step "nothing to delete at $InstallDir"
+  }
+
   Write-Host "Done. The device stays in the dashboard until you remove it there."
   return
 }
@@ -161,12 +186,12 @@ if (Test-Path $statePath) {
     if ($existing.version -and $existing.version -ne $manifest.version) { $previous = $existing.version }
   } catch { $previous = $null }
 }
-[ordered]@{
+Write-JsonFile $statePath ([ordered]@{
   version      = $manifest.version
   previous     = $previous
   pendingSince = $null
   failures     = 0
-} | ConvertTo-Json | Set-Content -Path $statePath -Encoding UTF8
+})
 
 # --------------------------------------------------------------------- config
 
@@ -176,13 +201,12 @@ if (Test-Path $configFile) {
 } else {
   if (-not $Token) { throw "-Token is required the first time (create one in the dashboard)" }
   $installId = & node -e "process.stdout.write(require('crypto').randomUUID())"
-  $config = [ordered]@{
+  Write-JsonFile $configFile ([ordered]@{
     url         = $Url
     token       = $Token
     installId   = $installId
     insecureTls = [bool]$InsecureTls
-  }
-  $config | ConvertTo-Json | Set-Content -Path $configFile -Encoding UTF8
+  })
 
   # The token lives here, and the service runs as SYSTEM, so lock the file down
   # to the service account and administrators.
@@ -240,6 +264,19 @@ if ($connected) {
   Write-Host "The service is installed, but the device has not reached the hub yet."
   Write-Host "Check that this machine can open $Url, then look at the 'Beacon agent'"
   Write-Host "task in Task Scheduler. It keeps trying, so the device may still appear."
+
+  # The agent mirrors its output here, so whatever went wrong is readable now
+  # rather than being lost with the process that exited.
+  $logFile = Join-Path $InstallDir "agent.log"
+  if (Test-Path $logFile) {
+    Write-Host ""
+    Write-Host "Last lines of $logFile:"
+    Get-Content $logFile -Tail 20 | ForEach-Object { Write-Host "  $_" }
+  } else {
+    Write-Host ""
+    Write-Host "No $logFile was written, so the agent never started. Run this to see why:"
+    Write-Host "  & `"$($node.Source)`" `"$launcher`" --config `"$configFile`""
+  }
 }
 Write-Host "Remove it later from an elevated prompt with:"
 Write-Host "  & ([scriptblock]::Create((irm $Url/install.ps1))) -Uninstall"
