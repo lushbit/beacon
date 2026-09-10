@@ -285,6 +285,27 @@ export function listEnrollTokens(): EnrollTokenRow[] {
   return db.prepare("SELECT * FROM enroll_tokens ORDER BY created_at DESC").all() as EnrollTokenRow[];
 }
 
+/**
+ * Remembers which device most recently enrolled with a token, so the "add a
+ * device" dialog can name the machine that checked in. Only needed for the few
+ * minutes that dialog stays open, so it lives in memory and a hub restart
+ * simply falls back to the token's own use count.
+ */
+const recentEnrollments = new Map<string, { deviceId: string; at: number }>();
+const ENROLLMENT_MEMORY_MS = 60 * 60_000;
+
+export function noteEnrollment(tokenId: string, deviceId: string): void {
+  const now = Date.now();
+  recentEnrollments.set(tokenId, { deviceId, at: now });
+  for (const [key, value] of recentEnrollments) {
+    if (now - value.at > ENROLLMENT_MEMORY_MS) recentEnrollments.delete(key);
+  }
+}
+
+export function enrollmentFor(tokenId: string): string | null {
+  return recentEnrollments.get(tokenId)?.deviceId ?? null;
+}
+
 export function deleteEnrollToken(id: string): void {
   db.prepare("DELETE FROM enroll_tokens WHERE id = ?").run(id);
 }

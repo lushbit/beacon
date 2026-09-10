@@ -13,6 +13,7 @@ import { evaluateSample, seedDefaultRules } from "../alerts/engine.js";
 import { audit } from "../audit.js";
 import {
   consumeEnrollToken,
+  noteEnrollment,
   createDevice,
   deviceSettings,
   getDeviceByInstallId,
@@ -269,6 +270,9 @@ function handleHello(connection: AgentConnection, message: AgentMessage, remote:
       audit({ actor: "agent", action: "device.enrolled", target: deviceRow.id, detail: name, ip: remote });
       log.info(`enrolled new device "${name}" (${deviceRow.id})`);
     }
+
+    // Lets the "add a device" dialog report which machine checked in.
+    noteEnrollment(enrollment.id, deviceRow.id);
   } else if (deviceRow.install_id !== message.installId) {
     log.warn(`rejected agent from ${remote}: token belongs to another install`);
     connection.send({ type: "error", code: "unauthorized", message: "Token does not match this device." });

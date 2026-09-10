@@ -1,5 +1,18 @@
-import { useMemo, useRef, useState } from "react";
-import { Apple, Check, Container, Copy, KeyRound, MonitorSmartphone, ShieldAlert, Terminal } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Apple,
+  Check,
+  CheckCircle2,
+  Container,
+  Copy,
+  KeyRound,
+  Loader2,
+  MonitorSmartphone,
+  ShieldAlert,
+  Terminal,
+  TriangleAlert,
+} from "lucide-react";
+import type { EnrollStatusDto, EnrollTokenDto } from "@beacon/shared";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/label";
@@ -11,6 +24,9 @@ import { useToast } from "@/context/ToastContext";
 import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
+
+/** How long to watch for the device before offering to stop. */
+const WAIT_TIMEOUT_MS = 5 * 60_000;
 
 const EXPIRY_OPTIONS = [
   { id: "1", label: "1 hour" },
@@ -89,10 +105,45 @@ export function EnrollDialog({
   const [label, setLabel] = useState("");
   const [expiry, setExpiry] = useState("24");
   const [maxUses, setMaxUses] = useState("1");
-  const [token, setToken] = useState<string | null>(null);
+  const [created, setCreated] = useState<EnrollTokenDto | null>(null);
   const [insecure, setInsecure] = useState(false);
+  const [waiting, setWaiting] = useState(false);
+  const [status, setStatus] = useState<EnrollStatusDto | null>(null);
+  const [gaveUp, setGaveUp] = useState(false);
+
+  const token = created?.token ?? null;
+  const connected = Boolean(status?.used);
 
   const hubUrl = `${window.location.protocol}//${window.location.host}`;
+
+  /**
+   * The hub cannot reach out to a device, so this watches for the device
+   * checking in with the token that was just handed out. Polling stops the
+   * moment it arrives, and after a few minutes it offers to keep waiting rather
+   * than spinning forever.
+   */
+  useEffect(() => {
+    if (!waiting || !created || connected || gaveUp) return;
+    let cancelled = false;
+    const startedAt = Date.now();
+
+    const tick = async () => {
+      try {
+        const next = await api.enrollStatus(created.id);
+        if (!cancelled) setStatus(next);
+      } catch {
+        /* a blip should not end the wait */
+      }
+      if (!cancelled && Date.now() - startedAt > WAIT_TIMEOUT_MS) setGaveUp(true);
+    };
+
+    void tick();
+    const timer = window.setInterval(() => void tick(), 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [waiting, created, connected, gaveUp]);
 
   const commands = useMemo((): Record<string, Step[]> => {
     const value = token ?? "<token>";
@@ -160,17 +211,35 @@ export function EnrollDialog({
       })
     );
     if (result?.token) {
-      setToken(result.token);
+      setCreated(result);
       onCreated?.();
     }
   };
 
+  const reset = () => {
+    setCreated(null);
+    setLabel("");
+    setWaiting(false);
+    setStatus(null);
+    setGaveUp(false);
+  };
+
   const close = (next: boolean) => {
-    if (!next) {
-      setToken(null);
-      setLabel("");
-    }
+    if (!next) reset();
     onOpenChange(next);
+  };
+
+  /** Finishes the flow. The caller reloads, so the new device appears by itself. */
+  const finish = () => {
+    onCreated?.();
+    reset();
+    onOpenChange(false);
+  };
+
+  /** Cancelling takes the unused token back out of the list, as if never made. */
+  const cancel = async () => {
+    if (created) await api.deleteEnrollToken(created.id).catch(() => undefined);
+    finish();
   };
 
   return (
@@ -179,13 +248,71 @@ export function EnrollDialog({
         <DialogHeader
           title="Add a device"
           description={
-            token
-              ? "Run the commands below on the device. They install the agent, register it as a service and enroll it."
-              : "Create an enrollment token, then run the install command on the device."
+            waiting
+              ? "The device connects to the hub itself, so this waits for it to check in."
+              : token
+                ? "Run the commands below on the device. They install the agent, register it as a service and enroll it."
+                : "Create an enrollment token, then run the install command on the device."
           }
         />
 
-        {token ? (
+        {waiting ? (
+          <div className="space-y-4">
+            {connected ? (
+              <div className="flex items-start gap-3 rounded-md border border-success/30 bg-success/10 p-3">
+                <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-success" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-success">Connection established</p>
+                  <p className="mt-0.5 text-2xs text-success/80">
+                    {status?.device
+                      ? `${status.device.name} is enrolled and reporting to the hub.`
+                      : "The device is enrolled and reporting to the hub."}
+                  </p>
+                </div>
+              </div>
+            ) : gaveUp ? (
+              <div className="flex items-start gap-3 rounded-md border border-warning/30 bg-warning/10 p-3">
+                <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-warning">No device has checked in yet</p>
+                  <p className="mt-0.5 text-2xs text-warning/80">
+                    Check that the machine can reach {hubUrl} and that the install command finished. The token is still
+                    valid, so you can keep waiting or cancel it.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-start gap-3 rounded-md border border-border/60 bg-surface-2 p-3">
+                <Loader2 className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-muted-foreground" />
+                <div className="min-w-0">
+                  <p className="text-sm text-foreground">Waiting for the device to connect…</p>
+                  <p className="mt-0.5 text-2xs text-muted-foreground">
+                    Run the install command on the device. This updates on its own, no refresh needed.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <DialogFooter>
+              {connected ? (
+                <Button variant="primary" onClick={finish}>
+                  Close
+                </Button>
+              ) : (
+                <>
+                  <Button variant="ghost" onClick={() => void cancel()}>
+                    Cancel
+                  </Button>
+                  {gaveUp ? (
+                    <Button variant="primary" onClick={() => setGaveUp(false)}>
+                      Keep waiting
+                    </Button>
+                  ) : null}
+                </>
+              )}
+            </DialogFooter>
+          </div>
+        ) : token ? (
           <div className="space-y-4">
             <Tabs defaultValue="linux" className="space-y-3">
               <TabsList className="w-full">
@@ -249,7 +376,7 @@ export function EnrollDialog({
             </p>
 
             <DialogFooter>
-              <Button variant="primary" onClick={() => close(false)}>
+              <Button variant="primary" onClick={() => setWaiting(true)}>
                 Done
               </Button>
             </DialogFooter>

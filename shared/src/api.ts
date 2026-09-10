@@ -190,6 +190,17 @@ export interface EnrollTokenDto {
   token?: string;
 }
 
+/**
+ * Whether a device has checked in with a given enrollment token yet. The hub
+ * never dials out to a device, so the "add a device" dialog waits for this
+ * rather than being able to trigger a connection itself.
+ */
+export interface EnrollStatusDto {
+  used: boolean;
+  lastUsedAt: number | null;
+  device: { id: string; name: string; online: boolean } | null;
+}
+
 export interface AlertRuleDto {
   id: string;
   name: string;

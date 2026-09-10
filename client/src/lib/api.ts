@@ -7,6 +7,7 @@ import type {
   ChannelDto,
   DeviceDto,
   DeviceSummaryDto,
+  EnrollStatusDto,
   EnrollTokenDto,
   ListProcessesResult,
   MetricSeriesDto,
@@ -111,6 +112,8 @@ export const api = {
   createEnrollToken: (body: { label: string; expiresInHours: number | null; maxUses: number }) =>
     post<EnrollTokenDto>("/enroll-tokens", body),
   deleteEnrollToken: (id: string) => remove<{ ok: true }>(`/enroll-tokens/${id}`),
+  /** Has a device checked in with this token yet? */
+  enrollStatus: (id: string) => request<EnrollStatusDto>(`/enroll-tokens/${id}/status`),
 
   alerts: (options: { state?: string; deviceId?: string; limit?: number } = {}) =>
     request<AlertDto[]>(`/alerts${query(options)}`),

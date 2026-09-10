@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { UPDATE_POLICIES } from "@beacon/shared";
-import type { DeviceSettingsDto, DeviceStaticInfo, ListProcessesResult } from "@beacon/shared";
+import type { DeviceSettingsDto, DeviceStaticInfo, EnrollStatusDto, ListProcessesResult } from "@beacon/shared";
 import { activeAlertCounts } from "../alerts/repo.js";
 import { audit } from "../audit.js";
 import { actorOf, ipOf, requireAdmin } from "../auth/middleware.js";
@@ -12,6 +12,7 @@ import {
   deleteEnrollToken,
   deviceCapabilities,
   deviceSettings,
+  enrollmentFor,
   getDeviceRow,
   listDeviceRows,
   listEnrollTokens,
@@ -271,6 +272,27 @@ devicesRouter.post(
 
 export const enrollRouter = Router();
 enrollRouter.use(requireAdmin);
+
+/**
+ * Tells the "add a device" dialog whether a machine has checked in with this
+ * token yet. The hub never dials out to a device, so enrolling is something the
+ * dialog waits for rather than something it can trigger.
+ */
+enrollRouter.get(
+  "/:id/status",
+  handler((req, res) => {
+    const row = listEnrollTokens().find((token) => token.id === req.params.id);
+    if (!row) return notFound(res, "Token not found.");
+    const deviceId = enrollmentFor(row.id);
+    const device = deviceId ? getDeviceRow(deviceId) : null;
+    const body: EnrollStatusDto = {
+      used: row.uses > 0,
+      lastUsedAt: row.last_used_at,
+      device: device ? { id: device.id, name: device.name, online: isOnline(device.id) } : null,
+    };
+    res.json(body);
+  })
+);
 
 enrollRouter.get(
   "/",
