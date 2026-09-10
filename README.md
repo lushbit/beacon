@@ -153,8 +153,10 @@ docker build -t beacon-agent https://hub/download/beacon-agent-docker.tar.gz
 
 The build context comes from your hub, so the machine needs neither git nor
 access to this repository. Give it `--network host --pid host` and the Docker
-socket read-only to see both the host and its containers. The dialog prints the
-full `docker run` line for you.
+socket read-only, and it reports host CPU, memory and network alongside Docker
+container stats. Disk usage only covers what is mounted into the container, so
+mount the host paths you want reported. The dialog prints the full `docker run`
+line for you.
 
 ## 🔔 Alerts and notifications
 

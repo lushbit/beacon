@@ -124,6 +124,28 @@ if ($InsecureTls) {
 }
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
 
+# --------------------------------------------------------------- install dir
+
+# SYSTEM executes the launcher and everything under versions\, so a standard
+# user must not be able to add or replace a file in here. That would be a
+# straight path from an ordinary account to code running as SYSTEM. Inheriting
+# whatever ProgramData happens to grant is not a strong enough guarantee, so the
+# permissions are set explicitly: SYSTEM and administrators may write, everyone
+# else may only read.
+New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+$dirAcl = Get-Acl $InstallDir
+$dirAcl.SetAccessRuleProtection($true, $false)
+$inherit = [System.Security.AccessControl.InheritanceFlags]"ContainerInherit, ObjectInherit"
+$noProp = [System.Security.AccessControl.PropagationFlags]::None
+$dirAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+  "SYSTEM", "FullControl", $inherit, $noProp, "Allow")))
+$dirAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+  "BUILTIN\Administrators", "FullControl", $inherit, $noProp, "Allow")))
+$dirAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+  "BUILTIN\Users", "ReadAndExecute", $inherit, $noProp, "Allow")))
+Set-Acl -Path $InstallDir -AclObject $dirAcl
+Write-Step "locked the install directory to SYSTEM and administrators"
+
 # ------------------------------------------------------------------- download
 
 $temp = Join-Path ([System.IO.Path]::GetTempPath()) ("beacon-" + [System.Guid]::NewGuid().ToString("N"))
