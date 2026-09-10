@@ -5,6 +5,9 @@
 .EXAMPLE
   & ([scriptblock]::Create((irm https://your-hub/install.ps1))) -Url https://your-hub -Token TOKEN
 
+.EXAMPLE
+  & ([scriptblock]::Create((irm https://your-hub/install.ps1))) -Url https://your-hub -Uninstall
+
 .DESCRIPTION
   Installs the agent as a background service that starts with the machine and
   reports whether or not anyone is signed in, the same way the Linux system
@@ -43,17 +46,25 @@ function Test-Admin {
 # ------------------------------------------------------------------ elevation
 
 # A machine-wide service and its scheduled task can only be managed elevated.
-# Installing re-fetches the script into an elevated window so a single command
-# works from an ordinary prompt. Uninstalling cannot re-fetch (it carries no
-# URL), so it asks for an elevated prompt instead.
+# The script re-fetches itself into an elevated window, so one command works
+# from an ordinary prompt for installing and removing alike. Re-fetching needs
+# the hub address, which the uninstall command in the dashboard carries too.
 if (-not (Test-Admin)) {
-  if ($Uninstall) {
-    throw "Removing the agent needs administrator rights. Open Windows PowerShell as Administrator and run the uninstall command again."
+  if (-not $Url) {
+    if ($Uninstall) {
+      throw "Removing the agent needs administrator rights. Add -Url with your hub's address so the prompt can ask for them, or run the command from Windows PowerShell opened as Administrator."
+    }
+    throw "-Url is required, for example -Url https://beacon.example.com"
   }
-  if (-not $Url) { throw "-Url is required, for example -Url https://beacon.example.com" }
+  $Url = $Url.TrimEnd("/")
 
-  Write-Host "This install needs administrator rights. Approve the prompt to continue in an elevated window."
+  if ($Uninstall) {
+    Write-Host "Removing the agent needs administrator rights. Approve the prompt to continue in an elevated window."
+  } else {
+    Write-Host "This install needs administrator rights. Approve the prompt to continue in an elevated window."
+  }
   $inner = "& ([scriptblock]::Create((irm '$Url/install.ps1'))) -Url '$Url'"
+  if ($Uninstall) { $inner += " -Uninstall" }
   if ($Token) { $inner += " -Token '$Token'" }
   if ($InsecureTls) { $inner += " -InsecureTls" }
   if ($InstallDir) { $inner += " -InstallDir '$InstallDir'" }
@@ -303,5 +314,5 @@ if ($connected) {
     Write-Host $manualRun
   }
 }
-Write-Host "Remove it later from an elevated prompt with:"
-Write-Host "  & ([scriptblock]::Create((irm $Url/install.ps1))) -Uninstall"
+Write-Host "Remove it later with:"
+Write-Host "  & ([scriptblock]::Create((irm $Url/install.ps1))) -Url $Url -Uninstall"

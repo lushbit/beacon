@@ -225,8 +225,8 @@ at once under **Settings**, or set a nightly window and stop thinking about it.
 # Linux and macOS. Add sudo if you installed with sudo.
 curl -sSL https://hub/install.sh | sh -s -- --uninstall
 
-# Windows, in an elevated PowerShell
-& ([scriptblock]::Create((irm https://hub/install.ps1))) -Uninstall
+# Windows. It asks for administrator rights itself, like the install.
+& ([scriptblock]::Create((irm https://hub/install.ps1))) -Url https://hub -Uninstall
 ```
 
 That stops the service, unregisters it, and deletes the install folder along
