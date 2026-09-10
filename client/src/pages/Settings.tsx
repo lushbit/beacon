@@ -12,15 +12,19 @@ import { Field } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Progress } from "@/components/ui/progress";
 import { EmptyState } from "@/components/ui/misc";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth, useIsAdmin } from "@/context/AuthContext";
+import { useLive } from "@/context/LiveContext";
 import { useVersion } from "@/context/VersionContext";
 import { useToast } from "@/context/ToastContext";
 import { api } from "@/lib/api";
+import { agentUpdateStage } from "@/lib/agentUpdate";
 import { HUB_UPDATE_COMMAND } from "@/lib/updateCommand";
 import { formatBytes, formatDateTime, formatRelative } from "@/lib/format";
 import { RANGES } from "@/lib/time";
+import { cn } from "@/lib/utils";
 
 function Section({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
   return (
@@ -628,7 +632,25 @@ function AboutTab() {
   const incompatible = devices.filter((device) => device.compatibility === "incompatible");
   const [updatingAll, setUpdatingAll] = useState(false);
 
-  const reloadDevices = () => void api.devices().then(setDevices).catch(() => undefined);
+  const reloadDevices = useCallback(() => {
+    void api.devices().then(setDevices).catch(() => undefined);
+  }, []);
+
+  // Live update state arrives over the socket, so the list moves on its own.
+  const { updates, statuses } = useLive();
+
+  const isDeviceOnline = (device: DeviceSummaryDto) =>
+    statuses[device.id] ? statuses[device.id].status === "online" : device.status === "online";
+
+  const updatable = outdated.filter(isDeviceOnline);
+  const offline = outdated.filter((device) => !isDeviceOnline(device));
+
+  // An agent that finishes is still listed as outdated until the device list is
+  // refetched, which is what used to force a manual page refresh to see results.
+  const confirmedCount = outdated.filter((device) => updates[device.id]?.state === "confirmed").length;
+  useEffect(() => {
+    if (confirmedCount > 0) reloadDevices();
+  }, [confirmedCount, reloadDevices]);
 
   return (
     <div className="grid gap-4 xl:grid-cols-2">
@@ -768,39 +790,89 @@ function AboutTab() {
               <p className="text-sm text-muted-foreground">
                 {outdated.length} agent{outdated.length === 1 ? "" : "s"} behind the current version. Updating keeps each
                 device's identity and history.
+                {offline.length > 0
+                  ? ` ${offline.length} ${offline.length === 1 ? "is offline and will stay behind until it reconnects" : "are offline and will stay behind until they reconnect"}.`
+                  : ""}
               </p>
               {isAdmin ? (
                 <Button
                   variant="primary"
                   size="sm"
-                  disabled={updatingAll}
+                  disabled={updatingAll || updatable.length === 0}
                   onClick={async () => {
                     setUpdatingAll(true);
                     const result = await attempt(() => api.updateAllAgents());
                     setUpdatingAll(false);
-                    if (result) {
-                      notify(
-                        result.started > 0
-                          ? `Updating ${result.started} agent${result.started === 1 ? "" : "s"} to ${result.version}.`
-                          : "No online agent needed updating.",
-                        "success"
-                      );
-                      reloadDevices();
+                    if (result && result.started === 0) {
+                      notify("No online agent needed updating.", "info");
                     }
+                    // Progress is watched per agent below rather than announced
+                    // once and forgotten in a toast.
                   }}
                 >
                   <ArrowUpCircle className="h-3.5 w-3.5" />
-                  {updatingAll ? "Starting…" : "Update all agents"}
+                  {updatingAll
+                    ? "Starting…"
+                    : updatable.length === 0
+                      ? "No agent can be updated now"
+                      : `Update ${updatable.length} online agent${updatable.length === 1 ? "" : "s"}`}
                 </Button>
               ) : null}
             </div>
             <ul className="divide-y divide-border/50">
-              {outdated.map((device) => (
-                <li key={device.id} className="flex items-center justify-between gap-3 py-2">
-                  <span className="min-w-0 truncate text-sm text-foreground">{device.name}</span>
-                  <Badge tone="warning">v{device.agentVersion}</Badge>
-                </li>
-              ))}
+              {outdated.map((device) => {
+                const online = isDeviceOnline(device);
+                const live = updates[device.id];
+                const state = live?.state ?? device.updateState.state;
+                const stage = agentUpdateStage(
+                  state,
+                  live?.targetVersion ?? device.updateState.targetVersion,
+                  live?.error ?? device.updateState.error
+                );
+                const showBar = stage.busy || state === "confirmed" || state === "failed";
+
+                return (
+                  <li key={device.id} className="space-y-1.5 py-2.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="min-w-0 truncate text-sm text-foreground">{device.name}</span>
+                      {stage.busy ? (
+                        <Badge tone="info">Updating</Badge>
+                      ) : state === "confirmed" ? (
+                        <Badge tone="success">Updated</Badge>
+                      ) : state === "failed" ? (
+                        <Badge tone="danger">Failed</Badge>
+                      ) : online ? (
+                        <Badge tone="warning">v{device.agentVersion}</Badge>
+                      ) : (
+                        <Badge tone="neutral">Offline</Badge>
+                      )}
+                    </div>
+
+                    {showBar ? (
+                      <>
+                        <Progress value={stage.percent} tone={stage.tone} label={`Update progress for ${device.name}`} />
+                        <p
+                          className={cn(
+                            "text-2xs",
+                            stage.tone === "danger"
+                              ? "text-danger"
+                              : stage.tone === "success"
+                                ? "text-success"
+                                : "text-muted-foreground"
+                          )}
+                        >
+                          {stage.label}
+                        </p>
+                      </>
+                    ) : !online ? (
+                      <p className="text-2xs text-muted-foreground">
+                        Offline, so it cannot be updated right now. It stays on v{device.agentVersion} until it
+                        reconnects.
+                      </p>
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
           </>
         )}
