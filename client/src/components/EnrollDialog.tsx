@@ -42,13 +42,27 @@ interface Step {
   note?: string;
 }
 
-function CommandBlock({ step, index, total }: { step: Step; index: number; total: number }) {
+function CommandBlock({
+  step,
+  index,
+  total,
+  onCopy,
+}: {
+  step: Step;
+  index: number;
+  total: number;
+  onCopy: () => void;
+}) {
   const { notify } = useToast();
   const [copied, setCopied] = useState(false);
   const block = useRef<HTMLPreElement>(null);
 
   const copy = async () => {
-    if ((await copyText(step.command, block.current)) === "copied") {
+    const result = await copyText(step.command, block.current);
+    // A blocked copy still leaves the command selected to copy by hand, so
+    // either way it is about to be run.
+    onCopy();
+    if (result === "copied") {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
       return;
@@ -82,12 +96,67 @@ function CommandBlock({ step, index, total }: { step: Step; index: number; total
 }
 
 /** Each command gets its own block and its own copy button, so nothing is pasted half. */
-function CommandSteps({ steps }: { steps: Step[] }) {
+function CommandSteps({ steps, onCopy }: { steps: Step[]; onCopy: () => void }) {
   return (
     <div className="space-y-4">
       {steps.map((step, index) => (
-        <CommandBlock key={step.command} step={step} index={index} total={steps.length} />
+        <CommandBlock key={step.command} step={step} index={index} total={steps.length} onCopy={onCopy} />
       ))}
+    </div>
+  );
+}
+
+/** Sits under the commands and reports the device checking in, without leaving them. */
+function ConnectionStatus({
+  status,
+  gaveUp,
+  hubUrl,
+  onKeepWaiting,
+}: {
+  status: EnrollStatusDto | null;
+  gaveUp: boolean;
+  hubUrl: string;
+  onKeepWaiting: () => void;
+}) {
+  return (
+    <div aria-live="polite">
+      {status?.used ? (
+        <div className="flex items-start gap-3 rounded-md border border-success/30 bg-success/10 p-3">
+          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-success" />
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-success">Connection established</p>
+            <p className="mt-0.5 text-2xs text-success/80">
+              {status.device
+                ? `${status.device.name} is enrolled and reporting to the hub.`
+                : "The device is enrolled and reporting to the hub."}
+            </p>
+          </div>
+        </div>
+      ) : gaveUp ? (
+        <div className="flex items-start gap-3 rounded-md border border-warning/30 bg-warning/10 p-3">
+          <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-warning">No device has checked in yet</p>
+            <p className="mt-0.5 text-2xs text-warning/80">
+              Check that the machine can reach {hubUrl} and that the install command finished. The token is still
+              valid, so you can keep waiting or cancel it.
+            </p>
+            <Button variant="secondary" size="sm" className="mt-2" onClick={onKeepWaiting}>
+              Keep waiting
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-start gap-3 rounded-md border border-border/60 bg-surface-2 p-3">
+          <Loader2 className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-muted-foreground" />
+          <div className="min-w-0">
+            <p className="text-sm text-foreground">Waiting for the device to connect…</p>
+            <p className="mt-0.5 text-2xs text-muted-foreground">
+              Run the command on the device. This updates on its own, no refresh needed.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -216,6 +285,13 @@ export function EnrollDialog({
     }
   };
 
+  /** Copying a command means it is about to run, so start watching for the device. */
+  const startWaiting = () => {
+    setWaiting(true);
+    // Copying again after the wait ran out starts a fresh one.
+    setGaveUp(false);
+  };
+
   const reset = () => {
     setCreated(null);
     setLabel("");
@@ -248,71 +324,13 @@ export function EnrollDialog({
         <DialogHeader
           title="Add a device"
           description={
-            waiting
-              ? "The device connects to the hub itself, so this waits for it to check in."
-              : token
-                ? "Run the commands below on the device. They install the agent, register it as a service and enroll it."
-                : "Create an enrollment token, then run the install command on the device."
+            token
+              ? "Run the commands below on the device. Once you copy one, this window waits for the device to connect."
+              : "Create an enrollment token, then run the install command on the device."
           }
         />
 
-        {waiting ? (
-          <div className="space-y-4">
-            {connected ? (
-              <div className="flex items-start gap-3 rounded-md border border-success/30 bg-success/10 p-3">
-                <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-success" />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-success">Connection established</p>
-                  <p className="mt-0.5 text-2xs text-success/80">
-                    {status?.device
-                      ? `${status.device.name} is enrolled and reporting to the hub.`
-                      : "The device is enrolled and reporting to the hub."}
-                  </p>
-                </div>
-              </div>
-            ) : gaveUp ? (
-              <div className="flex items-start gap-3 rounded-md border border-warning/30 bg-warning/10 p-3">
-                <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-warning">No device has checked in yet</p>
-                  <p className="mt-0.5 text-2xs text-warning/80">
-                    Check that the machine can reach {hubUrl} and that the install command finished. The token is still
-                    valid, so you can keep waiting or cancel it.
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-start gap-3 rounded-md border border-border/60 bg-surface-2 p-3">
-                <Loader2 className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-muted-foreground" />
-                <div className="min-w-0">
-                  <p className="text-sm text-foreground">Waiting for the device to connect…</p>
-                  <p className="mt-0.5 text-2xs text-muted-foreground">
-                    Run the install command on the device. This updates on its own, no refresh needed.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            <DialogFooter>
-              {connected ? (
-                <Button variant="primary" onClick={finish}>
-                  Close
-                </Button>
-              ) : (
-                <>
-                  <Button variant="ghost" onClick={() => void cancel()}>
-                    Cancel
-                  </Button>
-                  {gaveUp ? (
-                    <Button variant="primary" onClick={() => setGaveUp(false)}>
-                      Keep waiting
-                    </Button>
-                  ) : null}
-                </>
-              )}
-            </DialogFooter>
-          </div>
-        ) : token ? (
+        {token ? (
           <div className="space-y-4">
             <Tabs defaultValue="linux" className="space-y-3">
               <TabsList className="w-full">
@@ -335,21 +353,30 @@ export function EnrollDialog({
               </TabsList>
 
               <TabsContent value="linux">
-                <CommandSteps steps={commands.linux} />
+                <CommandSteps steps={commands.linux} onCopy={startWaiting} />
               </TabsContent>
 
               <TabsContent value="macos">
-                <CommandSteps steps={commands.macos} />
+                <CommandSteps steps={commands.macos} onCopy={startWaiting} />
               </TabsContent>
 
               <TabsContent value="windows">
-                <CommandSteps steps={commands.windows} />
+                <CommandSteps steps={commands.windows} onCopy={startWaiting} />
               </TabsContent>
 
               <TabsContent value="docker">
-                <CommandSteps steps={commands.docker} />
+                <CommandSteps steps={commands.docker} onCopy={startWaiting} />
               </TabsContent>
             </Tabs>
+
+            {waiting ? (
+              <ConnectionStatus
+                status={status}
+                gaveUp={gaveUp}
+                hubUrl={hubUrl}
+                onKeepWaiting={() => setGaveUp(false)}
+              />
+            ) : null}
 
             <div
               className={cn(
@@ -376,8 +403,13 @@ export function EnrollDialog({
             </p>
 
             <DialogFooter>
-              <Button variant="primary" onClick={() => setWaiting(true)}>
-                Done
+              {waiting && !connected ? (
+                <Button variant="ghost" onClick={() => void cancel()}>
+                  Cancel
+                </Button>
+              ) : null}
+              <Button variant="primary" onClick={finish}>
+                {connected ? "Close" : "Done"}
               </Button>
             </DialogFooter>
           </div>
