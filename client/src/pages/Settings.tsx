@@ -20,7 +20,7 @@ import { useLive } from "@/context/LiveContext";
 import { useVersion } from "@/context/VersionContext";
 import { useToast } from "@/context/ToastContext";
 import { api } from "@/lib/api";
-import { agentUpdateStage } from "@/lib/agentUpdate";
+import { agentUpdateStage, isUpdating } from "@/lib/agentUpdate";
 import { HUB_UPDATE_COMMAND } from "@/lib/updateCommand";
 import { formatBytes, formatDateTime, formatRelative } from "@/lib/format";
 import { RANGES } from "@/lib/time";
@@ -642,8 +642,11 @@ function AboutTab() {
   const isDeviceOnline = (device: DeviceSummaryDto) =>
     statuses[device.id] ? statuses[device.id].status === "online" : device.status === "online";
 
-  const updatable = outdated.filter(isDeviceOnline);
-  const offline = outdated.filter((device) => !isDeviceOnline(device));
+  // An agent drops its connection while it restarts into the new version. That
+  // is part of updating, so it must not be counted as offline.
+  const updating = outdated.filter((device) => isUpdating(updates[device.id]?.state ?? device.updateState.state));
+  const updatable = outdated.filter((device) => isDeviceOnline(device) && !updating.includes(device));
+  const offline = outdated.filter((device) => !isDeviceOnline(device) && !updating.includes(device));
 
   // An agent that finishes is still listed as outdated until the device list is
   // refetched, which is what used to force a manual page refresh to see results.
@@ -788,8 +791,8 @@ function AboutTab() {
           <>
             <div className="mb-3 space-y-2">
               <p className="text-sm text-muted-foreground">
-                {outdated.length} agent{outdated.length === 1 ? "" : "s"} behind the current version. Updating keeps each
-                device's identity and history.
+                {outdated.length} agent{outdated.length === 1 ? " is" : "s are"} behind the current version.
+                {updating.length > 0 ? ` ${updating.length} ${updating.length === 1 ? "is" : "are"} updating now.` : ""}
                 {offline.length > 0
                   ? ` ${offline.length} ${offline.length === 1 ? "is offline and will stay behind until it reconnects" : "are offline and will stay behind until they reconnect"}.`
                   : ""}
