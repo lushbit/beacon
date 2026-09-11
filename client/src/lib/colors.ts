@@ -32,7 +32,7 @@ export const LEVEL_FILL: Record<SeverityLevel, string> = {
   critical: "hsl(var(--danger))",
 };
 
-/** Optional per-device accent, used only as a small bar at the end of the device's row. */
+/** Optional per-device accent, used only as a stripe down the left edge of the device's row. */
 export const DEVICE_COLORS = [
   { id: "slate", label: "Slate", value: "0 0% 62%" },
   { id: "blue", label: "Blue", value: "212 92% 60%" },

@@ -53,6 +53,12 @@ const COLUMNS: Column[] = [
  */
 const MOBILE_SORTS: DeviceSort[] = ["name", "cpu", "memory", "disk"];
 
+/**
+ * The desktop columns a phone card has no meter for, shown as a row of small
+ * figures under the meters. Alerts already sit beside the name.
+ */
+const MOBILE_DETAILS: DeviceSort[] = ["net", "temp", "uptime", "agent"];
+
 /** One sort control, shared by the table headers and the phone's sort row so both look the same. */
 function SortButton({
   option,
@@ -158,15 +164,9 @@ function DeviceMarkers({
   );
 }
 
-/** The device's colour, as a short bar against the right edge of its row. */
-function ColorBar({ color, className }: { color: string; className?: string }) {
-  return (
-    <span
-      className={cn("absolute right-0 w-1 rounded-l-full", className)}
-      style={{ background: deviceColor(color) }}
-      aria-hidden
-    />
-  );
+/** The device's colour, as a stripe down the left edge of its row. */
+function ColorBar({ color }: { color: string }) {
+  return <span className="absolute inset-y-0 left-0 w-1" style={{ background: deviceColor(color) }} aria-hidden />;
 }
 
 /** The hostname, when the device has been given a different name to show. */
@@ -414,12 +414,11 @@ export function DeviceTable({
           const summary = (samples[device.id] ?? device.latest)?.summary ?? null;
           const isExpanded = expanded === device.id;
           const details = [otherHostname(device), device.os].filter(Boolean).join(" · ");
-          const lastSeen = !online && device.lastSeenAt ? device.lastSeenAt : null;
 
           return (
-            <li key={device.id} className="overflow-hidden rounded-lg border border-border/70 bg-card">
-              <div className="relative flex items-start gap-3 px-3 py-3">
-                <ColorBar color={device.color} className="inset-y-3" />
+            <li key={device.id} className="relative overflow-hidden rounded-lg border border-border/70 bg-card">
+              <ColorBar color={device.color} />
+              <div className="flex items-start gap-3 px-3 py-3">
                 <Link
                   to={`/devices/${device.id}`}
                   className="flex min-w-0 flex-1 items-start gap-2.5 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
@@ -435,12 +434,8 @@ export function DeviceTable({
                         </span>
                       ) : null}
                     </span>
-                    {lastSeen || details ? (
-                      <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                        {lastSeen ? <RelativeTime value={lastSeen} /> : null}
-                        {lastSeen && details ? " · " : null}
-                        {details}
-                      </span>
+                    {details ? (
+                      <span className="mt-0.5 block truncate text-xs text-muted-foreground">{details}</span>
                     ) : null}
                   </span>
                 </Link>
@@ -469,6 +464,15 @@ export function DeviceTable({
                     <dd className="min-w-0 flex-1">
                       <UsageCell value={value} compact />
                     </dd>
+                  </div>
+                ))}
+              </dl>
+
+              <dl className="grid grid-cols-4 gap-x-3 border-t border-border/50 px-3 py-2.5">
+                {MOBILE_DETAILS.map((option) => (
+                  <div key={option} className="min-w-0">
+                    <dt className="text-2xs text-muted-foreground">{DEVICE_SORT_LABELS[option]}</dt>
+                    <dd className="truncate">{renderCell({ sort: option }, device, summary, online)}</dd>
                   </div>
                 ))}
               </dl>
@@ -518,13 +522,13 @@ export function DeviceTable({
                     isExpanded && "bg-white/[0.03]"
                   )}
                 >
-                  {COLUMNS.map((column) => (
-                    <td key={column.sort} className={cn("px-3", pad, column.visibility)}>
+                  {COLUMNS.map((column, index) => (
+                    <td key={column.sort} className={cn("px-3", pad, column.visibility, index === 0 && "relative")}>
+                      {index === 0 ? <ColorBar color={device.color} /> : null}
                       {renderCell(column, device, summary, online)}
                     </td>
                   ))}
-                  <td className={cn("relative px-2", pad)}>
-                    <ColorBar color={device.color} className="inset-y-2" />
+                  <td className={cn("px-2", pad)}>
                     <button
                       type="button"
                       aria-expanded={isExpanded}
