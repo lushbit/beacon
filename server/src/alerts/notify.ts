@@ -27,6 +27,15 @@ async function post(url: string, init: RequestInit): Promise<void> {
   }
 }
 
+/**
+ * HTTP header values can only hold Latin-1, and fetch rejects anything else,
+ * such as the em dash in every alert title or an emoji in a device name. ntfy
+ * decodes RFC 2047, so a title that is not plain ASCII is sent base64 encoded.
+ */
+function headerText(value: string): string {
+  return /^[\x20-\x7e]*$/.test(value) ? value : `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
+}
+
 async function sendNtfy(row: ChannelRow, alert: AlertDto): Promise<void> {
   const cfg = channelConfig(row);
   const base = (cfg.url ?? "").replace(/\/+$/, "");
@@ -35,7 +44,7 @@ async function sendNtfy(row: ChannelRow, alert: AlertDto): Promise<void> {
   const target = topic ? `${base}/${topic}` : base;
 
   const headers: Record<string, string> = {
-    Title: title(alert),
+    Title: headerText(title(alert)),
     Priority: alert.state === "resolved" ? "low" : alert.severity === "critical" ? "urgent" : "default",
     Tags: alert.state === "resolved" ? "white_check_mark" : alert.severity === "critical" ? "rotating_light" : "warning",
   };
