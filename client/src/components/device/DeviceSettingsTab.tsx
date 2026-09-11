@@ -96,7 +96,7 @@ export function DeviceSettingsTab({ device, onSaved }: Props) {
         <Field label="Display name">
           <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={60} />
         </Field>
-        <Field label="Accent" hint="Only used as a small dot to tell devices apart.">
+        <Field label="Accent" hint="Shown as a coloured bar on the left of this device in the overview list.">
           <div className="flex flex-wrap gap-2">
             {DEVICE_COLORS.map((option) => (
               <button
@@ -114,7 +114,7 @@ export function DeviceSettingsTab({ device, onSaved }: Props) {
             ))}
           </div>
         </Field>
-        <Field label="Tags" hint="Comma separated, used by the overview filter.">
+        <Field label="Tags" hint="Separate them with commas. Typing a tag into the overview filter shows every device that has it.">
           <Input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="office, linux" />
         </Field>
         <Field label="Notes">
