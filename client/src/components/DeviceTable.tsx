@@ -47,13 +47,6 @@ const COLUMNS: Column[] = [
 ];
 
 /**
- * The sorts worth offering on a phone. The table's own headers are the sort
- * controls everywhere else, but the phone layout is a list of cards with no
- * headers to click, so it carries a header-like row of the same buttons instead.
- */
-const MOBILE_SORTS: DeviceSort[] = ["name", "cpu", "memory", "disk"];
-
-/**
  * The desktop columns a phone card has no meter for, shown as a row of small
  * figures under the meters. Alerts already sit beside the name.
  */
@@ -102,6 +95,11 @@ function SortButton({
   );
 }
 
+/**
+ * The phone layout has no table headers to click, so its list carries every
+ * column's sort control in a header row of its own. The row wraps onto a second
+ * line rather than scrolling sideways.
+ */
 function MobileSortBar({
   sort,
   direction,
@@ -112,9 +110,15 @@ function MobileSortBar({
   onSort: (sort: DeviceSort) => void;
 }) {
   return (
-    <div className="mb-2 flex items-center gap-1 rounded-lg border border-border/70 bg-surface-2/50 px-1.5 py-1">
-      {MOBILE_SORTS.map((option) => (
-        <SortButton key={option} option={option} active={sort === option} direction={direction} onSort={onSort} />
+    <div className="flex flex-wrap items-center gap-x-1 border-b border-border/60 bg-surface-2/50 px-1.5 py-1">
+      {COLUMNS.map((column) => (
+        <SortButton
+          key={column.sort}
+          option={column.sort}
+          active={sort === column.sort}
+          direction={direction}
+          onSort={onSort}
+        />
       ))}
     </div>
   );
@@ -401,14 +405,15 @@ export function DeviceTable({
   /*
    * The table needs 36rem before its columns stop colliding, which is wider
    * than any phone. Rather than leave people scrolling a cramped grid
-   * sideways, small screens get the same rows as full-width cards.
+   * sideways, small screens stack the same rows in one list under a header
+   * of sort controls.
    */
   if (!wideEnoughForTable) {
     return (
-      <>
+      <div className="overflow-hidden rounded-lg border border-border/70 bg-card">
         <MobileSortBar sort={sort} direction={direction} onSort={onSort} />
 
-        <ul className="space-y-2">
+        <ul className="divide-y divide-border/50">
         {devices.map((device) => {
           const online = isOnline(device);
           const summary = (samples[device.id] ?? device.latest)?.summary ?? null;
@@ -416,7 +421,7 @@ export function DeviceTable({
           const details = [otherHostname(device), device.os].filter(Boolean).join(" · ");
 
           return (
-            <li key={device.id} className="relative overflow-hidden rounded-lg border border-border/70 bg-card">
+            <li key={device.id} className="relative">
               <ColorBar color={device.color} />
               <div className="flex items-start gap-3 px-3 py-3">
                 <Link
@@ -451,7 +456,7 @@ export function DeviceTable({
                 </button>
               </div>
 
-              <dl className="space-y-1.5 px-3 pb-3">
+              <dl className="space-y-1.5 px-3 pb-2.5">
                 {(
                   [
                     ["CPU", summary?.cpuPct],
@@ -468,7 +473,7 @@ export function DeviceTable({
                 ))}
               </dl>
 
-              <dl className="grid grid-cols-4 gap-x-3 border-t border-border/50 px-3 py-2.5">
+              <dl className="grid grid-cols-4 gap-x-3 px-3 pb-3">
                 {MOBILE_DETAILS.map((option) => (
                   <div key={option} className="min-w-0">
                     <dt className="text-2xs text-muted-foreground">{DEVICE_SORT_LABELS[option]}</dt>
@@ -482,7 +487,7 @@ export function DeviceTable({
           );
         })}
         </ul>
-      </>
+      </div>
     );
   }
 
