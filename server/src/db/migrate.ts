@@ -32,6 +32,37 @@ const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
   { table: "samples", column: "containers_total", definition: "REAL" },
 ];
 
+/**
+ * Default rules used to be named after the rule and the device, joined by an
+ * em dash, and that name reached every notification. The device is shown
+ * beside each rule anyway, so these names are trimmed to the rule alone, on the
+ * rules and on the alerts they raised. Names that do not follow that pattern
+ * are left as they are, and a trimmed name never matches again.
+ */
+const SEEDED_RULE_NAME = /^(High CPU|High memory|Disk almost full|Device offline) — .+$/;
+
+function trimSeededRuleNames(db: Database): number {
+  let renamed = 0;
+  for (const [table, column] of [
+    ["alert_rules", "name"],
+    ["alerts", "rule_name"],
+  ] as const) {
+    if (!tableExists(db, table)) continue;
+    const rows = db.prepare(`SELECT id, ${column} AS name FROM ${table} WHERE ${column} LIKE '% — %'`).all() as {
+      id: string;
+      name: string;
+    }[];
+    const update = db.prepare(`UPDATE ${table} SET ${column} = ? WHERE id = ?`);
+    for (const row of rows) {
+      const match = SEEDED_RULE_NAME.exec(row.name);
+      if (!match) continue;
+      update.run(match[1], row.id);
+      renamed += 1;
+    }
+  }
+  return renamed;
+}
+
 export function migrate(db: Database): void {
   let applied = 0;
 
@@ -40,6 +71,12 @@ export function migrate(db: Database): void {
     if (columns(db, entry.table).has(entry.column)) continue;
     db.exec(`ALTER TABLE ${entry.table} ADD COLUMN ${entry.column} ${entry.definition}`);
     log.info(`added ${entry.table}.${entry.column}`);
+    applied += 1;
+  }
+
+  const renamed = trimSeededRuleNames(db);
+  if (renamed > 0) {
+    log.info(`trimmed ${renamed} default rule name${renamed === 1 ? "" : "s"}`);
     applied += 1;
   }
 

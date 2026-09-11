@@ -16,7 +16,7 @@ function formatValue(alert: AlertDto): string {
 
 function title(alert: AlertDto): string {
   const verb = alert.state === "firing" ? "Alert" : "Resolved";
-  return `${verb}: ${alert.deviceName} — ${alert.ruleName}`;
+  return `${verb}: ${alert.ruleName} on ${alert.deviceName}`;
 }
 
 async function post(url: string, init: RequestInit): Promise<void> {

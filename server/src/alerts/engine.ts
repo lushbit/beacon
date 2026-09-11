@@ -176,6 +176,8 @@ export function seedDefaultRules(deviceId: string, deviceName: string): void {
      VALUES (?, ?, ?, ?, 'gt', ?, ?, ?, 900, 1, ?)`
   );
   for (const rule of defaults) {
-    stmt.run(newId(), `${rule.name} — ${deviceName}`, deviceId, rule.metric, rule.threshold, rule.durationSec, rule.severity, Date.now());
+    // The device shows beside each rule on the Alerts page and in every
+    // notification, so the name stays the rule alone.
+    stmt.run(newId(), rule.name, deviceId, rule.metric, rule.threshold, rule.durationSec, rule.severity, Date.now());
   }
 }
