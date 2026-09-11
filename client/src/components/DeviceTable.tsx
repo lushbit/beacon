@@ -97,8 +97,8 @@ function SortButton({
 
 /**
  * The phone layout has no table headers to click, so its list carries every
- * column's sort control in a header row of its own. The row wraps onto a second
- * line rather than scrolling sideways.
+ * column's sort control in a header row of its own. The row stays on one line
+ * and scrolls sideways, with a fade on the right to show there is more.
  */
 function MobileSortBar({
   sort,
@@ -110,16 +110,27 @@ function MobileSortBar({
   onSort: (sort: DeviceSort) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-1 border-b border-border/60 bg-surface-2/50 px-1.5 py-1">
-      {COLUMNS.map((column) => (
-        <SortButton
-          key={column.sort}
-          option={column.sort}
-          active={sort === column.sort}
-          direction={direction}
-          onSort={onSort}
-        />
-      ))}
+    <div className="relative border-b border-border/60 bg-surface-2/50">
+      <div className="scroll-slim flex items-center gap-x-1 overflow-x-auto py-1 pl-1.5 pr-8">
+        {COLUMNS.map((column) => (
+          <SortButton
+            key={column.sort}
+            option={column.sort}
+            active={sort === column.sort}
+            direction={direction}
+            onSort={onSort}
+            className="shrink-0"
+          />
+        ))}
+      </div>
+      <span
+        className="pointer-events-none absolute inset-y-0 right-0 w-8"
+        style={{
+          background:
+            "linear-gradient(to left, color-mix(in srgb, hsl(var(--surface-2)) 50%, hsl(var(--card))), transparent)",
+        }}
+        aria-hidden
+      />
     </div>
   );
 }
