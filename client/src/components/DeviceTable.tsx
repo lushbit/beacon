@@ -111,7 +111,7 @@ function MobileSortBar({
 }) {
   return (
     <div className="relative border-b border-border/60 bg-surface-2/50">
-      <div className="scroll-slim flex items-center gap-x-1 overflow-x-auto py-1 pl-1.5 pr-8">
+      <div className="scroll-slim flex items-center gap-x-1 overflow-x-auto py-1 pl-3.5 pr-8">
         {COLUMNS.map((column) => (
           <SortButton
             key={column.sort}
@@ -137,17 +137,23 @@ function MobileSortBar({
 
 function SortHeader({
   column,
+  first,
   active,
   direction,
   onSort,
 }: {
   column: Column;
+  /** The first column leaves room for the colour bar, like its cells. */
+  first: boolean;
   active: boolean;
   direction: SortDirection;
   onSort: (sort: DeviceSort) => void;
 }) {
   return (
-    <th scope="col" className={cn("px-3 py-1.5 text-left font-normal", column.width, column.visibility)}>
+    <th
+      scope="col"
+      className={cn("py-1.5 text-left font-normal", first ? "pl-5 pr-3" : "px-3", column.width, column.visibility)}
+    >
       <SortButton option={column.sort} active={active} direction={direction} onSort={onSort} className="-mx-1.5" />
     </th>
   );
@@ -164,7 +170,7 @@ function DeviceMarkers({
   className?: string;
 }) {
   return (
-    <span className={cn("flex shrink-0 items-center gap-1.5", className)}>
+    <span className={cn("flex shrink-0 items-center gap-2", className)}>
       <span title={online ? "Online" : "Offline"} className="flex">
         <StatusDot online={online} />
         <span className="sr-only">{online ? "Online" : "Offline"}</span>
@@ -338,7 +344,7 @@ export function DeviceTable({
           <Link
             to={`/devices/${device.id}`}
             onClick={(event) => event.stopPropagation()}
-            className="flex min-w-0 items-center gap-2.5 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+            className="flex min-w-0 items-center gap-3 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
           >
             <DeviceMarkers device={device} online={online} />
             <span className="min-w-0">
@@ -434,10 +440,10 @@ export function DeviceTable({
           return (
             <li key={device.id} className="relative">
               <ColorBar color={device.color} />
-              <div className="flex items-start gap-3 px-3 py-3">
+              <div className="flex items-start gap-3 py-3 pl-5 pr-3">
                 <Link
                   to={`/devices/${device.id}`}
-                  className="flex min-w-0 flex-1 items-start gap-2.5 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                  className="flex min-w-0 flex-1 items-start gap-3 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
                 >
                   <DeviceMarkers device={device} online={online} className="h-6" />
                   <span className="min-w-0 flex-1">
@@ -467,7 +473,7 @@ export function DeviceTable({
                 </button>
               </div>
 
-              <dl className="space-y-1.5 px-3 pb-2.5">
+              <dl className="space-y-1.5 pb-2.5 pl-5 pr-3">
                 {(
                   [
                     ["CPU", summary?.cpuPct],
@@ -484,7 +490,7 @@ export function DeviceTable({
                 ))}
               </dl>
 
-              <dl className="grid grid-cols-4 gap-x-3 px-3 pb-3">
+              <dl className="grid grid-cols-4 gap-x-3 pb-3 pl-5 pr-3">
                 {MOBILE_DETAILS.map((option) => (
                   <div key={option} className="min-w-0">
                     <dt className="text-2xs text-muted-foreground">{DEVICE_SORT_LABELS[option]}</dt>
@@ -507,10 +513,11 @@ export function DeviceTable({
       <table className="w-full min-w-[36rem] table-fixed border-collapse text-left">
         <thead className="border-b border-border/60 bg-surface-2/50">
           <tr>
-            {COLUMNS.map((column) => (
+            {COLUMNS.map((column, index) => (
               <SortHeader
                 key={column.sort}
                 column={column}
+                first={index === 0}
                 active={sort === column.sort}
                 direction={direction}
                 onSort={onSort}
@@ -539,7 +546,10 @@ export function DeviceTable({
                   )}
                 >
                   {COLUMNS.map((column, index) => (
-                    <td key={column.sort} className={cn("px-3", pad, column.visibility, index === 0 && "relative")}>
+                    <td
+                      key={column.sort}
+                      className={cn(index === 0 ? "relative pl-5 pr-3" : "px-3", pad, column.visibility)}
+                    >
                       {index === 0 ? <ColorBar color={device.color} /> : null}
                       {renderCell(column, device, summary, online)}
                     </td>
