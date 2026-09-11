@@ -36,7 +36,6 @@ export interface SessionDto {
  */
 export const DEVICE_SORTS = [
   "none",
-  "status",
   "name",
   "cpu",
   "memory",
@@ -53,7 +52,6 @@ export type SortDirection = "asc" | "desc";
 
 export const DEVICE_SORT_LABELS: Record<DeviceSort, string> = {
   none: "Default",
-  status: "Status",
   name: "System",
   cpu: "CPU",
   memory: "Memory",
@@ -71,7 +69,6 @@ export const DEVICE_SORT_LABELS: Record<DeviceSort, string> = {
  */
 export const DEVICE_SORT_DIRECTION_LABELS: Record<DeviceSort, Record<SortDirection, string>> = {
   none: { asc: "Default order", desc: "Default order" },
-  status: { asc: "Online first", desc: "Offline first" },
   name: { asc: "A to Z", desc: "Z to A" },
   cpu: { asc: "Idlest first", desc: "Busiest first" },
   memory: { asc: "Least used first", desc: "Most used first" },

@@ -70,13 +70,11 @@ export function OverviewPage() {
 
     const summaryOf = (device: DeviceSummaryDto) => (samples[device.id] ?? device.latest)?.summary ?? null;
 
-    // Ascending is always "smallest first": online before offline, A before Z,
-    // idle before busy, coolest before hottest.
+    // Ascending is always "smallest first": A before Z, idle before busy,
+    // coolest before hottest.
     const keyOf = (device: DeviceSummaryDto): string | number => {
       const summary = summaryOf(device);
       switch (sort) {
-        case "status":
-          return isOnline(device) ? 0 : 1;
         case "name":
           return device.name.toLowerCase();
         case "cpu":

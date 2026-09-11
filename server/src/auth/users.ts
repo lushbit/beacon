@@ -1,4 +1,4 @@
-import { DEFAULT_USER_PREFERENCES } from "@beacon/shared";
+import { DEFAULT_USER_PREFERENCES, DEVICE_SORTS } from "@beacon/shared";
 import type { UserDto, UserPreferences, UserRole } from "@beacon/shared";
 import { db, parseJson } from "../db/index.js";
 import { newId } from "../utils/ids.js";
@@ -29,7 +29,11 @@ export function toUserDto(row: UserRow): UserDto {
 }
 
 export function userPreferences(row: UserRow): UserPreferences {
-  return { ...DEFAULT_USER_PREFERENCES, ...parseJson<Partial<UserPreferences>>(row.preferences, {}) };
+  const stored = { ...DEFAULT_USER_PREFERENCES, ...parseJson<Partial<UserPreferences>>(row.preferences, {}) };
+  // A sort that has since been removed, such as the old Status column, falls
+  // back to the default order.
+  if (!DEVICE_SORTS.includes(stored.deviceSort)) return { ...stored, deviceSort: "none", deviceSortDir: "asc" };
+  return stored;
 }
 
 export function findUserById(id: string): UserRow | undefined {

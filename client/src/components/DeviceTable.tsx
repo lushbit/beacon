@@ -1,7 +1,7 @@
 import { Fragment, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { ArrowDown, ArrowUp, ArrowUpDown, Bell, ChevronDown } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpCircle, ArrowUpDown, Bell, ChevronDown } from "lucide-react";
 import {
   DEVICE_SORT_DIRECTION_LABELS,
   DEVICE_SORT_LABELS,
@@ -35,7 +35,6 @@ interface Column {
  * are instead of in a separate menu above the list.
  */
 const COLUMNS: Column[] = [
-  { sort: "status", width: "w-[7rem]" },
   { sort: "name", width: "w-[18rem]" },
   { sort: "cpu", width: "w-[9rem]" },
   { sort: "memory", width: "w-[9rem]" },
@@ -50,9 +49,52 @@ const COLUMNS: Column[] = [
 /**
  * The sorts worth offering on a phone. The table's own headers are the sort
  * controls everywhere else, but the phone layout is a list of cards with no
- * headers to click, so it carries this row of buttons instead.
+ * headers to click, so it carries a header-like row of the same buttons instead.
  */
-const MOBILE_SORTS: DeviceSort[] = ["status", "name", "cpu", "memory", "disk"];
+const MOBILE_SORTS: DeviceSort[] = ["name", "cpu", "memory", "disk"];
+
+/** One sort control, shared by the table headers and the phone's sort row so both look the same. */
+function SortButton({
+  option,
+  active,
+  direction,
+  onSort,
+  className,
+}: {
+  option: DeviceSort;
+  active: boolean;
+  direction: SortDirection;
+  onSort: (sort: DeviceSort) => void;
+  className?: string;
+}) {
+  const label = DEVICE_SORT_LABELS[option];
+  const labels = DEVICE_SORT_DIRECTION_LABELS[option];
+  const Icon = !active ? ArrowUpDown : direction === "asc" ? ArrowUp : ArrowDown;
+  const next = !active ? labels.asc : direction === "asc" ? labels.desc : "the default order";
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(option)}
+      aria-pressed={active}
+      title={`${active ? labels[direction] : `Not sorted by ${label.toLowerCase()}`}. Click for ${next.toLowerCase()}.`}
+      className={cn(
+        "group flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1.5 text-xs font-medium transition-colors",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
+        active ? "text-foreground" : "text-muted-foreground hover:bg-white/[0.05] hover:text-foreground",
+        className
+      )}
+    >
+      <span className="truncate">{label}</span>
+      <Icon
+        className={cn(
+          "h-3 w-3 shrink-0 transition-opacity",
+          active ? "opacity-100" : "opacity-50 group-hover:opacity-100"
+        )}
+      />
+    </button>
+  );
+}
 
 function MobileSortBar({
   sort,
@@ -64,28 +106,10 @@ function MobileSortBar({
   onSort: (sort: DeviceSort) => void;
 }) {
   return (
-    <div className="scroll-slim -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-2">
-      {MOBILE_SORTS.map((option) => {
-        const active = sort === option;
-        const Arrow = !active ? ArrowUpDown : direction === "asc" ? ArrowUp : ArrowDown;
-        return (
-          <button
-            key={option}
-            type="button"
-            onClick={() => onSort(option)}
-            aria-label={DEVICE_SORT_DIRECTION_LABELS[option][active && direction === "asc" ? "desc" : "asc"]}
-            className={cn(
-              "tap-target flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-              active
-                ? "border-white/15 bg-white/[0.08] text-foreground"
-                : "border-border/70 bg-card text-muted-foreground"
-            )}
-          >
-            {DEVICE_SORT_LABELS[option]}
-            <Arrow className="h-3 w-3" />
-          </button>
-        );
-      })}
+    <div className="mb-2 flex items-center gap-1 rounded-lg border border-border/70 bg-surface-2/50 px-1.5 py-1">
+      {MOBILE_SORTS.map((option) => (
+        <SortButton key={option} option={option} active={sort === option} direction={direction} onSort={onSort} />
+      ))}
     </div>
   );
 }
@@ -101,33 +125,47 @@ function SortHeader({
   direction: SortDirection;
   onSort: (sort: DeviceSort) => void;
 }) {
-  const label = DEVICE_SORT_LABELS[column.sort];
-  const labels = DEVICE_SORT_DIRECTION_LABELS[column.sort];
-  const Icon = !active ? ArrowUpDown : direction === "asc" ? ArrowUp : ArrowDown;
-  const next = !active ? labels.asc : direction === "asc" ? labels.desc : "the default order";
-
   return (
     <th scope="col" className={cn("px-3 py-1.5 text-left font-normal", column.width, column.visibility)}>
-      <button
-        type="button"
-        onClick={() => onSort(column.sort)}
-        aria-pressed={active}
-        title={`${active ? labels[direction] : `Not sorted by ${label.toLowerCase()}`} — click for ${next.toLowerCase()}`}
-        className={cn(
-          "group -mx-1.5 flex items-center gap-1.5 rounded-md px-1.5 py-1.5 text-xs font-medium transition-colors",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
-          active ? "text-foreground" : "text-muted-foreground hover:bg-white/[0.05] hover:text-foreground"
-        )}
-      >
-        <span className="truncate">{label}</span>
-        <Icon
-          className={cn(
-            "h-3 w-3 shrink-0 transition-opacity",
-            active ? "opacity-100" : "opacity-0 group-hover:opacity-60"
-          )}
-        />
-      </button>
+      <SortButton option={column.sort} active={active} direction={direction} onSort={onSort} className="-mx-1.5" />
     </th>
+  );
+}
+
+/** Whether the device is online, and whether its agent has an update waiting, in front of its name. */
+function DeviceMarkers({
+  device,
+  online,
+  className,
+}: {
+  device: DeviceSummaryDto;
+  online: boolean;
+  className?: string;
+}) {
+  return (
+    <span className={cn("flex shrink-0 items-center gap-1.5", className)}>
+      <span title={online ? "Online" : "Offline"} className="flex">
+        <StatusDot online={online} />
+        <span className="sr-only">{online ? "Online" : "Offline"}</span>
+      </span>
+      {device.compatibility === "outdated" ? (
+        <span title="Agent update available" className="flex">
+          <ArrowUpCircle className="h-3.5 w-3.5 text-info" aria-hidden />
+          <span className="sr-only">Agent update available</span>
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/** The device's colour, as a short bar against the right edge of its row. */
+function ColorBar({ color, className }: { color: string; className?: string }) {
+  return (
+    <span
+      className={cn("absolute right-0 w-1 rounded-l-full", className)}
+      style={{ background: deviceColor(color) }}
+      aria-hidden
+    />
   );
 }
 
@@ -277,15 +315,6 @@ export function DeviceTable({
     online: boolean
   ): ReactNode => {
     switch (column.sort) {
-      case "status":
-        return (
-          <span className="flex items-center gap-2">
-            <StatusDot online={online} />
-            <span className={cn("truncate text-xs", online ? "text-foreground" : "text-muted-foreground")}>
-              {online ? "Online" : "Offline"}
-            </span>
-          </span>
-        );
       case "name":
         // The row is clickable for convenience, but the name is the real link:
         // it is what keyboard and screen-reader users reach, and it opens in a
@@ -296,11 +325,7 @@ export function DeviceTable({
             onClick={(event) => event.stopPropagation()}
             className="flex min-w-0 items-center gap-2.5 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
           >
-            <span
-              className="h-2.5 w-2.5 shrink-0 rounded-full"
-              style={{ background: deviceColor(device.color) }}
-              aria-hidden
-            />
+            <DeviceMarkers device={device} online={online} />
             <span className="min-w-0">
               <span className={cn("block truncate font-medium text-foreground", compact ? "text-sm" : "text-[0.95rem]")}>
                 {device.name}
@@ -374,7 +399,7 @@ export function DeviceTable({
   );
 
   /*
-   * The table needs 44rem before its columns stop colliding, which is wider
+   * The table needs 36rem before its columns stop colliding, which is wider
    * than any phone. Rather than leave people scrolling a cramped grid
    * sideways, small screens get the same rows as full-width cards.
    */
@@ -388,19 +413,18 @@ export function DeviceTable({
           const online = isOnline(device);
           const summary = (samples[device.id] ?? device.latest)?.summary ?? null;
           const isExpanded = expanded === device.id;
+          const details = [otherHostname(device), device.os].filter(Boolean).join(" · ");
+          const lastSeen = !online && device.lastSeenAt ? device.lastSeenAt : null;
 
           return (
             <li key={device.id} className="overflow-hidden rounded-lg border border-border/70 bg-card">
-              <div className="flex items-start gap-3 px-3 py-3">
+              <div className="relative flex items-start gap-3 px-3 py-3">
+                <ColorBar color={device.color} className="inset-y-3" />
                 <Link
                   to={`/devices/${device.id}`}
                   className="flex min-w-0 flex-1 items-start gap-2.5 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
                 >
-                  <span
-                    className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ background: deviceColor(device.color) }}
-                    aria-hidden
-                  />
+                  <DeviceMarkers device={device} online={online} className="h-6" />
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-2">
                       <span className="truncate font-medium text-foreground">{device.name}</span>
@@ -411,16 +435,13 @@ export function DeviceTable({
                         </span>
                       ) : null}
                     </span>
-                    <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <StatusDot online={online} />
-                      <span className="truncate">
-                        {online ? "Online" : device.lastSeenAt ? <RelativeTime value={device.lastSeenAt} /> : "Offline"}
-                        {[otherHostname(device), device.os]
-                          .filter(Boolean)
-                          .map((part) => ` · ${part}`)
-                          .join("")}
+                    {lastSeen || details ? (
+                      <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                        {lastSeen ? <RelativeTime value={lastSeen} /> : null}
+                        {lastSeen && details ? " · " : null}
+                        {details}
                       </span>
-                    </span>
+                    ) : null}
                   </span>
                 </Link>
 
@@ -463,7 +484,7 @@ export function DeviceTable({
 
   return (
     <div className="scroll-slim overflow-x-auto rounded-lg border border-border/70 bg-card">
-      <table className="w-full min-w-[44rem] table-fixed border-collapse text-left">
+      <table className="w-full min-w-[36rem] table-fixed border-collapse text-left">
         <thead className="border-b border-border/60 bg-surface-2/50">
           <tr>
             {COLUMNS.map((column) => (
@@ -502,7 +523,8 @@ export function DeviceTable({
                       {renderCell(column, device, summary, online)}
                     </td>
                   ))}
-                  <td className={cn("px-2", pad)}>
+                  <td className={cn("relative px-2", pad)}>
+                    <ColorBar color={device.color} className="inset-y-2" />
                     <button
                       type="button"
                       aria-expanded={isExpanded}

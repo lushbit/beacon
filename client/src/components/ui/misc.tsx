@@ -33,16 +33,14 @@ export function EmptyState({
   );
 }
 
-/** Live/offline dot with a soft halo while online. */
+/** Green while online, with a soft halo, and red otherwise. */
 export function StatusDot({ online, className }: { online: boolean; className?: string }) {
   return (
     <span className={cn("relative flex h-2 w-2", className)}>
       {online ? (
         <span className="absolute inline-flex h-full w-full animate-pulse-ring rounded-full bg-success/70" />
       ) : null}
-      <span
-        className={cn("relative inline-flex h-2 w-2 rounded-full", online ? "bg-success" : "bg-muted-foreground/50")}
-      />
+      <span className={cn("relative inline-flex h-2 w-2 rounded-full", online ? "bg-success" : "bg-danger")} />
     </span>
   );
 }
