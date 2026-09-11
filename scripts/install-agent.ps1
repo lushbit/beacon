@@ -258,8 +258,10 @@ if (Test-Path $configFile) {
 Write-Host "Registering the service..."
 
 # SYSTEM, from boot, always reporting. StartWhenAvailable catches the trigger
-# even if the machine was off at boot time, and the restart settings bring the
-# agent back if it ever exits.
+# even if the machine was off at boot time, and the restart settings retry a
+# start that fails. Task Scheduler never starts the task again after its
+# program exits, so the launcher keeps running and restarts the agent itself,
+# which is also how a self-update comes back up.
 $action = New-ScheduledTaskAction -Execute $node.Source `
   -Argument "`"$launcher`" --config `"$configFile`"" -WorkingDirectory $InstallDir
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
@@ -268,6 +270,9 @@ $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoi
 $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 $trigger = New-ScheduledTaskTrigger -AtStartup
 
+# Stop a running agent first, so a reinstall never leaves the old launcher
+# restarting the old agent beside the new one.
+Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
   -Settings $settings -Principal $principal | Out-Null

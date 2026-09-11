@@ -170,7 +170,8 @@ async function handleRpc(id: string, method: string, params: unknown): Promise<v
         });
         reply(true, { accepted: true, version: input.version });
         log(`updated to ${input.version} — restarting`);
-        // Let the reply flush, then hand over to the service manager.
+        // Let the reply flush, then exit. The launcher or the service manager
+        // starts the new version.
         setTimeout(() => {
           stopping = true;
           socket?.close();
