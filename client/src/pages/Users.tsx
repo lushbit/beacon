@@ -12,6 +12,7 @@ import { EmptyState, Skeleton } from "@/components/ui/misc";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/context/ToastContext";
 import { api } from "@/lib/api";
+import { RelativeTime } from "@/components/RelativeTime";
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -20,7 +21,7 @@ import { cn } from "@/lib/utils";
 // With the gap set on the rows alone, and the buttons left to size themselves
 // against a heading that is only read aloud, the row and the header ended up
 // with different columns and every heading sat right of the thing it names.
-const ROW_GRID = "lg:grid-cols-[minmax(0,1fr)_8rem_8rem_5.5rem] lg:gap-4";
+const ROW_GRID = "lg:grid-cols-[minmax(0,1fr)_8rem_8rem_7rem_5.5rem] lg:gap-4";
 
 export function UsersPage() {
   const { session } = useAuth();
@@ -107,6 +108,7 @@ export function UsersPage() {
             <p className="text-2xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">Account</p>
             <p className="text-2xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">Access</p>
             <p className="text-2xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">Role</p>
+            <p className="text-2xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">Last sign-in</p>
             <span className="sr-only">Actions</span>
           </div>
 
@@ -187,6 +189,13 @@ export function UsersPage() {
                           <SelectItem value="viewer">Viewer</SelectItem>
                         </SelectContent>
                       </Select>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3 lg:block">
+                      <span className="shrink-0 text-xs text-muted-foreground lg:hidden">Last sign-in</span>
+                      <p className="min-w-0 truncate text-xs text-muted-foreground">
+                        {user.lastLoginAt ? <RelativeTime value={user.lastLoginAt} /> : "never"}
+                      </p>
                     </div>
 
                     <div className="flex items-center justify-end gap-1">

@@ -16,7 +16,7 @@ import {
   toRuleDto,
   updateRule,
 } from "../alerts/repo.js";
-import { firingMessage } from "../alerts/messages.js";
+import { testMessage } from "../alerts/messages.js";
 import { sendTestAlert } from "../alerts/notify.js";
 import { db } from "../db/index.js";
 import { getDeviceRow, listDeviceRows } from "../devices.js";
@@ -117,8 +117,9 @@ rulesRouter.post(
     if (rule.device_id && !device) return notFound(res, "Device not found.");
     const deviceName = device?.name ?? "all devices";
 
-    const past = rule.metric === "offline" ? rule.threshold : rule.threshold * (rule.operator === "lt" ? 0.95 : 1.05);
-    const value = Math.round(past * 10) / 10;
+    // The rule's own threshold is the reading, so the test carries the numbers
+    // set on the rule rather than an invented one just past them.
+    const value = rule.threshold;
 
     const sample: AlertDto = {
       id: "test",
@@ -131,7 +132,7 @@ rulesRouter.post(
       state: "firing",
       value,
       threshold: rule.threshold,
-      message: `${firingMessage(rule.metric, deviceName, rule.operator, value, rule.threshold)} This is a test.`,
+      message: `${testMessage(rule.metric, deviceName, rule.operator, rule.threshold)} This is a test.`,
       startedAt: Date.now(),
       resolvedAt: null,
       acknowledgedAt: null,

@@ -37,6 +37,17 @@ export function firingMessage(
   return `${label(metric)} on ${deviceName} is ${reading ?? "unknown"}, ${comparison} the ${limit} limit.`;
 }
 
+/**
+ * What a rule's Test button sends. The reading is the rule's own threshold
+ * rather than a number invented just past it, so a test shows exactly the
+ * figures set on the rule.
+ */
+export function testMessage(metric: AlertMetric, deviceName: string, operator: string, threshold: number): string {
+  const limit = formatMetricValue(metric, threshold);
+  if (metric === "offline") return `${deviceName} has been offline for ${limit}.`;
+  return `${label(metric)} on ${deviceName} ${operator === "lt" ? "dropped to" : "reached"} its ${limit} limit.`;
+}
+
 export function resolvedMessage(metric: AlertMetric, deviceName: string, value: number | null): string {
   if (metric === "offline") return `${deviceName} is back online.`;
   if (value === null) return `${label(metric)} on ${deviceName} is back to normal.`;
