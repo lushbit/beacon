@@ -118,7 +118,7 @@ function ProfileTab() {
 
       <Section
         title="Display"
-        description="How this dashboard reads for you: the time range charts open at, the units and temperature scale, and how tight the device list sits. Saved to your account, so nobody else is affected."
+        description="How the dashboard looks for you. Nobody else sees these changes."
       >
         <div className="space-y-4">
           <Field label="Default time range">
@@ -290,7 +290,7 @@ function NotificationsTab() {
     <div className="space-y-4">
       <Section
         title="Notification channels"
-        description="Where alerts are sent. A channel receives every alert at or above the severity you give it, and Test sends it one right now."
+        description="Where alerts are sent. A channel receives every alert at or above the severity you give it."
       >
         {channels.length === 0 ? (
           <EmptyState
@@ -483,7 +483,7 @@ function ServerTab() {
     <div className="grid gap-4 xl:grid-cols-2">
       <Section
         title="Server"
-        description="Defaults for the whole hub. The name appears on the sign-in page and in the sidebar, the sample interval is how often agents report, agent updates decide whether devices install new versions on their own, and the session length is how long a sign-in lasts. A device can override the interval and the update setting on its own page."
+        description="Defaults for every device. Each one can override them on its own page."
       >
         <div className="space-y-4">
           <Field label="Dashboard name">
@@ -565,7 +565,7 @@ function ServerTab() {
 
       <Section
         title="Retention"
-        description="How long metrics are kept. Samples stay exactly as reported for the first window, then become one point a minute, then one point an hour. Anything past the last window is deleted. Prune now applies these limits immediately instead of waiting for the hourly cleanup."
+        description="How long metrics are kept before they are averaged down and finally deleted."
       >
         <div className="space-y-4">
           <Field label="Full resolution (hours)">
@@ -634,7 +634,7 @@ function ServerTab() {
 
       <Section
         title="Enrollment tokens"
-        description="A new device joins with one of these. The installer spends a use, then the device keeps a token of its own. A token can be limited to a number of devices and can be given an expiry."
+        description="A new device joins with one of these. Every install spends one use."
       >
         {tokens.length === 0 ? (
           <EmptyState
@@ -698,10 +698,7 @@ function AuditTab() {
   }, []);
 
   return (
-    <Section
-      title="Audit log"
-      description="Who did what on this hub, newest first: sign-ins, devices added or removed, settings changed and alerts acknowledged. Kept for 90 days."
-    >
+    <Section title="Audit log" description="What has happened here over the last 90 days.">
       {entries.length === 0 ? (
         <EmptyState icon={ScrollText} title="Nothing recorded yet." />
       ) : (
@@ -766,10 +763,7 @@ function AboutTab() {
 
   return (
     <div className="grid gap-4 xl:grid-cols-2">
-      <Section
-        title="Version"
-        description="The version this hub runs and the newest one released. Check now asks GitHub straight away, and updating the hub itself is a command you run where it is installed."
-      >
+      <Section title="Version">
         <div className="space-y-4">
           <div>
             <p className="text-2xs uppercase tracking-wide text-muted-foreground">Installed</p>
@@ -899,10 +893,7 @@ function AboutTab() {
         </div>
       </Section>
 
-      <Section
-        title="Agents"
-        description="The version each device runs, reported when it connects. Devices behind this hub can be updated from here, one at a time or all at once, as long as they are online."
-      >
+      <Section title="Agents">
         {devices.length === 0 ? (
           <EmptyState icon={Info} title="No devices enrolled yet." />
         ) : outdated.length === 0 ? (

@@ -283,9 +283,9 @@ export const UPDATE_POLICIES = ["manual", "connect", "window"] as const;
 export type UpdatePolicy = (typeof UPDATE_POLICIES)[number];
 
 export const UPDATE_POLICY_LABELS: Record<UpdatePolicy, string> = {
-  manual: "Only when I ask",
-  connect: "Whenever the agent reconnects",
-  window: "During a nightly window",
+  manual: "Only when I update it myself",
+  connect: "When the agent reconnects",
+  window: "Overnight",
 };
 
 /** How an agent's version relates to what the hub can serve. */
