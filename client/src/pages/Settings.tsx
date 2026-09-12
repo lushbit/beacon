@@ -1,5 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowUpCircle, Bell, CheckCircle2, Database, Info, KeyRound, Plus, RefreshCw, ScrollText, Send, Trash2, User } from "lucide-react";
+import {
+  ArrowUpCircle,
+  Bell,
+  CheckCircle2,
+  Database,
+  Info,
+  KeyRound,
+  Pencil,
+  Plus,
+  RefreshCw,
+  ScrollText,
+  Send,
+  Trash2,
+  User,
+} from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { UPDATE_POLICIES, UPDATE_POLICY_LABELS } from "@beacon/shared";
 import type { AuditEntryDto, ChannelDto, DeviceSummaryDto, EnrollTokenDto, ServerSettingsDto } from "@beacon/shared";
@@ -179,10 +193,23 @@ const CHANNEL_FIELDS: Record<ChannelDto["type"], { key: string; label: string; h
   discord: [{ key: "url", label: "Webhook URL", placeholder: "https://discord.com/api/webhooks/…" }],
 };
 
+const CHANNEL_TYPE_LABELS: Record<ChannelDto["type"], string> = {
+  ntfy: "ntfy",
+  discord: "Discord webhook",
+  webhook: "Generic webhook",
+};
+
+/** Settings the hub only ever sends back masked, mirroring its redaction. */
+function isHiddenKey(key: string): boolean {
+  const lower = key.toLowerCase();
+  return ["token", "password", "authorization", "secret"].includes(lower) || lower.endsWith("url");
+}
+
 function NotificationsTab() {
   const { attempt, notify } = useToast();
   const [channels, setChannels] = useState<ChannelDto[]>([]);
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<ChannelDto | null>(null);
   const [type, setType] = useState<ChannelDto["type"]>("ntfy");
   const [name, setName] = useState("");
   const [minSeverity, setMinSeverity] = useState<ChannelDto["minSeverity"]>("warning");
@@ -209,6 +236,46 @@ function NotificationsTab() {
       setCreating(false);
       setName("");
       setConfig({});
+      void load();
+    }
+  };
+
+  const openEdit = (channel: ChannelDto) => {
+    setEditing(channel);
+    setType(channel.type);
+    setName(channel.name);
+    setMinSeverity(channel.minSeverity);
+    // Hidden settings arrive masked, so their fields start empty and keep the
+    // stored value unless something new is typed in.
+    setConfig(Object.fromEntries(Object.entries(channel.config).filter(([key]) => !isHiddenKey(key))));
+  };
+
+  const closeDialog = () => {
+    // An edit must not leave its values behind in the next "Add channel".
+    if (editing) {
+      setType("ntfy");
+      setName("");
+      setMinSeverity("warning");
+      setConfig({});
+    }
+    setEditing(null);
+    setCreating(false);
+  };
+
+  const save = async () => {
+    if (!editing) return;
+    const patch: Record<string, string> = {};
+    for (const field of CHANNEL_FIELDS[editing.type]) {
+      const value = config[field.key] ?? "";
+      if (isHiddenKey(field.key) && !value) continue;
+      patch[field.key] = value;
+    }
+    const updated = await attempt(
+      () => api.updateChannel(editing.id, { name: name.trim() || editing.name, minSeverity, config: patch }),
+      "Channel saved."
+    );
+    if (updated) {
+      closeDialog();
       void load();
     }
   };
@@ -268,6 +335,9 @@ function NotificationsTab() {
                   <Send className="h-3.5 w-3.5" />
                   Test
                 </Button>
+                <Button variant="ghost" size="icon" aria-label={`Edit ${channel.name}`} onClick={() => openEdit(channel)}>
+                  <Pencil className="h-4 w-4" />
+                </Button>
                 <Button
                   variant="ghost"
                   size="icon"
@@ -292,42 +362,56 @@ function NotificationsTab() {
         ) : null}
       </Section>
 
-      <Dialog open={creating} onOpenChange={setCreating}>
+      <Dialog open={creating || editing !== null} onOpenChange={(open) => (open ? undefined : closeDialog())}>
         <DialogContent>
-          <DialogHeader title="Add notification channel" />
+          <DialogHeader title={editing ? "Edit notification channel" : "Add notification channel"} />
           <div className="space-y-4">
             <Field label="Type">
-              <Select
-                value={type}
-                onValueChange={(value) => {
-                  setType(value as ChannelDto["type"]);
-                  setConfig({});
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ntfy">ntfy</SelectItem>
-                  <SelectItem value="discord">Discord webhook</SelectItem>
-                  <SelectItem value="webhook">Generic webhook</SelectItem>
-                </SelectContent>
-              </Select>
+              {editing ? (
+                // The hub keeps a channel's type for its whole life.
+                <p className="text-sm text-foreground">{CHANNEL_TYPE_LABELS[editing.type]}</p>
+              ) : (
+                <Select
+                  value={type}
+                  onValueChange={(value) => {
+                    setType(value as ChannelDto["type"]);
+                    setConfig({});
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(CHANNEL_TYPE_LABELS) as ChannelDto["type"][]).map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {CHANNEL_TYPE_LABELS[option]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </Field>
 
             <Field label="Name">
               <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="Ops phone" />
             </Field>
 
-            {CHANNEL_FIELDS[type].map((field) => (
-              <Field key={field.key} label={field.label} hint={field.hint}>
-                <Input
-                  value={config[field.key] ?? ""}
-                  placeholder={field.placeholder}
-                  onChange={(event) => setConfig((current) => ({ ...current, [field.key]: event.target.value }))}
-                />
-              </Field>
-            ))}
+            {CHANNEL_FIELDS[type].map((field) => {
+              const stored = editing && isHiddenKey(field.key) ? editing.config[field.key] : undefined;
+              return (
+                <Field
+                  key={field.key}
+                  label={field.label}
+                  hint={stored ? "Leave empty to keep the current one." : field.hint}
+                >
+                  <Input
+                    value={config[field.key] ?? ""}
+                    placeholder={stored || field.placeholder}
+                    onChange={(event) => setConfig((current) => ({ ...current, [field.key]: event.target.value }))}
+                  />
+                </Field>
+              );
+            })}
 
             <Field label="Send when severity is at least">
               <Select
@@ -346,11 +430,11 @@ function NotificationsTab() {
             </Field>
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setCreating(false)}>
+            <Button variant="ghost" onClick={closeDialog}>
               Cancel
             </Button>
-            <Button variant="primary" onClick={() => void create()}>
-              Add channel
+            <Button variant="primary" onClick={() => void (editing ? save() : create())}>
+              {editing ? "Save" : "Add channel"}
             </Button>
           </DialogFooter>
         </DialogContent>
