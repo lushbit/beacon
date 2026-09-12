@@ -3,11 +3,83 @@ import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ArrowUpCircle, Bell, ExternalLink, Gauge, LogOut, Menu, RadioTower, RotateCw, Settings2, Tag, Users as UsersIcon, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import type { AlertSummaryDto } from "@beacon/shared";
 import { Button } from "@/components/ui/button";
 import { UpdateNotices } from "@/components/UpdateNotices";
 import { useAuth } from "@/context/AuthContext";
+import { useLive } from "@/context/LiveContext";
 import { useVersion } from "@/context/VersionContext";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+
+const NO_ALERTS: AlertSummaryDto = { active: 0, unacknowledged: 0, unread: 0 };
+
+/**
+ * Counts for the badge beside Alerts. They are re-read when an alert arrives on
+ * the socket and when this account marks the Alerts page as seen, with a slow
+ * timer underneath for anything neither of those catches, such as an alert
+ * acknowledged in another browser.
+ */
+function useAlertSummary(): AlertSummaryDto {
+  const { session, preferences } = useAuth();
+  const { lastAlert } = useLive();
+  const [summary, setSummary] = useState<AlertSummaryDto>(NO_ALERTS);
+
+  useEffect(() => {
+    if (!session) {
+      setSummary(NO_ALERTS);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const next = await api.alertSummary();
+        if (!cancelled) setSummary(next);
+      } catch {
+        /* keep the last counts rather than blanking the badge */
+      }
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [session, preferences.alertsSeenAt, lastAlert?.id]);
+
+  return summary;
+}
+
+/**
+ * Something is firing: a red count, ringing while nobody has acknowledged it.
+ * Nothing firing but alerts this account has not seen: a plain count instead.
+ */
+function AlertBadge({ active, unacknowledged, unread }: AlertSummaryDto) {
+  const firing = active > 0;
+  const count = firing ? active : unread;
+  if (count === 0) return null;
+
+  const label = firing
+    ? `${active} active alert${active === 1 ? "" : "s"}${unacknowledged > 0 ? `, ${unacknowledged} not acknowledged yet` : ""}`
+    : `${unread} alert${unread === 1 ? "" : "s"} you have not read`;
+
+  return (
+    <span className="relative ml-auto flex shrink-0 items-center" title={label}>
+      {firing && unacknowledged > 0 ? (
+        <span className="absolute inset-0 animate-pulse-ring rounded-full bg-danger/60" aria-hidden />
+      ) : null}
+      <span
+        className={cn(
+          "relative flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-2xs font-semibold tabular",
+          firing ? "bg-danger/15 text-danger ring-1 ring-inset ring-danger/40" : "bg-white/[0.08] text-muted-foreground"
+        )}
+      >
+        {count > 99 ? "99+" : count}
+      </span>
+      <span className="sr-only">{label}</span>
+    </span>
+  );
+}
 
 interface NavItem {
   to: string;
@@ -26,7 +98,17 @@ const MANAGE: NavItem[] = [
   { to: "/settings", label: "Settings", icon: Settings2 },
 ];
 
-function SidebarLink({ item, onNavigate, scope }: { item: NavItem; onNavigate?: () => void; scope: string }) {
+function SidebarLink({
+  item,
+  onNavigate,
+  scope,
+  badge,
+}: {
+  item: NavItem;
+  onNavigate?: () => void;
+  scope: string;
+  badge?: React.ReactNode;
+}) {
   const Icon = item.icon;
   return (
     <NavLink to={item.to} end={item.to === "/"} onClick={onNavigate}>
@@ -51,6 +133,7 @@ function SidebarLink({ item, onNavigate, scope }: { item: NavItem; onNavigate?: 
             )}
           />
           <span className="relative truncate">{item.label}</span>
+          {badge}
         </span>
       )}
     </NavLink>
@@ -69,7 +152,15 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
  * the hidden copy measures zero, which wedges the projection and can leave the
  * drawer's exit animation unfinished.
  */
-function SidebarContent({ onNavigate, scope }: { onNavigate?: () => void; scope: string }) {
+function SidebarContent({
+  onNavigate,
+  scope,
+  alerts,
+}: {
+  onNavigate?: () => void;
+  scope: string;
+  alerts: AlertSummaryDto;
+}) {
   const { session, signOut, siteName } = useAuth();
   const { info, appVersion, needsReload } = useVersion();
   const isAdmin = session?.user.role === "admin";
@@ -89,7 +180,13 @@ function SidebarContent({ onNavigate, scope }: { onNavigate?: () => void; scope:
         <SectionLabel>Navigate</SectionLabel>
         <div className="space-y-1">
           {NAVIGATE.map((item) => (
-            <SidebarLink key={item.to} item={item} onNavigate={onNavigate} scope={scope} />
+            <SidebarLink
+              key={item.to}
+              item={item}
+              onNavigate={onNavigate}
+              scope={scope}
+              badge={item.to === "/alerts" ? <AlertBadge {...alerts} /> : null}
+            />
           ))}
         </div>
 
@@ -199,6 +296,8 @@ export function DashboardLayout() {
   const [open, setOpen] = useState(false);
   const location = useLocation();
   const mainRef = useRef<HTMLElement>(null);
+  // Read once here, so the desktop sidebar and the mobile drawer share it.
+  const alerts = useAlertSummary();
 
   useEffect(() => {
     setOpen(false);
@@ -216,7 +315,7 @@ export function DashboardLayout() {
   return (
     <div className="flex h-full bg-background">
       <aside className="hidden w-60 shrink-0 border-r border-border/60 bg-surface/40 pb-[calc(1rem+env(safe-area-inset-bottom))] pl-[calc(0.75rem+env(safe-area-inset-left))] pr-3 pt-[calc(1rem+env(safe-area-inset-top))] lg:block">
-        <SidebarContent scope="desktop" />
+        <SidebarContent scope="desktop" alerts={alerts} />
       </aside>
 
       {/*
@@ -245,7 +344,7 @@ export function DashboardLayout() {
                 transition={{ type: "tween", duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
                 className="absolute inset-y-0 left-0 w-64 border-r border-border/60 bg-surface pb-[calc(1rem+env(safe-area-inset-bottom))] pl-[calc(0.75rem+env(safe-area-inset-left))] pr-3 pt-[calc(1rem+env(safe-area-inset-top))]"
               >
-                <SidebarContent scope="mobile" onNavigate={() => setOpen(false)} />
+                <SidebarContent scope="mobile" onNavigate={() => setOpen(false)} alerts={alerts} />
               </motion.aside>
             </motion.div>
           ) : null}

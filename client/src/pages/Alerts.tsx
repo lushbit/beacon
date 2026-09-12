@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { AlertTriangle, BellOff, Check, ExternalLink, Info, Plus, Send, Siren, Trash2 } from "lucide-react";
 import {
@@ -20,7 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { EmptyState, Skeleton } from "@/components/ui/misc";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useIsAdmin } from "@/context/AuthContext";
+import { useAuth, useIsAdmin } from "@/context/AuthContext";
 import { useLive } from "@/context/LiveContext";
 import { useToast } from "@/context/ToastContext";
 import { api } from "@/lib/api";
@@ -271,6 +271,16 @@ export function AlertsPage() {
   const isAdmin = useIsAdmin();
   const { lastAlert } = useLive();
   const { attempt, notify } = useToast();
+  const { savePreferences } = useAuth();
+
+  /**
+   * Looking at this page counts as having seen every alert on it, which is what
+   * clears the unread count beside Alerts in the sidebar. It lives in a ref so
+   * that saving a preference, which hands back a new `savePreferences`, cannot
+   * turn this into a loop.
+   */
+  const markSeen = useRef(() => {});
+  markSeen.current = () => void savePreferences({ alertsSeenAt: Date.now() });
 
   const [alerts, setAlerts] = useState<AlertDto[] | null>(null);
   const [rules, setRules] = useState<AlertRuleDto[] | null>(null);
@@ -293,11 +303,15 @@ export function AlertsPage() {
 
   useEffect(() => {
     void load();
+    markSeen.current();
   }, [load]);
 
-  // A new alert on the socket means the list is stale.
+  // A new alert on the socket means the list is stale. Someone sitting on this
+  // page has seen it as it arrives, so it never counts as unread.
   useEffect(() => {
-    if (lastAlert) void load();
+    if (!lastAlert) return;
+    void load();
+    markSeen.current();
   }, [lastAlert, load]);
 
   const active = useMemo(() => (alerts ?? []).filter((alert) => alert.state === "firing"), [alerts]);
@@ -305,6 +319,8 @@ export function AlertsPage() {
 
   const acknowledge = async (id: string) => {
     await attempt(() => api.acknowledgeAlert(id));
+    // Acknowledging changes the badge, so let the sidebar re-read it.
+    markSeen.current();
     void load();
   };
 

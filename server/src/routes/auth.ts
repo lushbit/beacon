@@ -157,6 +157,7 @@ const preferencesSchema = z.object({
   deviceSort: z.enum(DEVICE_SORTS).optional(),
   deviceSortDir: z.enum(["asc", "desc"]).optional(),
   compactCards: z.boolean().optional(),
+  alertsSeenAt: z.number().int().min(0).optional(),
 });
 
 authRouter.patch(

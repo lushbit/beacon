@@ -4,6 +4,7 @@ import { ALERT_METRICS } from "@beacon/shared";
 import type { AlertDto } from "@beacon/shared";
 import { audit } from "../audit.js";
 import { actorOf, ipOf, requireAdmin } from "../auth/middleware.js";
+import { userPreferences } from "../auth/users.js";
 import {
   acknowledgeAlert,
   createRule,
@@ -36,6 +37,28 @@ alertsRouter.get(
     const limit = Math.min(Number.parseInt(String(req.query.limit ?? "100"), 10) || 100, 500);
     const names = deviceNames();
     res.json(listAlerts({ state, deviceId, limit }).map((row) => toAlertDto(row, names.get(row.device_id) ?? "Unknown")));
+  })
+);
+
+/**
+ * The counts behind the sidebar badge. Unread is measured against the moment
+ * this account last opened the Alerts page, so it follows the person rather
+ * than the browser they happen to be using.
+ */
+alertsRouter.get(
+  "/summary",
+  handler((req, res) => {
+    const seenAt = userPreferences(req.user!).alertsSeenAt;
+    const row = db
+      .prepare(
+        `SELECT
+           COALESCE(SUM(CASE WHEN state = 'firing' THEN 1 ELSE 0 END), 0) AS active,
+           COALESCE(SUM(CASE WHEN state = 'firing' AND acknowledged_at IS NULL THEN 1 ELSE 0 END), 0) AS unacknowledged,
+           COALESCE(SUM(CASE WHEN started_at > ? THEN 1 ELSE 0 END), 0) AS unread
+         FROM alerts`
+      )
+      .get(seenAt) as { active: number; unacknowledged: number; unread: number };
+    res.json(row);
   })
 );
 

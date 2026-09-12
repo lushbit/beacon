@@ -90,6 +90,12 @@ export interface UserPreferences {
   /** Direction the chosen attribute is sorted in; ignored when sort is "none". */
   deviceSortDir: SortDirection;
   compactCards: boolean;
+  /**
+   * When this account last looked at the Alerts page. Anything raised since
+   * then counts as unread, which is what the sidebar puts beside Alerts. It
+   * belongs to the account rather than the browser, so it follows the person.
+   */
+  alertsSeenAt: number;
 }
 
 export const DEFAULT_USER_PREFERENCES: UserPreferences = {
@@ -99,7 +105,18 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   deviceSort: "none",
   deviceSortDir: "asc",
   compactCards: false,
+  alertsSeenAt: 0,
 };
+
+/** Counts behind the badge beside Alerts in the sidebar. */
+export interface AlertSummaryDto {
+  /** Alerts firing right now. */
+  active: number;
+  /** How many of those nobody has acknowledged. */
+  unacknowledged: number;
+  /** Alerts raised since this account last opened the Alerts page. */
+  unread: number;
+}
 
 export interface DevicePanelSettings {
   /** Panels the device page renders, in order. Empty means "all defaults". */

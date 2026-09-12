@@ -4,6 +4,7 @@ import type {
   AlertDto,
   AlertRuleDto,
   AuditEntryDto,
+  AlertSummaryDto,
   ChannelDto,
   DeviceDto,
   DeviceSummaryDto,
@@ -136,6 +137,7 @@ export const api = {
     config: Record<string, string>;
   }) => post<ChannelDto>("/channels", body),
   updateChannel: (id: string, body: Partial<ChannelDto>) => patch<ChannelDto>(`/channels/${id}`, body),
+  alertSummary: () => request<AlertSummaryDto>("/alerts/summary"),
   testChannel: (id: string) => post<{ ok: boolean; error?: string }>(`/channels/${id}/test`),
   testRule: (id: string) =>
     post<{ sent: number; skipped: number; failures: { channel: string; error: string }[] }>(
