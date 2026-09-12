@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { KeyRound, RefreshCw, Save, ShieldAlert, Trash2 } from "lucide-react";
+import { AlertTriangle, KeyRound, RefreshCw, Save, ShieldAlert, Trash2 } from "lucide-react";
 import { UPDATE_POLICIES, UPDATE_POLICY_LABELS } from "@beacon/shared";
 import type { DeviceDto, DeviceSettingsDto, UpdatePolicy } from "@beacon/shared";
 import { RemoveAgentDialog } from "@/components/device/RemoveAgentDialog";
@@ -34,19 +34,35 @@ function Panel({
   className?: string;
   children: React.ReactNode;
 }) {
+  const danger = tone === "danger";
   return (
     <section
       className={cn(
-        "space-y-4 rounded-lg border p-4",
-        tone === "danger" ? "border-danger/30 bg-danger/[0.04]" : "border-border/70 bg-card",
+        "overflow-hidden rounded-lg border",
+        danger ? "border-danger/60 bg-danger/[0.05]" : "border-border/70 bg-card",
         className
       )}
     >
-      <div>
-        <h3 className={cn("text-sm font-medium", tone === "danger" ? "text-danger" : "text-foreground")}>{title}</h3>
-        {description ? <p className="mt-0.5 text-2xs text-muted-foreground">{description}</p> : null}
+      {/*
+       * A thin red outline was easy to miss, so the dangerous section announces
+       * itself with a filled bar across the top instead.
+       */}
+      <div
+        className={cn(
+          danger ? "flex items-start gap-2.5 border-b border-danger/40 bg-danger/15 px-4 py-3" : "px-4 pt-4"
+        )}
+      >
+        {danger ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-danger" aria-hidden /> : null}
+        <div className="min-w-0">
+          <h3 className={cn("text-sm font-semibold", danger ? "text-danger" : "font-medium text-foreground")}>
+            {title}
+          </h3>
+          {description ? (
+            <p className={cn("mt-0.5 text-2xs", danger ? "text-danger/80" : "text-muted-foreground")}>{description}</p>
+          ) : null}
+        </div>
       </div>
-      {children}
+      <div className="space-y-4 p-4">{children}</div>
     </section>
   );
 }
