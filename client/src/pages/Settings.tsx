@@ -477,20 +477,13 @@ function ServerTab() {
     <div className="grid gap-4 xl:grid-cols-2">
       <Section title="Server" description="Applies to every device unless overridden per device.">
         <div className="space-y-4">
-          <Field label="Dashboard name">
+          <Field label="Dashboard name" hint="Shown on the sign-in page and at the top of the sidebar.">
             <Input value={settings.siteName} onChange={(event) => patch({ siteName: event.target.value })} />
           </Field>
           <Field
-            label="Dashboard address"
-            hint="Where people reach this dashboard. Notifications link to the device when it is set."
+            label="Default sample interval (seconds)"
+            hint="How often each agent reports its metrics, unless the device sets its own. A device picks up a change here the next time it connects."
           >
-            <Input
-              value={settings.dashboardUrl}
-              placeholder="https://beacon.example.com"
-              onChange={(event) => patch({ dashboardUrl: event.target.value })}
-            />
-          </Field>
-          <Field label="Default sample interval (seconds)">
             <Input
               type="number"
               min={1}
@@ -546,7 +539,10 @@ function ServerTab() {
             </div>
           ) : null}
 
-          <Field label="Session length (hours)">
+          <Field
+            label="Session length (hours)"
+            hint="How long a sign-in lasts before you have to sign in again. It applies to sign-ins from now on, so anyone already signed in keeps their current session."
+          >
             <Input
               type="number"
               min={1}
@@ -566,7 +562,10 @@ function ServerTab() {
 
       <Section title="Retention" description="Older samples are averaged down rather than thrown away.">
         <div className="space-y-4">
-          <Field label="Full resolution (hours)">
+          <Field
+            label="Full resolution (hours)"
+            hint="How long every single sample is kept, so charts show exactly what each agent reported."
+          >
             <Input
               type="number"
               min={1}
@@ -577,7 +576,10 @@ function ServerTab() {
               }
             />
           </Field>
-          <Field label="One-minute averages (days)">
+          <Field
+            label="One-minute averages (days)"
+            hint="After that, samples are averaged into one point per minute and kept for this long."
+          >
             <Input
               type="number"
               min={1}
@@ -590,7 +592,10 @@ function ServerTab() {
               }
             />
           </Field>
-          <Field label="Hourly averages (days)">
+          <Field
+            label="Hourly averages (days)"
+            hint="Then averaged into one point per hour and kept for this long. Anything older is deleted for good."
+          >
             <Input
               type="number"
               min={1}

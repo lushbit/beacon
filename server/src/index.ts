@@ -6,6 +6,7 @@ import { BEACON_VERSION } from "@beacon/shared";
 import express from "express";
 import { config } from "./config.js";
 import { loadSession, requireAuth, verifyOrigin } from "./auth/middleware.js";
+import { rememberDashboardOrigin } from "./dashboardOrigin.js";
 import { attachHub } from "./hub/index.js";
 import { startJobs } from "./jobs.js";
 import { startUpdateChecks } from "./updates.js";
@@ -55,6 +56,14 @@ app.use(express.json({ limit: "256kb" }));
 app.use(cookieParser());
 app.use(loadSession);
 app.use("/api", verifyOrigin);
+// Notifications link back to wherever people actually open the dashboard, the
+// same address the install commands are built from. Only a signed-in request
+// counts, so nothing else reaching the API can point the links elsewhere.
+app.use("/api", (req, _res, next) => {
+  const host = req.get("host");
+  if (req.user && host) rememberDashboardOrigin(`${req.protocol}://${host}`);
+  next();
+});
 // Lets the dashboard measure "checked 2m ago" against this clock rather than
 // the browser's, which may be minutes off in either direction.
 app.use("/api", (_req, res, next) => {

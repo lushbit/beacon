@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { ALERT_METRICS } from "@beacon/shared";
+import type { AlertDto } from "@beacon/shared";
 import { audit } from "../audit.js";
 import { actorOf, ipOf, requireAdmin } from "../auth/middleware.js";
 import {
@@ -15,6 +16,8 @@ import {
   toRuleDto,
   updateRule,
 } from "../alerts/repo.js";
+import { firingMessage } from "../alerts/messages.js";
+import { sendTestAlert } from "../alerts/notify.js";
 import { db } from "../db/index.js";
 import { getDeviceRow, listDeviceRows } from "../devices.js";
 import { handler, notFound, parseBody } from "./helpers.js";
@@ -96,6 +99,55 @@ rulesRouter.patch(
     db.prepare("DELETE FROM rule_runtime WHERE rule_id = ?").run(row.id);
     audit({ actor: actorOf(req), action: "alert.rule.updated", target: row.id, detail: row.name, ip: ipOf(req) });
     res.json(toRuleDto(row));
+  })
+);
+
+/**
+ * Sends what this rule would send, so a rule can be tried without waiting for
+ * the thing it watches to actually go wrong. The reading is put just past the
+ * rule's own threshold, so the wording matches the real alert exactly.
+ */
+rulesRouter.post(
+  "/:id/test",
+  handler(async (req, res) => {
+    const rule = getRule(req.params.id);
+    if (!rule) return notFound(res, "Rule not found.");
+
+    const device = rule.device_id ? getDeviceRow(rule.device_id) : null;
+    if (rule.device_id && !device) return notFound(res, "Device not found.");
+    const deviceName = device?.name ?? "all devices";
+
+    const past = rule.metric === "offline" ? rule.threshold : rule.threshold * (rule.operator === "lt" ? 0.95 : 1.05);
+    const value = Math.round(past * 10) / 10;
+
+    const sample: AlertDto = {
+      id: "test",
+      ruleId: rule.id,
+      ruleName: rule.name,
+      deviceId: device?.id ?? "",
+      deviceName,
+      metric: rule.metric,
+      severity: rule.severity,
+      state: "firing",
+      value,
+      threshold: rule.threshold,
+      message: `${firingMessage(rule.metric, deviceName, rule.operator, value, rule.threshold)} This is a test.`,
+      startedAt: Date.now(),
+      resolvedAt: null,
+      acknowledgedAt: null,
+      acknowledgedBy: null,
+      test: true,
+    };
+
+    const result = await sendTestAlert(sample);
+    audit({
+      actor: actorOf(req),
+      action: "alert.rule.tested",
+      target: rule.id,
+      detail: `${result.sent} sent, ${result.failures.length} failed`,
+      ip: ipOf(req),
+    });
+    res.json(result);
   })
 );
 

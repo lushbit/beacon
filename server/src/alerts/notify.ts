@@ -1,8 +1,7 @@
 import { createHmac } from "node:crypto";
 import type { AlertDto, AlertSeverity } from "@beacon/shared";
-import { getServerSettings } from "../settings.js";
+import { dashboardOrigin } from "../dashboardOrigin.js";
 import { logger } from "../utils/log.js";
-import { metricReading } from "./messages.js";
 import { channelConfig, listChannels, markChannelResult, type ChannelRow } from "./repo.js";
 
 const log = logger("notify");
@@ -11,18 +10,18 @@ const SEVERITY_RANK: Record<AlertSeverity, number> = { info: 1, warning: 2, crit
 const TIMEOUT_MS = 8000;
 
 /**
- * Link straight to the device that raised the alert. The hub only knows the
- * address someone reaches the dashboard at once it has been set in Settings,
- * and until then notifications simply carry no link.
+ * Link straight to the device that raised the alert. Until somebody has opened
+ * the dashboard once, the hub does not know its own address and the
+ * notification simply carries no link.
  */
 function deviceUrl(alert: AlertDto): string | null {
   if (!alert.deviceId) return null;
-  const base = getServerSettings().dashboardUrl.trim().replace(/\/+$/, "");
+  const base = dashboardOrigin();
   return base ? `${base}/devices/${alert.deviceId}` : null;
 }
 
 function title(alert: AlertDto): string {
-  const verb = alert.state === "firing" ? "Alert" : "Resolved";
+  const verb = alert.test ? "Test" : alert.state === "firing" ? "Alert" : "Resolved";
   return `${verb}: ${alert.ruleName} on ${alert.deviceName}`;
 }
 
@@ -85,24 +84,19 @@ const DISCORD_COLORS: Record<string, number> = {
 async function sendDiscord(row: ChannelRow, alert: AlertDto): Promise<void> {
   const cfg = channelConfig(row);
   if (!cfg.url) throw new Error("discord channel has no webhook URL");
-  const link = deviceUrl(alert);
-  const reading = metricReading(alert.metric, alert.value, alert.threshold);
+  // A title and the sentence under it, the same as every other channel shows.
+  // The fields this used to carry repeated what the message already says, and
+  // on an offline device the reading was a meaningless "Value 0". Severity is
+  // the colour down the side.
   const payload = {
     username: "Beacon",
     embeds: [
       {
         title: title(alert),
-        url: link ?? undefined,
+        url: deviceUrl(alert) ?? undefined,
         description: alert.message,
         color: DISCORD_COLORS[alert.state === "resolved" ? "resolved" : alert.severity] ?? 0x8b5cf6,
         timestamp: new Date(alert.state === "firing" ? alert.startedAt : alert.resolvedAt ?? Date.now()).toISOString(),
-        fields: [
-          { name: "Device", value: link ? `[${alert.deviceName}](${link})` : alert.deviceName, inline: true },
-          { name: "Severity", value: alert.severity, inline: true },
-          // An offline device has no reading worth printing, which is what used
-          // to show up as "Value 0".
-          ...(reading ? [{ name: reading.label, value: reading.text, inline: true }] : []),
-        ],
       },
     ],
   };
@@ -141,11 +135,45 @@ export function dispatchAlert(alert: AlertDto): void {
   }
 }
 
+export interface TestDispatch {
+  sent: number;
+  /** Enabled channels whose severity floor is above this alert. */
+  skipped: number;
+  failures: { channel: string; error: string }[];
+}
+
+/**
+ * Sends one made-up alert to every channel that would carry the real thing, and
+ * waits for each, so the dashboard can say what actually happened. Real alerts
+ * go out through `dispatchAlert`, which never waits.
+ */
+export async function sendTestAlert(alert: AlertDto): Promise<TestDispatch> {
+  const result: TestDispatch = { sent: 0, skipped: 0, failures: [] };
+  for (const row of listChannels()) {
+    if (row.enabled !== 1) continue;
+    if (SEVERITY_RANK[alert.severity] < SEVERITY_RANK[row.min_severity]) {
+      result.skipped += 1;
+      continue;
+    }
+    try {
+      await deliver(row, alert);
+      markChannelResult(row.id, null);
+      result.sent += 1;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      markChannelResult(row.id, message);
+      log.warn(`channel "${row.name}" failed a test: ${message}`);
+      result.failures.push({ channel: row.name, error: message });
+    }
+  }
+  return result;
+}
+
 export async function testChannel(row: ChannelRow): Promise<{ ok: boolean; error?: string }> {
   const sample: AlertDto = {
     id: "test",
     ruleId: null,
-    ruleName: "Test notification",
+    ruleName: "Notification check",
     // No real device, so the notification carries no device link.
     deviceId: "",
     deviceName: "Beacon",
@@ -159,6 +187,7 @@ export async function testChannel(row: ChannelRow): Promise<{ ok: boolean; error
     resolvedAt: null,
     acknowledgedAt: null,
     acknowledgedBy: null,
+    test: true,
   };
   try {
     await deliver(row, sample);

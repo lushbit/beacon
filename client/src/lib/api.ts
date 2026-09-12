@@ -137,6 +137,10 @@ export const api = {
   }) => post<ChannelDto>("/channels", body),
   updateChannel: (id: string, body: Partial<ChannelDto>) => patch<ChannelDto>(`/channels/${id}`, body),
   testChannel: (id: string) => post<{ ok: boolean; error?: string }>(`/channels/${id}/test`),
+  testRule: (id: string) =>
+    post<{ sent: number; skipped: number; failures: { channel: string; error: string }[] }>(
+      `/alert-rules/${id}/test`
+    ),
   deleteChannel: (id: string) => remove<{ ok: true }>(`/channels/${id}`),
 
   version: () => request<VersionDto>("/version"),

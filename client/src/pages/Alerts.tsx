@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, BellOff, Check, ExternalLink, Info, Plus, Siren, Trash2 } from "lucide-react";
+import { AlertTriangle, BellOff, Check, ExternalLink, Info, Plus, Send, Siren, Trash2 } from "lucide-react";
 import {
   ALERT_METRICS,
   ALERT_METRIC_LABELS,
@@ -412,6 +412,32 @@ export function AlertsPage() {
                         </Badge>
                         {isAdmin ? (
                           <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={async () => {
+                                const result = await attempt(() => api.testRule(rule.id));
+                                if (!result) return;
+                                if (result.failures.length > 0) {
+                                  notify(`${result.failures[0].channel}: ${result.failures[0].error}`, "error");
+                                } else if (result.sent === 0) {
+                                  notify(
+                                    result.skipped > 0
+                                      ? "No channel accepts this severity."
+                                      : "No notification channel is enabled.",
+                                    "error"
+                                  );
+                                } else {
+                                  notify(
+                                    `Test alert sent to ${result.sent} channel${result.sent === 1 ? "" : "s"}.`,
+                                    "success"
+                                  );
+                                }
+                              }}
+                            >
+                              <Send className="h-3.5 w-3.5" />
+                              Test
+                            </Button>
                             <Button
                               variant="ghost"
                               size="sm"

@@ -11,7 +11,6 @@ export const DEFAULT_SERVER_SETTINGS: ServerSettingsDto = {
   updateWindowStartHour: 3,
   updateWindowEndHour: 5,
   siteName: "Beacon",
-  dashboardUrl: "",
 };
 
 export function getServerSettings(): ServerSettingsDto {

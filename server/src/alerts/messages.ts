@@ -42,20 +42,3 @@ export function resolvedMessage(metric: AlertMetric, deviceName: string, value: 
   if (value === null) return `${label(metric)} on ${deviceName} is back to normal.`;
   return `${label(metric)} on ${deviceName} is back to ${formatMetricValue(metric, value)}.`;
 }
-
-/**
- * The reading to show beside an alert, named after its metric. An offline alert
- * has no reading worth showing: it is either gone or back.
- */
-export function metricReading(
-  metric: AlertMetric,
-  value: number | null,
-  threshold: number | null
-): { label: string; text: string } | null {
-  if (metric === "offline" || value === null) return null;
-  const reading = formatMetricValue(metric, value);
-  return {
-    label: label(metric),
-    text: threshold === null ? reading : `${reading} (limit ${formatMetricValue(metric, threshold)})`,
-  };
-}

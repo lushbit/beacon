@@ -228,6 +228,8 @@ export interface AlertDto {
   resolvedAt: number | null;
   acknowledgedAt: number | null;
   acknowledgedBy: string | null;
+  /** A made-up alert sent by a Test button rather than something that happened. */
+  test?: boolean;
 }
 
 export type ChannelType = "ntfy" | "webhook" | "discord";
@@ -264,12 +266,6 @@ export interface ServerSettingsDto {
   updateWindowStartHour: number;
   updateWindowEndHour: number;
   siteName: string;
-  /**
-   * Absolute address this dashboard is reached at, used for the links in
-   * notifications. The hub cannot know it by itself, and an empty value simply
-   * leaves the links out.
-   */
-  dashboardUrl: string;
 }
 
 export interface AuditEntryDto {
