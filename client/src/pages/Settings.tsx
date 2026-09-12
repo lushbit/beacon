@@ -63,7 +63,7 @@ function ProfileTab() {
 
   return (
     <div className="grid gap-4 xl:grid-cols-2">
-      <Section title="Profile">
+      <Section title="Profile" description="The name other people see beside your actions on this hub.">
         <div className="space-y-4">
           <Field label="Display name">
             <Input value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
@@ -77,7 +77,10 @@ function ProfileTab() {
         </div>
       </Section>
 
-      <Section title="Password" description="Changing your password signs out your other sessions.">
+      <Section
+        title="Password"
+        description="Enter your current password once to set a new one. Every other browser you are signed in on is signed out."
+      >
         <div className="space-y-4">
           <Field label="Current password">
             <Input
@@ -113,7 +116,10 @@ function ProfileTab() {
         </div>
       </Section>
 
-      <Section title="Display" description="These preferences are stored on your account.">
+      <Section
+        title="Display"
+        description="How this dashboard reads for you: the time range charts open at, the units and temperature scale, and how tight the device list sits. Saved to your account, so nobody else is affected."
+      >
         <div className="space-y-4">
           <Field label="Default time range">
             <Select
@@ -284,7 +290,7 @@ function NotificationsTab() {
     <div className="space-y-4">
       <Section
         title="Notification channels"
-        description="Alerts are pushed to every enabled channel that matches their severity."
+        description="Where alerts are sent. A channel receives every alert at or above the severity you give it, and Test sends it one right now."
       >
         {channels.length === 0 ? (
           <EmptyState
@@ -475,15 +481,15 @@ function ServerTab() {
 
   return (
     <div className="grid gap-4 xl:grid-cols-2">
-      <Section title="Server" description="Applies to every device unless overridden per device.">
+      <Section
+        title="Server"
+        description="Defaults for the whole hub. The name appears on the sign-in page and in the sidebar, the sample interval is how often agents report, agent updates decide whether devices install new versions on their own, and the session length is how long a sign-in lasts. A device can override the interval and the update setting on its own page."
+      >
         <div className="space-y-4">
-          <Field label="Dashboard name" hint="Shown on the sign-in page and at the top of the sidebar.">
+          <Field label="Dashboard name">
             <Input value={settings.siteName} onChange={(event) => patch({ siteName: event.target.value })} />
           </Field>
-          <Field
-            label="Default sample interval (seconds)"
-            hint="How often each agent reports its metrics, unless the device sets its own. A device picks up a change here the next time it connects."
-          >
+          <Field label="Default sample interval (seconds)">
             <Input
               type="number"
               min={1}
@@ -494,7 +500,7 @@ function ServerTab() {
               }
             />
           </Field>
-          <Field label="Agent updates" hint="What agents do by default; a device can override this.">
+          <Field label="Agent updates">
             <Select
               value={settings.defaultUpdatePolicy}
               onValueChange={(value) => patch({ defaultUpdatePolicy: value as ServerSettingsDto["defaultUpdatePolicy"] })}
@@ -539,10 +545,7 @@ function ServerTab() {
             </div>
           ) : null}
 
-          <Field
-            label="Session length (hours)"
-            hint="How long a sign-in lasts before you have to sign in again. It applies to sign-ins from now on, so anyone already signed in keeps their current session."
-          >
+          <Field label="Session length (hours)">
             <Input
               type="number"
               min={1}
@@ -560,12 +563,12 @@ function ServerTab() {
         </div>
       </Section>
 
-      <Section title="Retention" description="Older samples are averaged down rather than thrown away.">
+      <Section
+        title="Retention"
+        description="How long metrics are kept. Samples stay exactly as reported for the first window, then become one point a minute, then one point an hour. Anything past the last window is deleted. Prune now applies these limits immediately instead of waiting for the hourly cleanup."
+      >
         <div className="space-y-4">
-          <Field
-            label="Full resolution (hours)"
-            hint="How long every single sample is kept, so charts show exactly what each agent reported."
-          >
+          <Field label="Full resolution (hours)">
             <Input
               type="number"
               min={1}
@@ -576,10 +579,7 @@ function ServerTab() {
               }
             />
           </Field>
-          <Field
-            label="One-minute averages (days)"
-            hint="After that, samples are averaged into one point per minute and kept for this long."
-          >
+          <Field label="One-minute averages (days)">
             <Input
               type="number"
               min={1}
@@ -592,10 +592,7 @@ function ServerTab() {
               }
             />
           </Field>
-          <Field
-            label="Hourly averages (days)"
-            hint="Then averaged into one point per hour and kept for this long. Anything older is deleted for good."
-          >
+          <Field label="Hourly averages (days)">
             <Input
               type="number"
               min={1}
@@ -635,7 +632,10 @@ function ServerTab() {
         </div>
       </Section>
 
-      <Section title="Enrollment tokens" description="Used once by an agent, then swapped for a per-device token.">
+      <Section
+        title="Enrollment tokens"
+        description="A new device joins with one of these. The installer spends a use, then the device keeps a token of its own. A token can be limited to a number of devices and can be given an expiry."
+      >
         {tokens.length === 0 ? (
           <EmptyState
             icon={KeyRound}
@@ -698,7 +698,10 @@ function AuditTab() {
   }, []);
 
   return (
-    <Section title="Audit log" description="Sign-ins, device changes and administrative actions.">
+    <Section
+      title="Audit log"
+      description="Who did what on this hub, newest first: sign-ins, devices added or removed, settings changed and alerts acknowledged. Kept for 90 days."
+    >
       {entries.length === 0 ? (
         <EmptyState icon={ScrollText} title="Nothing recorded yet." />
       ) : (
@@ -763,7 +766,10 @@ function AboutTab() {
 
   return (
     <div className="grid gap-4 xl:grid-cols-2">
-      <Section title="Version" description="What this hub is running, and what the newest release is.">
+      <Section
+        title="Version"
+        description="The version this hub runs and the newest one released. Check now asks GitHub straight away, and updating the hub itself is a command you run where it is installed."
+      >
         <div className="space-y-4">
           <div>
             <p className="text-2xs uppercase tracking-wide text-muted-foreground">Installed</p>
@@ -893,7 +899,10 @@ function AboutTab() {
         </div>
       </Section>
 
-      <Section title="Agents" description="Agents report their version when they connect.">
+      <Section
+        title="Agents"
+        description="The version each device runs, reported when it connects. Devices behind this hub can be updated from here, one at a time or all at once, as long as they are online."
+      >
         {devices.length === 0 ? (
           <EmptyState icon={Info} title="No devices enrolled yet." />
         ) : outdated.length === 0 ? (
