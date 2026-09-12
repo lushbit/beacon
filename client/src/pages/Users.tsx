@@ -17,7 +17,10 @@ import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 /** Shared column template so the header and every row line up on desktop. */
-const ROW_GRID = "lg:grid-cols-[minmax(0,1fr)_8rem_9rem_9rem_auto]";
+// The gap belongs to the shared template: with it set on the rows alone, their
+// first column lost the width of four gaps and every heading sat to the right
+// of the thing it names.
+const ROW_GRID = "lg:grid-cols-[minmax(0,1fr)_8rem_9rem_9rem_auto] lg:gap-4";
 
 export function UsersPage() {
   const { session } = useAuth();
@@ -126,7 +129,7 @@ export function UsersPage() {
                     className={cn(
                       ROW_GRID,
                       "flex flex-col gap-3 px-5 py-4 transition-colors hover:bg-white/[0.02]",
-                      "lg:grid lg:items-center lg:gap-4"
+                      "lg:grid lg:items-center"
                     )}
                   >
                     <div className="flex min-w-0 items-center gap-3.5">
