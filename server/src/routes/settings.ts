@@ -46,6 +46,8 @@ settingsRouter.use(requireAdmin);
 
 const patchSchema = z.object({
   siteName: z.string().trim().min(1).max(60).optional(),
+  // Empty is allowed and means notifications carry no links.
+  dashboardUrl: z.union([z.literal(""), z.string().trim().url().max(200)]).optional(),
   defaultSampleIntervalMs: z.number().int().min(1000).max(300_000).optional(),
   defaultOfflineAfterSec: z.number().int().min(15).max(86_400).optional(),
   sessionTtlHours: z.number().int().min(1).max(24 * 365).optional(),

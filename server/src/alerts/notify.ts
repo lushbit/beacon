@@ -1,6 +1,8 @@
 import { createHmac } from "node:crypto";
 import type { AlertDto, AlertSeverity } from "@beacon/shared";
+import { getServerSettings } from "../settings.js";
 import { logger } from "../utils/log.js";
+import { metricReading } from "./messages.js";
 import { channelConfig, listChannels, markChannelResult, type ChannelRow } from "./repo.js";
 
 const log = logger("notify");
@@ -8,10 +10,15 @@ const log = logger("notify");
 const SEVERITY_RANK: Record<AlertSeverity, number> = { info: 1, warning: 2, critical: 3 };
 const TIMEOUT_MS = 8000;
 
-function formatValue(alert: AlertDto): string {
-  if (alert.value === null) return "";
-  const rounded = Math.abs(alert.value) >= 100 ? Math.round(alert.value) : Math.round(alert.value * 10) / 10;
-  return String(rounded);
+/**
+ * Link straight to the device that raised the alert. The hub only knows the
+ * address someone reaches the dashboard at once it has been set in Settings,
+ * and until then notifications simply carry no link.
+ */
+function deviceUrl(alert: AlertDto): string | null {
+  if (!alert.deviceId) return null;
+  const base = getServerSettings().dashboardUrl.trim().replace(/\/+$/, "");
+  return base ? `${base}/devices/${alert.deviceId}` : null;
 }
 
 function title(alert: AlertDto): string {
@@ -49,6 +56,9 @@ async function sendNtfy(row: ChannelRow, alert: AlertDto): Promise<void> {
     Tags: alert.state === "resolved" ? "white_check_mark" : alert.severity === "critical" ? "rotating_light" : "warning",
   };
   if (cfg.token) headers.Authorization = `Bearer ${cfg.token}`;
+  // Tapping the notification opens the device it is about.
+  const link = deviceUrl(alert);
+  if (link) headers.Click = link;
 
   await post(target, { method: "POST", headers, body: alert.message });
 }
@@ -56,7 +66,7 @@ async function sendNtfy(row: ChannelRow, alert: AlertDto): Promise<void> {
 async function sendWebhook(row: ChannelRow, alert: AlertDto): Promise<void> {
   const cfg = channelConfig(row);
   if (!cfg.url) throw new Error("webhook channel has no URL");
-  const body = JSON.stringify({ event: `alert.${alert.state}`, alert });
+  const body = JSON.stringify({ event: `alert.${alert.state}`, alert, deviceUrl: deviceUrl(alert) });
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (cfg.secret) {
     // Lets the receiver prove the payload came from this hub.
@@ -75,19 +85,23 @@ const DISCORD_COLORS: Record<string, number> = {
 async function sendDiscord(row: ChannelRow, alert: AlertDto): Promise<void> {
   const cfg = channelConfig(row);
   if (!cfg.url) throw new Error("discord channel has no webhook URL");
-  const value = formatValue(alert);
+  const link = deviceUrl(alert);
+  const reading = metricReading(alert.metric, alert.value, alert.threshold);
   const payload = {
     username: "Beacon",
     embeds: [
       {
         title: title(alert),
+        url: link ?? undefined,
         description: alert.message,
         color: DISCORD_COLORS[alert.state === "resolved" ? "resolved" : alert.severity] ?? 0x8b5cf6,
         timestamp: new Date(alert.state === "firing" ? alert.startedAt : alert.resolvedAt ?? Date.now()).toISOString(),
         fields: [
-          { name: "Device", value: alert.deviceName, inline: true },
+          { name: "Device", value: link ? `[${alert.deviceName}](${link})` : alert.deviceName, inline: true },
           { name: "Severity", value: alert.severity, inline: true },
-          ...(value ? [{ name: "Value", value, inline: true }] : []),
+          // An offline device has no reading worth printing, which is what used
+          // to show up as "Value 0".
+          ...(reading ? [{ name: reading.label, value: reading.text, inline: true }] : []),
         ],
       },
     ],
@@ -132,7 +146,8 @@ export async function testChannel(row: ChannelRow): Promise<{ ok: boolean; error
     id: "test",
     ruleId: null,
     ruleName: "Test notification",
-    deviceId: "test",
+    // No real device, so the notification carries no device link.
+    deviceId: "",
     deviceName: "Beacon",
     metric: "cpuPct",
     severity: "info",

@@ -480,6 +480,16 @@ function ServerTab() {
           <Field label="Dashboard name">
             <Input value={settings.siteName} onChange={(event) => patch({ siteName: event.target.value })} />
           </Field>
+          <Field
+            label="Dashboard address"
+            hint="Where people reach this dashboard. Notifications link to the device when it is set."
+          >
+            <Input
+              value={settings.dashboardUrl}
+              placeholder="https://beacon.example.com"
+              onChange={(event) => patch({ dashboardUrl: event.target.value })}
+            />
+          </Field>
           <Field label="Default sample interval (seconds)">
             <Input
               type="number"

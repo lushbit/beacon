@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, BellOff, Check, Info, Plus, Siren, Trash2 } from "lucide-react";
+import { AlertTriangle, BellOff, Check, ExternalLink, Info, Plus, Siren, Trash2 } from "lucide-react";
 import {
   ALERT_METRICS,
   ALERT_METRIC_LABELS,
@@ -78,6 +78,12 @@ function AlertRow({ alert, onAcknowledge }: { alert: AlertDto; onAcknowledge: (i
         <Badge tone={alert.state === "firing" ? SEVERITY_TONE[alert.severity] : "neutral"}>
           {alert.state === "firing" ? alert.severity : "resolved"}
         </Badge>
+        <Button variant="ghost" size="sm" asChild>
+          <Link to={`/devices/${alert.deviceId}`}>
+            <ExternalLink className="h-3.5 w-3.5" />
+            Open device
+          </Link>
+        </Button>
         {alert.state === "firing" && !alert.acknowledgedAt ? (
           <Button variant="ghost" size="sm" onClick={() => onAcknowledge(alert.id)}>
             <Check className="h-3.5 w-3.5" />

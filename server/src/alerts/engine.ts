@@ -2,7 +2,7 @@ import type { AlertDto, AlertMetric, MetricSample, MetricSummary } from "@beacon
 import { db } from "../db/index.js";
 import { bus } from "../events.js";
 import { deviceSettings, getDeviceRow, listDeviceRows } from "../devices.js";
-import { formatMetricValue, metricLabel } from "../utils/format.js";
+import { firingMessage, resolvedMessage } from "./messages.js";
 import { newId } from "../utils/ids.js";
 import { logger } from "../utils/log.js";
 import { dispatchAlert } from "./notify.js";
@@ -40,23 +40,9 @@ function breached(operator: string, value: number, threshold: number): boolean {
   return operator === "lt" ? value < threshold : value > threshold;
 }
 
-function describe(rule: AlertRuleRow, deviceName: string, value: number | null, resolved: boolean): string {
-  const label = metricLabel(rule.metric);
-  const comparison = rule.operator === "lt" ? "below" : "above";
-  const readable = value === null ? "unknown" : formatMetricValue(rule.metric, value);
-  const limit = formatMetricValue(rule.metric, rule.threshold);
-  if (resolved) {
-    return `${label} on ${deviceName} is back to ${readable} (limit ${limit}).`;
-  }
-  if (rule.metric === "offline") {
-    return `${deviceName} has not reported for ${readable} (limit ${limit}).`;
-  }
-  return `${label} on ${deviceName} is ${readable}, ${comparison} the ${limit} limit.`;
-}
-
 function fire(rule: AlertRuleRow, deviceId: string, deviceName: string, value: number | null, at: number): AlertRow {
   const id = newId();
-  const message = describe(rule, deviceName, value, false);
+  const message = firingMessage(rule.metric, deviceName, rule.operator, value, rule.threshold);
   db.prepare(
     `INSERT INTO alerts (id, rule_id, rule_name, device_id, metric, severity, state, value, threshold, message, started_at)
      VALUES (?, ?, ?, ?, ?, ?, 'firing', ?, ?, ?, ?)`
@@ -72,9 +58,7 @@ function fire(rule: AlertRuleRow, deviceId: string, deviceName: string, value: n
 function resolve(alertId: string, deviceName: string, value: number | null, at: number): void {
   const existing = getAlert(alertId);
   if (!existing || existing.state === "resolved") return;
-  const message = `${existing.rule_name} on ${deviceName} recovered${
-    value === null ? "" : ` (${formatMetricValue(existing.metric, value)})`
-  }.`;
+  const message = resolvedMessage(existing.metric, deviceName, value);
   db.prepare("UPDATE alerts SET state = 'resolved', resolved_at = ?, value = ?, message = ? WHERE id = ?").run(
     at,
     value,

@@ -264,6 +264,12 @@ export interface ServerSettingsDto {
   updateWindowStartHour: number;
   updateWindowEndHour: number;
   siteName: string;
+  /**
+   * Absolute address this dashboard is reached at, used for the links in
+   * notifications. The hub cannot know it by itself, and an empty value simply
+   * leaves the links out.
+   */
+  dashboardUrl: string;
 }
 
 export interface AuditEntryDto {
