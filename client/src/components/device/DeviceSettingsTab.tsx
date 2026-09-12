@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { KeyRound, RefreshCw, Save, Trash2 } from "lucide-react";
+import { KeyRound, RefreshCw, Save, ShieldAlert, Trash2 } from "lucide-react";
 import { UPDATE_POLICIES, UPDATE_POLICY_LABELS } from "@beacon/shared";
 import type { DeviceDto, DeviceSettingsDto, UpdatePolicy } from "@beacon/shared";
 import { RemoveAgentDialog } from "@/components/device/RemoveAgentDialog";
@@ -19,6 +19,36 @@ import { cn } from "@/lib/utils";
 interface Props {
   device: DeviceDto;
   onSaved: (device: DeviceDto) => void;
+}
+
+function Panel({
+  title,
+  description,
+  tone = "normal",
+  className,
+  children,
+}: {
+  title: string;
+  description?: string;
+  tone?: "normal" | "danger";
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      className={cn(
+        "space-y-4 rounded-lg border p-4",
+        tone === "danger" ? "border-danger/30 bg-danger/[0.04]" : "border-border/70 bg-card",
+        className
+      )}
+    >
+      <div>
+        <h3 className={cn("text-sm font-medium", tone === "danger" ? "text-danger" : "text-foreground")}>{title}</h3>
+        {description ? <p className="mt-0.5 text-2xs text-muted-foreground">{description}</p> : null}
+      </div>
+      {children}
+    </section>
+  );
 }
 
 export function DeviceSettingsTab({ device, onSaved }: Props) {
@@ -50,6 +80,23 @@ export function DeviceSettingsTab({ device, onSaved }: Props) {
 
   const disks = device.latest?.detail.disks ?? [];
   const interfaces = device.latest?.detail.network ?? [];
+
+  // Everything on this page is saved by one button, so the bar at the bottom
+  // has to know whether anything actually changed.
+  const dirty =
+    name !== device.name ||
+    color !== device.color ||
+    tags !== device.tags.join(", ") ||
+    notes !== device.notes ||
+    JSON.stringify(settings) !== JSON.stringify(device.settings);
+
+  const discard = () => {
+    setName(device.name);
+    setColor(device.color);
+    setTags(device.tags.join(", "));
+    setNotes(device.notes);
+    setSettings(device.settings);
+  };
 
   const save = async () => {
     setSaving(true);
@@ -90,121 +137,81 @@ export function DeviceSettingsTab({ device, onSaved }: Props) {
   };
 
   return (
-    <div className="grid gap-4 xl:grid-cols-2">
-      <section className="space-y-4 rounded-lg border border-border/70 bg-card p-4">
-        <h3 className="text-sm font-medium text-foreground">Identity</h3>
-        <Field label="Display name">
-          <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={60} />
-        </Field>
-        <Field label="Accent" hint="Shown as a coloured bar on the left of this device in the overview list.">
-          <div className="flex flex-wrap gap-2">
-            {DEVICE_COLORS.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                onClick={() => setColor(option.id)}
-                aria-label={option.label}
-                aria-pressed={color === option.id}
-                className={cn(
-                  "h-7 w-7 rounded-full ring-offset-2 ring-offset-card transition-shadow",
-                  color === option.id ? "ring-2 ring-foreground/70" : "ring-1 ring-border"
-                )}
-                style={{ background: deviceColor(option.id) }}
-              />
-            ))}
-          </div>
-        </Field>
-        <Field label="Tags" hint="Separate them with commas. Typing a tag into the overview filter shows every device that has it.">
-          <Input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="office, linux" />
-        </Field>
-        <Field label="Notes">
-          <Textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={2000} />
-        </Field>
-      </section>
-
-      <section className="space-y-4 rounded-lg border border-border/70 bg-card p-4">
-        <h3 className="text-sm font-medium text-foreground">Collection</h3>
-        <Field label="Sample interval" hint="How often the agent reports, in seconds.">
-          <Input
-            type="number"
-            min={1}
-            max={300}
-            value={Math.round(settings.sampleIntervalMs / 1000)}
-            onChange={(event) => patch("sampleIntervalMs", Math.max(1, Number(event.target.value) || 5) * 1000)}
-          />
-        </Field>
-        <Field label="Offline after" hint="Seconds used as the threshold when Beacon creates this device's offline alert rule.">
-          <Input
-            type="number"
-            min={15}
-            max={86400}
-            value={settings.offlineAfterSec}
-            onChange={(event) => patch("offlineAfterSec", Math.max(15, Number(event.target.value) || 30))}
-          />
-        </Field>
-
-        <Field label="Agent updates" hint="Overrides the server default for this device only.">
-          <Select
-            value={settings.updatePolicy ?? "default"}
-            onValueChange={(value) => patch("updatePolicy", value === "default" ? null : (value as UpdatePolicy))}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="default">Follow the server default</SelectItem>
-              {UPDATE_POLICIES.map((policy) => (
-                <SelectItem key={policy} value={policy}>
-                  {UPDATE_POLICY_LABELS[policy]}
-                </SelectItem>
+    <div className="space-y-4">
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Panel title="Identity" description="How this device is named and found around the dashboard.">
+          <Field label="Display name" hint="What this device is called everywhere. Its hostname still shows beside it when the two differ.">
+            <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={60} />
+          </Field>
+          <Field label="Accent" hint="Shown as a coloured bar on the left of this device in the overview list.">
+            <div className="flex flex-wrap gap-2">
+              {DEVICE_COLORS.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => setColor(option.id)}
+                  aria-label={option.label}
+                  aria-pressed={color === option.id}
+                  className={cn(
+                    "h-7 w-7 rounded-full ring-offset-2 ring-offset-card transition-shadow",
+                    color === option.id ? "ring-2 ring-foreground/70" : "ring-1 ring-border"
+                  )}
+                  style={{ background: deviceColor(option.id) }}
+                />
               ))}
-            </SelectContent>
-          </Select>
-        </Field>
+            </div>
+          </Field>
+          <Field label="Tags" hint="Separate them with commas. Typing a tag into the overview filter shows every device that has it.">
+            <Input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="office, linux" />
+          </Field>
+          <Field label="Notes" hint="Anything worth remembering about this machine. Only shown here.">
+            <Textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={2000} />
+          </Field>
+        </Panel>
 
-        <div className="flex items-start justify-between gap-4 rounded-md border border-border/60 bg-surface-2 p-3">
-          <div className="min-w-0">
-            <p className="text-sm text-foreground">Allow ending processes</p>
-            <p className="mt-0.5 text-2xs text-muted-foreground">
-              Lets administrators end a process on this device from the dashboard.
-            </p>
-          </div>
-          <Switch
-            checked={settings.allowProcessKill}
-            onCheckedChange={(checked) => patch("allowProcessKill", checked)}
-            aria-label="Allow ending processes"
-          />
-        </div>
+        <Panel title="Collection" description="What this device reports and when, overriding the server defaults.">
+          <Field label="Sample interval" hint="How often the agent reports, in seconds.">
+            <Input
+              type="number"
+              min={1}
+              max={300}
+              value={Math.round(settings.sampleIntervalMs / 1000)}
+              onChange={(event) => patch("sampleIntervalMs", Math.max(1, Number(event.target.value) || 5) * 1000)}
+            />
+          </Field>
+          <Field label="Offline after" hint="Seconds without a report before this device counts as offline and its offline alert fires.">
+            <Input
+              type="number"
+              min={15}
+              max={86400}
+              value={settings.offlineAfterSec}
+              onChange={(event) => patch("offlineAfterSec", Math.max(15, Number(event.target.value) || 30))}
+            />
+          </Field>
 
-        <div className="flex flex-wrap items-center gap-2 pt-1">
-          <Button variant="primary" onClick={() => void save()} disabled={saving}>
-            <Save className="h-4 w-4" />
-            {saving ? "Saving…" : "Save changes"}
-          </Button>
-          <Button variant="outline" onClick={() => void refresh()}>
-            <RefreshCw className="h-4 w-4" />
-            Refresh system info
-          </Button>
-          <Button variant="outline" onClick={() => void rotate()}>
-            <KeyRound className="h-4 w-4" />
-            Rotate token
-          </Button>
-          <Button variant="danger" onClick={() => setConfirmDelete(true)}>
-            <Trash2 className="h-4 w-4" />
-            Remove device
-          </Button>
-        </div>
-      </section>
+          <Field label="Agent updates" hint="When this device installs a newer agent, instead of following the server setting.">
+            <Select
+              value={settings.updatePolicy ?? "default"}
+              onValueChange={(value) => patch("updatePolicy", value === "default" ? null : (value as UpdatePolicy))}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">Follow the server default</SelectItem>
+                {UPDATE_POLICIES.map((policy) => (
+                  <SelectItem key={policy} value={policy}>
+                    {UPDATE_POLICY_LABELS[policy]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+        </Panel>
+      </div>
 
       {disks.length > 0 || interfaces.length > 0 ? (
-        <section className="space-y-4 rounded-lg border border-border/70 bg-card p-4 xl:col-span-2">
-          <div>
-            <h3 className="text-sm font-medium text-foreground">Panels</h3>
-            <p className="mt-0.5 text-2xs text-muted-foreground">
-              Choose what this device's page shows. Hidden entries are still collected, just not drawn.
-            </p>
-          </div>
-
+        <Panel title="Panels" description="Choose what this device's page shows. Hidden entries are still collected, just not drawn.">
           <div className="grid gap-6 sm:grid-cols-2">
             {disks.length > 0 ? (
               <div className="space-y-2">
@@ -251,16 +258,87 @@ export function DeviceSettingsTab({ device, onSaved }: Props) {
               </div>
             ) : null}
           </div>
-
-          <p className="text-2xs text-muted-foreground">Panel changes are saved with the button above.</p>
-        </section>
+        </Panel>
       ) : null}
+
+      <Panel
+        title="Danger zone"
+        tone="danger"
+        description="These hand out access to this device or throw it away. Rotating and removing take effect the moment you press them."
+      >
+        <div className="flex items-start justify-between gap-4 rounded-md border border-border/60 bg-surface-2 p-3">
+          <div className="min-w-0">
+            <p className="text-sm text-foreground">Allow ending processes</p>
+            <p className="mt-0.5 text-2xs text-muted-foreground">
+              Lets administrators end a running process on this device from the Processes tab. Saved with the button at
+              the bottom of this page.
+            </p>
+          </div>
+          <Switch
+            checked={settings.allowProcessKill}
+            onCheckedChange={(checked) => patch("allowProcessKill", checked)}
+            aria-label="Allow ending processes"
+          />
+        </div>
+
+        <div className="flex items-start justify-between gap-4 rounded-md border border-border/60 bg-surface-2 p-3">
+          <div className="min-w-0">
+            <p className="text-sm text-foreground">Rotate the device token</p>
+            <p className="mt-0.5 text-2xs text-muted-foreground">
+              Cuts this agent off until the installer is run again with the new token, which is shown once.
+            </p>
+          </div>
+          <Button variant="outline" className="shrink-0" onClick={() => void rotate()}>
+            <KeyRound className="h-4 w-4" />
+            Rotate token
+          </Button>
+        </div>
+
+        <div className="flex items-start justify-between gap-4 rounded-md border border-danger/30 bg-danger/[0.06] p-3">
+          <div className="min-w-0">
+            <p className="text-sm text-foreground">Remove this device</p>
+            <p className="mt-0.5 text-2xs text-muted-foreground">
+              Deletes the device with its metric history and alerts. The agent keeps running until it is uninstalled.
+            </p>
+          </div>
+          <Button variant="danger" className="shrink-0" onClick={() => setConfirmDelete(true)}>
+            <Trash2 className="h-4 w-4" />
+            Remove device
+          </Button>
+        </div>
+      </Panel>
+
+      {/*
+       * One save for the whole page. It sticks to the bottom of the scrolling
+       * area so it stays reachable from any section, on a phone as much as on a
+       * desktop, rather than belonging to whichever section it happened to sit in.
+       */}
+      <div className="sticky bottom-0 z-10 -mx-4 border-t border-border/60 bg-background/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-2xs text-muted-foreground">
+            {dirty ? "This page has changes you have not saved." : "Everything on this page is saved."}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" onClick={() => void refresh()}>
+              <RefreshCw className="h-4 w-4" />
+              Refresh system info
+            </Button>
+            <Button variant="ghost" onClick={discard} disabled={!dirty || saving}>
+              Discard
+            </Button>
+            <Button variant="primary" onClick={() => void save()} disabled={!dirty || saving}>
+              <Save className="h-4 w-4" />
+              {saving ? "Saving…" : "Save changes"}
+            </Button>
+          </div>
+        </div>
+      </div>
 
       <Dialog open={rotated !== null} onOpenChange={(open) => !open && setRotated(null)}>
         <DialogContent>
           <DialogHeader
             title="New device token"
-            description="The agent was disconnected. Re-run the installer on the device with this token — it is shown only once."
+            description="The agent was disconnected. Re-run the installer on the device with this token, which is shown only once."
           />
           <pre ref={rotatedCommand} className="scroll-slim overflow-x-auto rounded-md border border-border bg-surface-2 p-3 text-xs">
             curl -sSL {window.location.origin}/install.sh | sh -s -- --url {window.location.origin} --token{" "}
@@ -300,6 +378,7 @@ export function DeviceSettingsTab({ device, onSaved }: Props) {
               Cancel
             </Button>
             <Button variant="danger" onClick={() => void remove()}>
+              <ShieldAlert className="h-4 w-4" />
               Remove device
             </Button>
           </DialogFooter>

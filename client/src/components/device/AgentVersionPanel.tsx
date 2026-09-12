@@ -32,11 +32,18 @@ export function AgentVersionPanel({ device, online, onChanged }: { device: Devic
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="text-sm font-medium text-foreground">Agent</h3>
-          <p className="mt-0.5 text-2xs text-muted-foreground">
-            Version {device.agentVersion ?? "unknown"}
-            {device.protocolVersion ? ` · protocol v${device.protocolVersion}` : ""}
-            {info ? ` · hub serves ${info.current}` : ""}
-          </p>
+          <dl className="mt-2 flex flex-wrap gap-x-8 gap-y-2 text-xs">
+            {[
+              ["Version", device.agentVersion ? `v${device.agentVersion}` : "unknown"],
+              ["Protocol", device.protocolVersion ? `v${device.protocolVersion}` : "unknown"],
+              ["Hub version", info ? `v${info.current}` : "unknown"],
+            ].map(([label, value]) => (
+              <div key={label}>
+                <dt className="text-2xs uppercase tracking-wide text-muted-foreground">{label}</dt>
+                <dd className="mt-0.5 tabular text-foreground">{value}</dd>
+              </div>
+            ))}
+          </dl>
         </div>
 
         {device.compatibility === "current" ? (
