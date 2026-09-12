@@ -25,10 +25,50 @@ import { useLive } from "@/context/LiveContext";
 import { useToast } from "@/context/ToastContext";
 import { api } from "@/lib/api";
 import { RelativeTime } from "@/components/RelativeTime";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, formatRate } from "@/lib/format";
 
 const SEVERITY_TONE = { info: "info", warning: "warning", critical: "danger" } as const;
 const SEVERITY_ICON = { info: Info, warning: AlertTriangle, critical: Siren };
+
+/** Durations in words, because "for 300s" reads like a machine wrote it. */
+function durationWords(seconds: number): string {
+  if (seconds < 60) return `${seconds} second${seconds === 1 ? "" : "s"}`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  const hours = Math.round(minutes / 60);
+  return `${hours} hour${hours === 1 ? "" : "s"}`;
+}
+
+/** Shorter than the labels in the rule editor, which have to name a metric exactly. */
+const SUMMARY_LABELS: Partial<Record<AlertMetric, string>> = {
+  diskMaxPct: "Disk usage",
+  load1: "Load average",
+};
+
+function thresholdWords(metric: AlertMetric, threshold: number): string {
+  switch (ALERT_METRIC_UNITS[metric]) {
+    case "percent":
+      return `${threshold}%`;
+    case "celsius":
+      return `${threshold} °C`;
+    case "bytesPerSec":
+      return formatRate(threshold);
+    case "seconds":
+      return durationWords(threshold);
+    default:
+      return String(threshold);
+  }
+}
+
+/** What a rule watches, in one line someone can read at a glance. */
+function ruleSummary(rule: AlertRuleDto, deviceName: string): string {
+  if (rule.metric === "offline") return `No report for ${durationWords(rule.threshold)} from ${deviceName}`;
+  const label = SUMMARY_LABELS[rule.metric] ?? ALERT_METRIC_LABELS[rule.metric];
+  const direction = rule.operator === "gt" ? "above" : "below";
+  // A rule that fires on the first reading has no duration worth printing.
+  const sustained = rule.durationSec > 0 ? ` for ${durationWords(rule.durationSec)}` : "";
+  return `${label} ${direction} ${thresholdWords(rule.metric, rule.threshold)}${sustained} on ${deviceName}`;
+}
 
 function unitSuffix(metric: AlertMetric): string {
   switch (ALERT_METRIC_UNITS[metric]) {
@@ -437,10 +477,7 @@ export function AlertsPage() {
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm text-foreground">{rule.name}</p>
                           <p className="mt-0.5 text-2xs text-muted-foreground">
-                            {ALERT_METRIC_LABELS[rule.metric]} {rule.operator === "gt" ? "above" : "below"}{" "}
-                            {rule.threshold}
-                            {unitSuffix(rule.metric)} for {rule.durationSec}s ·{" "}
-                            {device ? device.name : "all devices"}
+                            {ruleSummary(rule, device ? device.name : "all devices")}
                           </p>
                         </div>
                         <Badge tone={rule.enabled ? SEVERITY_TONE[rule.severity] : "neutral"}>
