@@ -285,8 +285,11 @@ export function createEnrollToken(input: {
   return { row, token };
 }
 
+/** An expired token can never be used again, so it is left out of the list. */
 export function listEnrollTokens(): EnrollTokenRow[] {
-  return db.prepare("SELECT * FROM enroll_tokens ORDER BY created_at DESC").all() as EnrollTokenRow[];
+  return db
+    .prepare("SELECT * FROM enroll_tokens WHERE expires_at IS NULL OR expires_at > ? ORDER BY created_at DESC")
+    .all(Date.now()) as EnrollTokenRow[];
 }
 
 /**
@@ -312,6 +315,14 @@ export function enrollmentFor(tokenId: string): string | null {
 
 export function deleteEnrollToken(id: string): void {
   db.prepare("DELETE FROM enroll_tokens WHERE id = ?").run(id);
+}
+
+/**
+ * Throws away tokens that have passed their expiry, rather than keeping rows
+ * nobody can use. A token with no expiry is kept until someone deletes it.
+ */
+export function purgeExpiredEnrollTokens(): void {
+  db.prepare("DELETE FROM enroll_tokens WHERE expires_at IS NOT NULL AND expires_at <= ?").run(Date.now());
 }
 
 export function consumeEnrollToken(token: string): EnrollTokenRow | null {

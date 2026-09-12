@@ -1,5 +1,6 @@
 import { purgeOldAttempts } from "./auth/ratelimit.js";
 import { purgeExpiredSessions } from "./auth/sessions.js";
+import { purgeExpiredEnrollTokens } from "./devices.js";
 import { purgeOldAudit } from "./audit.js";
 import { sweepOfflineRules } from "./alerts/engine.js";
 import { sweepScheduledUpdates } from "./agentUpdates.js";
@@ -37,6 +38,7 @@ export function startJobs(): void {
   const maintenanceTimer = setInterval(() => {
     safely("prune-samples", () => pruneSamples(getServerSettings().retention));
     safely("purge-sessions", purgeExpiredSessions);
+    safely("purge-enroll-tokens", purgeExpiredEnrollTokens);
     safely("purge-attempts", purgeOldAttempts);
     safely("purge-audit", () => purgeOldAudit(90));
   }, 3600_000);

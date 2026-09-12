@@ -457,6 +457,7 @@ function ServerTab() {
   const [storage, setStorage] = useState<{ devices: number; rows: number; sizeBytes: number } | null>(null);
   const [tokens, setTokens] = useState<EnrollTokenDto[]>([]);
   const [enrolling, setEnrolling] = useState(false);
+  const [removingToken, setRemovingToken] = useState<EnrollTokenDto | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -578,7 +579,7 @@ function ServerTab() {
         description="How long metrics are kept before they are averaged down and finally deleted."
       >
         <div className="space-y-4">
-          <Field label="Full resolution (hours)" hint="Every sample is kept exactly as reported for this long.">
+          <Field label="Full resolution (hours)" hint="Every sample exactly as reported, kept for this many hours.">
             <Input
               type="number"
               min={1}
@@ -589,7 +590,7 @@ function ServerTab() {
               }
             />
           </Field>
-          <Field label="One-minute averages (days)" hint="After that, one averaged point a minute for this many days.">
+          <Field label="One-minute averages (days)" hint="One averaged point a minute, kept for this many days.">
             <Input
               type="number"
               min={1}
@@ -602,7 +603,7 @@ function ServerTab() {
               }
             />
           </Field>
-          <Field label="Hourly averages (days)" hint="Then one averaged point an hour. Anything older is deleted.">
+          <Field label="Hourly averages (days)" hint="One averaged point an hour, kept for this many days. Older data is deleted.">
             <Input
               type="number"
               min={1}
@@ -667,11 +668,8 @@ function ServerTab() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    aria-label="Delete token"
-                    onClick={async () => {
-                      await attempt(() => api.deleteEnrollToken(token.id), "Token deleted.");
-                      void load();
-                    }}
+                    aria-label={`Delete ${token.label || "untitled token"}`}
+                    onClick={() => setRemovingToken(token)}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -705,6 +703,32 @@ function ServerTab() {
           </div>
         </div>
       </div>
+
+      <Dialog open={removingToken !== null} onOpenChange={(open) => !open && setRemovingToken(null)}>
+        <DialogContent>
+          <DialogHeader
+            title={`Delete ${removingToken?.label || "this token"}?`}
+            description="Any installer still holding this token will be turned away. Devices already enrolled with it keep working."
+          />
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRemovingToken(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              onClick={async () => {
+                const token = removingToken;
+                setRemovingToken(null);
+                if (!token) return;
+                await attempt(() => api.deleteEnrollToken(token.id), "Token deleted.");
+                void load();
+              }}
+            >
+              Delete token
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <EnrollDialog open={enrolling} onOpenChange={setEnrolling} onCreated={() => void load()} />
     </div>
