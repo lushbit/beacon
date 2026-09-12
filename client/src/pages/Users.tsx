@@ -12,15 +12,15 @@ import { EmptyState, Skeleton } from "@/components/ui/misc";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/context/ToastContext";
 import { api } from "@/lib/api";
-import { RelativeTime } from "@/components/RelativeTime";
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 /** Shared column template so the header and every row line up on desktop. */
-// The gap belongs to the shared template: with it set on the rows alone, their
-// first column lost the width of four gaps and every heading sat to the right
-// of the thing it names.
-const ROW_GRID = "lg:grid-cols-[minmax(0,1fr)_8rem_9rem_9rem_auto] lg:gap-4";
+// The gap and the width of the button column belong to the shared template.
+// With the gap set on the rows alone, and the buttons left to size themselves
+// against a heading that is only read aloud, the row and the header ended up
+// with different columns and every heading sat right of the thing it names.
+const ROW_GRID = "lg:grid-cols-[minmax(0,1fr)_8rem_8rem_5.5rem] lg:gap-4";
 
 export function UsersPage() {
   const { session } = useAuth();
@@ -105,9 +105,8 @@ export function UsersPage() {
         <div className="overflow-hidden rounded-lg border border-border/70 bg-card">
           <div className={cn(ROW_GRID, "hidden border-b border-border/60 bg-surface-2/60 px-5 py-3 lg:grid")}>
             <p className="text-2xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">Account</p>
-            <p className="text-2xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">Role</p>
             <p className="text-2xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">Access</p>
-            <p className="text-2xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">Last sign-in</p>
+            <p className="text-2xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">Role</p>
             <span className="sr-only">Actions</span>
           </div>
 
@@ -160,22 +159,6 @@ export function UsersPage() {
                     </div>
 
                     <div className="flex items-center justify-between gap-3 lg:block">
-                      <span className="shrink-0 text-xs text-muted-foreground lg:hidden">Role</span>
-                      <Select
-                        value={user.role}
-                        onValueChange={(value) => void update(user, { role: value as UserRole })}
-                      >
-                        <SelectTrigger className="h-9 w-32 text-xs" aria-label={`Role for ${user.username}`}>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="admin">Admin</SelectItem>
-                          <SelectItem value="viewer">Viewer</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="flex items-center justify-between gap-3 lg:block">
                       <span className="shrink-0 text-xs text-muted-foreground lg:hidden">Access</span>
                       <span className="flex items-center gap-2.5">
                         <Switch
@@ -191,13 +174,22 @@ export function UsersPage() {
                     </div>
 
                     <div className="flex items-center justify-between gap-3 lg:block">
-                      <span className="shrink-0 text-xs text-muted-foreground lg:hidden">Last sign-in</span>
-                      <p className="min-w-0 truncate text-xs text-muted-foreground">
-                        {user.lastLoginAt ? <RelativeTime value={user.lastLoginAt} /> : "never"}
-                      </p>
+                      <span className="shrink-0 text-xs text-muted-foreground lg:hidden">Role</span>
+                      <Select
+                        value={user.role}
+                        onValueChange={(value) => void update(user, { role: value as UserRole })}
+                      >
+                        <SelectTrigger className="h-9 w-32 text-xs" aria-label={`Role for ${user.username}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="admin">Admin</SelectItem>
+                          <SelectItem value="viewer">Viewer</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
 
-                    <div className="flex items-center justify-end gap-1 lg:justify-start">
+                    <div className="flex items-center justify-end gap-1">
                       <Button
                         variant="ghost"
                         size="icon"
