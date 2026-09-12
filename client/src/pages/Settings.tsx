@@ -452,6 +452,8 @@ function NotificationsTab() {
 function ServerTab() {
   const { attempt, notify } = useToast();
   const [settings, setSettings] = useState<ServerSettingsDto | null>(null);
+  // What the hub last confirmed, so the bar at the bottom knows what is unsaved.
+  const [saved, setSaved] = useState<ServerSettingsDto | null>(null);
   const [storage, setStorage] = useState<{ devices: number; rows: number; sizeBytes: number } | null>(null);
   const [tokens, setTokens] = useState<EnrollTokenDto[]>([]);
   const [enrolling, setEnrolling] = useState(false);
@@ -464,6 +466,7 @@ function ServerTab() {
         api.enrollTokens(),
       ]);
       setSettings(serverSettings);
+      setSaved(serverSettings);
       setStorage(storageStats);
       setTokens(tokenList);
     } catch (error) {
@@ -479,6 +482,16 @@ function ServerTab() {
 
   const patch = (next: Partial<ServerSettingsDto>) => setSettings({ ...settings, ...next });
 
+  const dirty = saved !== null && JSON.stringify(settings) !== JSON.stringify(saved);
+
+  const saveAll = async () => {
+    const next = await attempt(() => api.updateSettings(settings), "Settings saved.");
+    if (next) {
+      setSettings(next);
+      setSaved(next);
+    }
+  };
+
   return (
     <div className="grid gap-4 xl:grid-cols-2">
       <Section
@@ -486,10 +499,13 @@ function ServerTab() {
         description="Defaults for every device. Each one can override them on its own page."
       >
         <div className="space-y-4">
-          <Field label="Dashboard name">
+          <Field label="Dashboard name" hint="Shown on the sign-in page and in the sidebar.">
             <Input value={settings.siteName} onChange={(event) => patch({ siteName: event.target.value })} />
           </Field>
-          <Field label="Default sample interval (seconds)">
+          <Field
+            label="Default sample interval (seconds)"
+            hint="How often agents report, unless a device sets its own."
+          >
             <Input
               type="number"
               min={1}
@@ -500,7 +516,7 @@ function ServerTab() {
               }
             />
           </Field>
-          <Field label="Agent updates">
+          <Field label="Agent updates" hint="When devices install a newer agent, unless one sets its own.">
             <Select
               value={settings.defaultUpdatePolicy}
               onValueChange={(value) => patch({ defaultUpdatePolicy: value as ServerSettingsDto["defaultUpdatePolicy"] })}
@@ -520,7 +536,7 @@ function ServerTab() {
 
           {settings.defaultUpdatePolicy === "window" ? (
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Starts at (device time)">
+              <Field label="Starts at (device time)" hint="Hour of the day at the device, 0 to 23.">
                 <Input
                   type="number"
                   min={0}
@@ -531,7 +547,7 @@ function ServerTab() {
                   }
                 />
               </Field>
-              <Field label="Ends at (device time)">
+              <Field label="Ends at (device time)" hint="Updates stop once this hour is reached.">
                 <Input
                   type="number"
                   min={0}
@@ -545,7 +561,7 @@ function ServerTab() {
             </div>
           ) : null}
 
-          <Field label="Session length (hours)">
+          <Field label="Session length (hours)" hint="How long a sign-in lasts before you have to sign in again.">
             <Input
               type="number"
               min={1}
@@ -554,12 +570,6 @@ function ServerTab() {
               onChange={(event) => patch({ sessionTtlHours: Math.max(1, Number(event.target.value) || 24) })}
             />
           </Field>
-          <Button
-            variant="secondary"
-            onClick={() => void attempt(() => api.updateSettings(settings), "Settings saved.")}
-          >
-            Save server settings
-          </Button>
         </div>
       </Section>
 
@@ -568,7 +578,7 @@ function ServerTab() {
         description="How long metrics are kept before they are averaged down and finally deleted."
       >
         <div className="space-y-4">
-          <Field label="Full resolution (hours)">
+          <Field label="Full resolution (hours)" hint="Every sample is kept exactly as reported for this long.">
             <Input
               type="number"
               min={1}
@@ -579,7 +589,7 @@ function ServerTab() {
               }
             />
           </Field>
-          <Field label="One-minute averages (days)">
+          <Field label="One-minute averages (days)" hint="After that, one averaged point a minute for this many days.">
             <Input
               type="number"
               min={1}
@@ -592,7 +602,7 @@ function ServerTab() {
               }
             />
           </Field>
-          <Field label="Hourly averages (days)">
+          <Field label="Hourly averages (days)" hint="Then one averaged point an hour. Anything older is deleted.">
             <Input
               type="number"
               min={1}
@@ -613,12 +623,6 @@ function ServerTab() {
           ) : null}
 
           <div className="flex flex-wrap gap-2">
-            <Button
-              variant="secondary"
-              onClick={() => void attempt(() => api.updateSettings(settings), "Retention saved.")}
-            >
-              Save retention
-            </Button>
             <Button
               variant="outline"
               onClick={async () => {
@@ -681,6 +685,26 @@ function ServerTab() {
           </>
         )}
       </Section>
+
+      {/*
+       * One save for this whole tab. Server and retention used to carry a
+       * button each, which said nothing about the other half of the page.
+       */}
+      <div className="sticky bottom-0 z-10 -mx-4 border-t border-border/60 bg-background/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 xl:col-span-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-2xs text-muted-foreground">
+            {dirty ? "This page has changes you have not saved." : "Everything on this page is saved."}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="ghost" onClick={() => saved && setSettings(saved)} disabled={!dirty}>
+              Discard
+            </Button>
+            <Button variant="primary" onClick={() => void saveAll()} disabled={!dirty}>
+              Save changes
+            </Button>
+          </div>
+        </div>
+      </div>
 
       <EnrollDialog open={enrolling} onOpenChange={setEnrolling} onCreated={() => void load()} />
     </div>
