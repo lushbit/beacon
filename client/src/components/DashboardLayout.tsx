@@ -12,7 +12,7 @@ import { useVersion } from "@/context/VersionContext";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-const NO_ALERTS: AlertSummaryDto = { active: 0, unacknowledged: 0, unread: 0 };
+const NO_ALERTS: AlertSummaryDto = { active: 0, unacknowledged: 0, unreadActive: 0, unreadHistory: 0 };
 
 /**
  * Counts for the badge beside Alerts. They are re-read when an alert arrives on
@@ -45,7 +45,7 @@ function useAlertSummary(): AlertSummaryDto {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [session, preferences.alertsSeenAt, lastAlert?.id]);
+  }, [session, preferences.alertsActiveSeenAt, preferences.alertsHistorySeenAt, lastAlert?.id]);
 
   return summary;
 }
@@ -54,7 +54,8 @@ function useAlertSummary(): AlertSummaryDto {
  * Something is firing: a red count, ringing while nobody has acknowledged it.
  * Nothing firing but alerts this account has not seen: a plain count instead.
  */
-function AlertBadge({ active, unacknowledged, unread }: AlertSummaryDto) {
+function AlertBadge({ active, unacknowledged, unreadActive, unreadHistory }: AlertSummaryDto) {
+  const unread = unreadActive + unreadHistory;
   const firing = active > 0;
   const count = firing ? active : unread;
   if (count === 0) return null;

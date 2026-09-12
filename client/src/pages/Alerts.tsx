@@ -45,6 +45,16 @@ function unitSuffix(metric: AlertMetric): string {
   }
 }
 
+/** How many alerts in this tab this account has not looked at yet. */
+function TabCount({ value }: { value: number }) {
+  if (value === 0) return null;
+  return (
+    <span className="ml-1.5 rounded-full bg-white/[0.12] px-1.5 py-0.5 text-2xs font-semibold tabular text-foreground">
+      {value > 99 ? "99+" : value}
+    </span>
+  );
+}
+
 function AlertRow({ alert, onAcknowledge }: { alert: AlertDto; onAcknowledge: (id: string) => void }) {
   const Icon = SEVERITY_ICON[alert.severity];
   return (
@@ -271,16 +281,17 @@ export function AlertsPage() {
   const isAdmin = useIsAdmin();
   const { lastAlert } = useLive();
   const { attempt, notify } = useToast();
-  const { savePreferences } = useAuth();
+  const { preferences, savePreferences } = useAuth();
 
   /**
-   * Looking at this page counts as having seen every alert on it, which is what
-   * clears the unread count beside Alerts in the sidebar. It lives in a ref so
-   * that saving a preference, which hands back a new `savePreferences`, cannot
-   * turn this into a loop.
+   * Opening this page is not the same as reading it, so the counts survive
+   * until a tab is actually picked. Each tab clears its own. It lives in a ref
+   * so that saving a preference, which hands back a new `savePreferences`,
+   * cannot turn this into a loop.
    */
-  const markSeen = useRef(() => {});
-  markSeen.current = () => void savePreferences({ alertsSeenAt: Date.now() });
+  const markSeen = useRef<(tab: "active" | "history") => void>(() => {});
+  markSeen.current = (tab) =>
+    void savePreferences(tab === "active" ? { alertsActiveSeenAt: Date.now() } : { alertsHistorySeenAt: Date.now() });
 
   const [alerts, setAlerts] = useState<AlertDto[] | null>(null);
   const [rules, setRules] = useState<AlertRuleDto[] | null>(null);
@@ -303,24 +314,27 @@ export function AlertsPage() {
 
   useEffect(() => {
     void load();
-    markSeen.current();
   }, [load]);
 
-  // A new alert on the socket means the list is stale. Someone sitting on this
-  // page has seen it as it arrives, so it never counts as unread.
+  // A new alert on the socket means the list is stale.
   useEffect(() => {
-    if (!lastAlert) return;
-    void load();
-    markSeen.current();
+    if (lastAlert) void load();
   }, [lastAlert, load]);
 
   const active = useMemo(() => (alerts ?? []).filter((alert) => alert.state === "firing"), [alerts]);
   const history = useMemo(() => (alerts ?? []).filter((alert) => alert.state !== "firing"), [alerts]);
 
+  // Counted the same way the hub counts them for the sidebar badge.
+  const unreadActive = active.filter((alert) => alert.startedAt > preferences.alertsActiveSeenAt).length;
+  const unreadHistory = history.filter(
+    (alert) => (alert.resolvedAt ?? alert.startedAt) > preferences.alertsHistorySeenAt
+  ).length;
+
   const acknowledge = async (id: string) => {
     await attempt(() => api.acknowledgeAlert(id));
-    // Acknowledging changes the badge, so let the sidebar re-read it.
-    markSeen.current();
+    // Acting on an alert is as good as reading it, and this is also what tells
+    // the sidebar to re-read its badge.
+    markSeen.current("active");
     void load();
   };
 
@@ -355,8 +369,14 @@ export function AlertsPage() {
       <div className="p-4 sm:p-6">
         <Tabs defaultValue="active" className="space-y-4">
           <TabsList className="w-full sm:w-auto">
-            <TabsTrigger value="active">Active</TabsTrigger>
-            <TabsTrigger value="history">History</TabsTrigger>
+            <TabsTrigger value="active" onClick={() => markSeen.current("active")}>
+              Active
+              <TabCount value={unreadActive} />
+            </TabsTrigger>
+            <TabsTrigger value="history" onClick={() => markSeen.current("history")}>
+              History
+              <TabCount value={unreadHistory} />
+            </TabsTrigger>
             <TabsTrigger value="rules">Rules</TabsTrigger>
           </TabsList>
 

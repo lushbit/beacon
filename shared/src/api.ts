@@ -91,11 +91,13 @@ export interface UserPreferences {
   deviceSortDir: SortDirection;
   compactCards: boolean;
   /**
-   * When this account last looked at the Alerts page. Anything raised since
-   * then counts as unread, which is what the sidebar puts beside Alerts. It
-   * belongs to the account rather than the browser, so it follows the person.
+   * When this account last opened each tab of the Alerts page. Anything raised
+   * since then counts as unread, which is what the sidebar badge and the tab
+   * titles show. Both belong to the account rather than to a browser, so they
+   * follow the person from one machine to the next.
    */
-  alertsSeenAt: number;
+  alertsActiveSeenAt: number;
+  alertsHistorySeenAt: number;
 }
 
 export const DEFAULT_USER_PREFERENCES: UserPreferences = {
@@ -105,7 +107,8 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   deviceSort: "none",
   deviceSortDir: "asc",
   compactCards: false,
-  alertsSeenAt: 0,
+  alertsActiveSeenAt: 0,
+  alertsHistorySeenAt: 0,
 };
 
 /** Counts behind the badge beside Alerts in the sidebar. */
@@ -114,8 +117,10 @@ export interface AlertSummaryDto {
   active: number;
   /** How many of those nobody has acknowledged. */
   unacknowledged: number;
-  /** Alerts raised since this account last opened the Alerts page. */
-  unread: number;
+  /** Firing alerts raised since this account last opened the Active tab. */
+  unreadActive: number;
+  /** Alerts that ended since this account last opened the History tab. */
+  unreadHistory: number;
 }
 
 export interface DevicePanelSettings {

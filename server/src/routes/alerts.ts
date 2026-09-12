@@ -41,23 +41,30 @@ alertsRouter.get(
 );
 
 /**
- * The counts behind the sidebar badge. Unread is measured against the moment
- * this account last opened the Alerts page, so it follows the person rather
- * than the browser they happen to be using.
+ * The counts behind the sidebar badge and the tab titles. Unread is measured
+ * per tab, against the moment this account last opened that tab, so it follows
+ * the person rather than the browser they happen to be using. An alert lands in
+ * the history when it resolves, which is the moment that counts there.
  */
 alertsRouter.get(
   "/summary",
   handler((req, res) => {
-    const seenAt = userPreferences(req.user!).alertsSeenAt;
+    const preferences = userPreferences(req.user!);
     const row = db
       .prepare(
         `SELECT
            COALESCE(SUM(CASE WHEN state = 'firing' THEN 1 ELSE 0 END), 0) AS active,
            COALESCE(SUM(CASE WHEN state = 'firing' AND acknowledged_at IS NULL THEN 1 ELSE 0 END), 0) AS unacknowledged,
-           COALESCE(SUM(CASE WHEN started_at > ? THEN 1 ELSE 0 END), 0) AS unread
+           COALESCE(SUM(CASE WHEN state = 'firing' AND started_at > ? THEN 1 ELSE 0 END), 0) AS unreadActive,
+           COALESCE(SUM(CASE WHEN state <> 'firing' AND COALESCE(resolved_at, started_at) > ? THEN 1 ELSE 0 END), 0) AS unreadHistory
          FROM alerts`
       )
-      .get(seenAt) as { active: number; unacknowledged: number; unread: number };
+      .get(preferences.alertsActiveSeenAt, preferences.alertsHistorySeenAt) as {
+      active: number;
+      unacknowledged: number;
+      unreadActive: number;
+      unreadHistory: number;
+    };
     res.json(row);
   })
 );
