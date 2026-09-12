@@ -280,7 +280,7 @@ export function DeviceSettingsTab({ device, onSaved }: Props) {
       <Panel
         title="Danger zone"
         tone="danger"
-        description="These hand out access to this device or throw it away. Rotating and removing take effect the moment you press them."
+        description="Careful. These take effect straight away and cannot be undone."
       >
         <div className="flex items-start justify-between gap-4 rounded-md border border-border/60 bg-surface-2 p-3">
           <div className="min-w-0">
