@@ -520,7 +520,7 @@ function ServerTab() {
 
           {settings.defaultUpdatePolicy === "window" ? (
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Window starts (device hour)">
+              <Field label="Starts at (device time)">
                 <Input
                   type="number"
                   min={0}
@@ -531,7 +531,7 @@ function ServerTab() {
                   }
                 />
               </Field>
-              <Field label="Window ends (device hour)">
+              <Field label="Ends at (device time)">
                 <Input
                   type="number"
                   min={0}
