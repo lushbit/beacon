@@ -708,7 +708,7 @@ function ServerTab() {
         <DialogContent>
           <DialogHeader
             title={`Delete ${removingToken?.label || "this token"}?`}
-            description="Any installer still holding this token will be turned away. Devices already enrolled with it keep working."
+            description="Any installer still holding this token will not work anymore. Devices already enrolled will keep working."
           />
           <DialogFooter>
             <Button variant="ghost" onClick={() => setRemovingToken(null)}>

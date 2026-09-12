@@ -30,13 +30,20 @@ import { formatDateTime, formatRate } from "@/lib/format";
 const SEVERITY_TONE = { info: "info", warning: "warning", critical: "danger" } as const;
 const SEVERITY_ICON = { info: Info, warning: AlertTriangle, critical: Siren };
 
-/** Durations in words, because "for 300s" reads like a machine wrote it. */
+/**
+ * Durations in words, because "for 300s" reads like a machine wrote it. Every
+ * part is spelled out rather than rounded, so a rule set to 330 seconds says
+ * five and a half minutes rather than six.
+ */
 function durationWords(seconds: number): string {
-  if (seconds < 60) return `${seconds} second${seconds === 1 ? "" : "s"}`;
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
-  const hours = Math.round(minutes / 60);
-  return `${hours} hour${hours === 1 ? "" : "s"}`;
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const rest = seconds % 60;
+  const parts: string[] = [];
+  if (hours > 0) parts.push(`${hours} hour${hours === 1 ? "" : "s"}`);
+  if (minutes > 0) parts.push(`${minutes} minute${minutes === 1 ? "" : "s"}`);
+  if (rest > 0 || parts.length === 0) parts.push(`${rest} second${rest === 1 ? "" : "s"}`);
+  return parts.join(" ");
 }
 
 /** Shorter than the labels in the rule editor, which have to name a metric exactly. */
