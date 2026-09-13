@@ -2,9 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { AlertTriangle, BellOff, Check, ExternalLink, Info, Plus, Send, Siren, Trash2 } from "lucide-react";
 import {
+  ALERT_CATEGORIES,
+  ALERT_CATEGORY_LABELS,
   ALERT_METRICS,
+  ALERT_METRIC_CATEGORIES,
   ALERT_METRIC_LABELS,
   ALERT_METRIC_UNITS,
+  type AlertCategory,
   type AlertDto,
   type AlertMetric,
   type AlertRuleDto,
@@ -26,6 +30,7 @@ import { useToast } from "@/context/ToastContext";
 import { api } from "@/lib/api";
 import { RelativeTime } from "@/components/RelativeTime";
 import { formatDateTime, formatRate } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 const SEVERITY_TONE = { info: "info", warning: "warning", critical: "danger" } as const;
 const SEVERITY_ICON = { info: Info, warning: AlertTriangle, critical: Siren };
@@ -67,14 +72,96 @@ function thresholdWords(metric: AlertMetric, threshold: number): string {
   }
 }
 
-/** What a rule watches, in one line someone can read at a glance. */
-function ruleSummary(rule: AlertRuleDto, deviceName: string): string {
-  if (rule.metric === "offline") return `No report for ${durationWords(rule.threshold)} from ${deviceName}`;
+/**
+ * What a rule watches, in one line someone can read at a glance. The device is
+ * left out because the section heading above the row already names it, and
+ * repeating it on every row is what made the list hard to read.
+ */
+function ruleSummary(rule: AlertRuleDto): string {
+  if (rule.metric === "offline") return `No report for ${durationWords(rule.threshold)}`;
   const label = SUMMARY_LABELS[rule.metric] ?? ALERT_METRIC_LABELS[rule.metric];
   const direction = rule.operator === "gt" ? "above" : "below";
   // A rule that fires on the first reading has no duration worth printing.
   const sustained = rule.durationSec > 0 ? ` for ${durationWords(rule.durationSec)}` : "";
-  return `${label} ${direction} ${thresholdWords(rule.metric, rule.threshold)}${sustained} on ${deviceName}`;
+  return `${label} ${direction} ${thresholdWords(rule.metric, rule.threshold)}${sustained}`;
+}
+
+/**
+ * An empty selection means everything rather than nothing, so a tab opens
+ * unfiltered and turning the last chip back off returns to the full list.
+ */
+function matchesCategories(metric: AlertMetric, selected: Set<AlertCategory>): boolean {
+  return selected.size === 0 || selected.has(ALERT_METRIC_CATEGORIES[metric]);
+}
+
+function countByCategory(metrics: AlertMetric[]): Map<AlertCategory, number> {
+  const counts = new Map<AlertCategory, number>();
+  for (const metric of metrics) {
+    const category = ALERT_METRIC_CATEGORIES[metric];
+    counts.set(category, (counts.get(category) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/**
+ * The category chips above a list. Several can be on at once, so picking CPU
+ * and Memory shows both and nothing else. Only categories that something in
+ * this tab actually uses get a chip, so the row does not offer a filter that
+ * would empty the list.
+ */
+function CategoryFilter({
+  counts,
+  selected,
+  onChange,
+}: {
+  counts: Map<AlertCategory, number>;
+  selected: Set<AlertCategory>;
+  onChange: (next: Set<AlertCategory>) => void;
+}) {
+  const available = ALERT_CATEGORIES.filter((category) => (counts.get(category) ?? 0) > 0);
+  // With one category there is nothing to choose between.
+  if (available.length < 2) return null;
+
+  const toggle = (category: AlertCategory) => {
+    const next = new Set(selected);
+    if (!next.delete(category)) next.add(category);
+    onChange(next);
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <div
+        role="group"
+        aria-label="Filter by category"
+        className="scroll-slim flex max-w-full items-center gap-1 overflow-x-auto rounded-md bg-surface-2 p-1"
+      >
+        {available.map((category) => {
+          const on = selected.has(category);
+          return (
+            <button
+              key={category}
+              type="button"
+              onClick={() => toggle(category)}
+              aria-pressed={on}
+              className={cn(
+                "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm px-3 py-1.5 text-xs font-medium transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+                on ? "bg-surface-3 text-foreground" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {ALERT_CATEGORY_LABELS[category]}
+              <span className="tabular text-2xs text-muted-foreground">{counts.get(category)}</span>
+            </button>
+          );
+        })}
+      </div>
+      {selected.size > 0 ? (
+        <Button variant="ghost" size="sm" onClick={() => onChange(new Set())}>
+          Clear filters
+        </Button>
+      ) : null}
+    </div>
+  );
 }
 
 function unitSuffix(metric: AlertMetric): string {
@@ -148,6 +235,61 @@ function AlertRow({ alert, onAcknowledge }: { alert: AlertDto; onAcknowledge: (i
           </Button>
         ) : null}
       </div>
+    </li>
+  );
+}
+
+/**
+ * One rule inside a device section. The device is named by the heading above,
+ * so the summary here leaves it out.
+ */
+function RuleRow({
+  rule,
+  isAdmin,
+  onToggle,
+  onTest,
+  onEdit,
+  onDelete,
+}: {
+  rule: AlertRuleDto;
+  isAdmin: boolean;
+  onToggle: (rule: AlertRuleDto, enabled: boolean) => void;
+  onTest: (rule: AlertRuleDto) => void;
+  onEdit: (rule: AlertRuleDto) => void;
+  onDelete: (rule: AlertRuleDto) => void;
+}) {
+  return (
+    <li className="flex flex-wrap items-center gap-3 px-4 py-3">
+      <div className="min-w-0 flex-1">
+        <p className={cn("truncate text-sm", rule.enabled ? "text-foreground" : "text-muted-foreground")}>
+          {rule.name}
+        </p>
+        <p className="mt-0.5 text-2xs text-muted-foreground">{ruleSummary(rule)}</p>
+      </div>
+      <Badge tone={rule.enabled ? SEVERITY_TONE[rule.severity] : "neutral"}>
+        {rule.enabled ? rule.severity : "disabled"}
+      </Badge>
+      {isAdmin ? (
+        <div className="flex items-center gap-1">
+          <Switch
+            checked={rule.enabled}
+            onCheckedChange={(checked) => onToggle(rule, checked)}
+            aria-label={`${rule.enabled ? "Disable" : "Enable"} ${rule.name}`}
+            title={rule.enabled ? "Disable this rule" : "Enable this rule"}
+            className="mr-1"
+          />
+          <Button variant="ghost" size="sm" onClick={() => onTest(rule)}>
+            <Send className="h-3.5 w-3.5" />
+            Test
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => onEdit(rule)}>
+            Edit
+          </Button>
+          <Button variant="ghost" size="icon" aria-label={`Delete ${rule.name}`} onClick={() => onDelete(rule)}>
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      ) : null}
     </li>
   );
 }
@@ -345,6 +487,10 @@ export function AlertsPage() {
   const [devices, setDevices] = useState<DeviceSummaryDto[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<AlertRuleDto | null>(null);
+  // Each tab keeps its own chips, since filtering the history says nothing
+  // about which rules someone wants to look at.
+  const [historyCategories, setHistoryCategories] = useState<Set<AlertCategory>>(new Set());
+  const [ruleCategories, setRuleCategories] = useState<Set<AlertCategory>>(new Set());
 
   const load = useCallback(async () => {
     try {
@@ -371,6 +517,47 @@ export function AlertsPage() {
   const active = useMemo(() => (alerts ?? []).filter((alert) => alert.state === "firing"), [alerts]);
   const history = useMemo(() => (alerts ?? []).filter((alert) => alert.state !== "firing"), [alerts]);
 
+  const historyCounts = useMemo(() => countByCategory(history.map((alert) => alert.metric)), [history]);
+  const visibleHistory = useMemo(
+    () => history.filter((alert) => matchesCategories(alert.metric, historyCategories)),
+    [history, historyCategories]
+  );
+
+  const ruleCounts = useMemo(() => countByCategory((rules ?? []).map((rule) => rule.metric)), [rules]);
+
+  /**
+   * Rules grouped into one section per device, so the page reads as a set of
+   * devices rather than one mixed column. Rules that watch every device come
+   * first, then the devices in the order the rest of the dashboard lists them.
+   * A rule pointing at a device the hub no longer knows still gets a section,
+   * because dropping it would hide a rule that is still being evaluated.
+   */
+  const ruleSections = useMemo(() => {
+    const byDevice = new Map<string, AlertRuleDto[]>();
+    for (const rule of rules ?? []) {
+      if (!matchesCategories(rule.metric, ruleCategories)) continue;
+      // The rule editor already uses "all" for the every-device option, so no
+      // device can carry that id.
+      const key = rule.deviceId ?? "all";
+      const list = byDevice.get(key);
+      if (list) list.push(rule);
+      else byDevice.set(key, [rule]);
+    }
+
+    const sections: { key: string; name: string; href: string | null; rules: AlertRuleDto[] }[] = [];
+    const take = (key: string, name: string, href: string | null) => {
+      const list = byDevice.get(key);
+      if (!list) return;
+      byDevice.delete(key);
+      sections.push({ key, name, href, rules: list });
+    };
+
+    take("all", "All devices", null);
+    for (const device of devices) take(device.id, device.name, `/devices/${device.id}`);
+    for (const [key, list] of byDevice) sections.push({ key, name: "Unknown device", href: null, rules: list });
+    return sections;
+  }, [rules, devices, ruleCategories]);
+
   // Counted the same way the hub counts them for the sidebar badge.
   const unreadActive = active.filter((alert) => alert.startedAt > preferences.alertsActiveSeenAt).length;
   const unreadHistory = history.filter(
@@ -388,6 +575,34 @@ export function AlertsPage() {
   const deleteRule = async (rule: AlertRuleDto) => {
     await attempt(() => api.deleteRule(rule.id), "Rule deleted.");
     void load();
+  };
+
+  /**
+   * The switch moves at once rather than waiting for the hub, so it never sits
+   * on the old state under the finger. A refused request puts it back.
+   */
+  const setRuleEnabled = async (rule: AlertRuleDto, enabled: boolean) => {
+    const apply = (value: boolean) =>
+      setRules((current) => current?.map((entry) => (entry.id === rule.id ? { ...entry, enabled: value } : entry)) ?? current);
+    apply(enabled);
+    const result = await attempt(() => api.updateRule(rule.id, { enabled }), enabled ? "Rule enabled." : "Rule disabled.");
+    if (!result) apply(rule.enabled);
+    else void load();
+  };
+
+  const testRule = async (rule: AlertRuleDto) => {
+    const result = await attempt(() => api.testRule(rule.id));
+    if (!result) return;
+    if (result.failures.length > 0) {
+      notify(`${result.failures[0].channel}: ${result.failures[0].error}`, "error");
+    } else if (result.sent === 0) {
+      notify(
+        result.skipped > 0 ? "No channel accepts this severity." : "No notification channel is enabled.",
+        "error"
+      );
+    } else {
+      notify(`Test alert sent to ${result.sent} channel${result.sent === 1 ? "" : "s"}.`, "success");
+    }
   };
 
   return (
@@ -451,13 +666,22 @@ export function AlertsPage() {
             </div>
           </TabsContent>
 
-          <TabsContent value="history">
+          <TabsContent value="history" className="space-y-4">
+            <CategoryFilter counts={historyCounts} selected={historyCategories} onChange={setHistoryCategories} />
             <div className="overflow-hidden rounded-lg border border-border/70 bg-card">
-              {history.length === 0 ? (
-                <EmptyState icon={BellOff} title="No past alerts yet." />
+              {visibleHistory.length === 0 ? (
+                history.length === 0 ? (
+                  <EmptyState icon={BellOff} title="No past alerts yet." />
+                ) : (
+                  <EmptyState
+                    icon={BellOff}
+                    title="No past alerts match those filters."
+                    description="Turn a filter off to see the rest."
+                  />
+                )
               ) : (
                 <ul className="divide-y divide-border/50">
-                  {history.map((alert) => (
+                  {visibleHistory.map((alert) => (
                     <AlertRow key={alert.id} alert={alert} onAcknowledge={(id) => void acknowledge(id)} />
                   ))}
                 </ul>
@@ -465,85 +689,72 @@ export function AlertsPage() {
             </div>
           </TabsContent>
 
-          <TabsContent value="rules">
-            <div className="overflow-hidden rounded-lg border border-border/70 bg-card">
-              {rules === null ? (
+          <TabsContent value="rules" className="space-y-4">
+            <CategoryFilter counts={ruleCounts} selected={ruleCategories} onChange={setRuleCategories} />
+            {rules === null ? (
+              <div className="overflow-hidden rounded-lg border border-border/70 bg-card">
                 <div className="space-y-2 p-4">
                   {Array.from({ length: 4 }, (_, index) => (
                     <Skeleton key={index} className="h-10" />
                   ))}
                 </div>
-              ) : rules.length === 0 ? (
-                <EmptyState icon={BellOff} title="No rules yet." description="Add a rule to be told when something changes." />
-              ) : (
-                <ul className="divide-y divide-border/50">
-                  {rules.map((rule) => {
-                    const device = devices.find((entry) => entry.id === rule.deviceId);
-                    return (
-                      <li key={rule.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm text-foreground">{rule.name}</p>
-                          <p className="mt-0.5 text-2xs text-muted-foreground">
-                            {ruleSummary(rule, device ? device.name : "all devices")}
-                          </p>
-                        </div>
-                        <Badge tone={rule.enabled ? SEVERITY_TONE[rule.severity] : "neutral"}>
-                          {rule.enabled ? rule.severity : "disabled"}
-                        </Badge>
-                        {isAdmin ? (
-                          <div className="flex items-center gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={async () => {
-                                const result = await attempt(() => api.testRule(rule.id));
-                                if (!result) return;
-                                if (result.failures.length > 0) {
-                                  notify(`${result.failures[0].channel}: ${result.failures[0].error}`, "error");
-                                } else if (result.sent === 0) {
-                                  notify(
-                                    result.skipped > 0
-                                      ? "No channel accepts this severity."
-                                      : "No notification channel is enabled.",
-                                    "error"
-                                  );
-                                } else {
-                                  notify(
-                                    `Test alert sent to ${result.sent} channel${result.sent === 1 ? "" : "s"}.`,
-                                    "success"
-                                  );
-                                }
-                              }}
-                            >
-                              <Send className="h-3.5 w-3.5" />
-                              Test
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setEditing(rule);
-                                setDialogOpen(true);
-                              }}
-                            >
-                              Edit
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              aria-label={`Delete ${rule.name}`}
-                              onClick={() => void deleteRule(rule)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        ) : null}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
+              </div>
+            ) : ruleSections.length === 0 ? (
+              <div className="overflow-hidden rounded-lg border border-border/70 bg-card">
+                {rules.length === 0 ? (
+                  <EmptyState
+                    icon={BellOff}
+                    title="No rules yet."
+                    description="Add a rule to be told when something changes."
+                  />
+                ) : (
+                  <EmptyState
+                    icon={BellOff}
+                    title="No rules match those filters."
+                    description="Turn a filter off to see the rest."
+                  />
+                )}
+              </div>
+            ) : (
+              ruleSections.map((section) => (
+                <section
+                  key={section.key}
+                  className="overflow-hidden rounded-lg border border-border/70 bg-card"
+                >
+                  <header className="flex items-center justify-between gap-3 border-b border-border/50 bg-surface-2/50 px-4 py-2.5">
+                    {section.href ? (
+                      <Link
+                        to={section.href}
+                        className="truncate text-sm font-medium text-foreground underline-offset-4 hover:underline"
+                      >
+                        {section.name}
+                      </Link>
+                    ) : (
+                      <span className="truncate text-sm font-medium text-foreground">{section.name}</span>
+                    )}
+                    <span className="shrink-0 text-2xs tabular text-muted-foreground">
+                      {section.rules.length} rule{section.rules.length === 1 ? "" : "s"}
+                    </span>
+                  </header>
+                  <ul className="divide-y divide-border/50">
+                    {section.rules.map((rule) => (
+                      <RuleRow
+                        key={rule.id}
+                        rule={rule}
+                        isAdmin={isAdmin}
+                        onToggle={(target, enabled) => void setRuleEnabled(target, enabled)}
+                        onTest={(target) => void testRule(target)}
+                        onEdit={(target) => {
+                          setEditing(target);
+                          setDialogOpen(true);
+                        }}
+                        onDelete={(target) => void deleteRule(target)}
+                      />
+                    ))}
+                  </ul>
+                </section>
+              ))
+            )}
           </TabsContent>
         </Tabs>
       </div>

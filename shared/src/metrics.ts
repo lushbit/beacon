@@ -205,6 +205,50 @@ export const ALERT_METRIC_UNITS: Record<AlertMetric, "percent" | "bytesPerSec" |
   offline: "seconds",
 };
 
+/**
+ * Alert metrics grouped into the handful of things people actually think in.
+ * Twelve metrics are too many to filter one by one, so the dashboard filters by
+ * these instead. The order here is the order the filter chips are drawn in.
+ */
+export const ALERT_CATEGORIES = [
+  "cpu",
+  "memory",
+  "disk",
+  "network",
+  "gpu",
+  "battery",
+  "containers",
+  "availability",
+] as const;
+
+export type AlertCategory = (typeof ALERT_CATEGORIES)[number];
+
+export const ALERT_CATEGORY_LABELS: Record<AlertCategory, string> = {
+  cpu: "CPU",
+  memory: "Memory",
+  disk: "Disk",
+  network: "Network",
+  gpu: "GPU",
+  battery: "Battery",
+  containers: "Containers",
+  availability: "Availability",
+};
+
+export const ALERT_METRIC_CATEGORIES: Record<AlertMetric, AlertCategory> = {
+  cpuPct: "cpu",
+  memPct: "memory",
+  swapPct: "memory",
+  diskMaxPct: "disk",
+  netRxBps: "network",
+  netTxBps: "network",
+  gpuPct: "gpu",
+  cpuTempC: "cpu",
+  load1: "cpu",
+  batteryPct: "battery",
+  containersRunning: "containers",
+  offline: "availability",
+};
+
 export type AlertOperator = "gt" | "lt";
 export type AlertSeverity = "info" | "warning" | "critical";
 export type AlertState = "firing" | "resolved";
