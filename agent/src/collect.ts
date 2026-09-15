@@ -281,9 +281,13 @@ export async function collectSample(): Promise<MetricSample> {
     { used: 0, size: 0 }
   );
 
+  // One device charts one GPU series, so this has to pick the same card on
+  // every sample or the line would be a blend of two. The card with the most
+  // memory is the one doing the work on a machine that has a chip as well.
   const gpu =
-    gpus.find((entry) => entry.utilizationPct !== null) ??
-    gpus.find((entry) => entry.memoryTotalMb !== null) ??
+    gpus
+      .filter((entry) => entry.utilizationPct !== null || entry.memoryUsedMb !== null)
+      .sort((a, b) => (b.memoryTotalMb ?? 0) - (a.memoryTotalMb ?? 0))[0] ??
     gpus[0] ??
     null;
   const loadAvg = process.platform === "win32" ? null : os.loadavg();

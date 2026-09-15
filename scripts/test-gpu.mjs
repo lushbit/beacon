@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { pathToFileURL } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const { merge } = await import(pathToFileURL(join(root, "agent", "dist", "gpu.js")).href);
+const { merge, pairBySize } = await import(pathToFileURL(join(root, "agent", "dist", "gpu.js")).href);
 
 const failures = [];
 
@@ -93,6 +93,35 @@ console.log("\nAn adapter nothing can read…");
 
   const anonymous = merge([gpu({ vendor: "", model: "", memoryTotalMb: 8 })], []);
   check(anonymous.length === 1, "and a nameless one is left as it is");
+}
+
+console.log("\nA chip beside a card on Windows, where the counters name neither…");
+{
+  // What the dashboard actually drew: 3.3 GiB of memory in use reported against
+  // a 512 MiB chip, which is 654% and impossible.
+  const adapters = [
+    gpu({ model: "AMD Radeon(TM) Graphics", memoryTotalMb: 512 }),
+    gpu({ model: "AMD Radeon RX 7900 XTX", memoryTotalMb: 24576 }),
+  ];
+  const counters = [gpu({ utilizationPct: 23, memoryUsedMb: 3379 }), gpu({ utilizationPct: 0, memoryUsedMb: 0 })];
+
+  const result = pairBySize(adapters, counters);
+  check(result[0].memoryUsedMb === 0, "the chip is not credited with the card's memory");
+  check(result[1].memoryUsedMb === 3379, "the card is");
+  check(result[1].utilizationPct === 23, "and the load goes with it");
+  check(
+    result.every((entry) => entry.memoryUsedMb <= entry.memoryTotalMb),
+    "no adapter is using more memory than it has"
+  );
+}
+
+console.log("\nOne card whose counters arrive in either order…");
+{
+  const adapters = [gpu({ model: "AMD Radeon RX 7900 XTX", memoryTotalMb: 24576 })];
+  const result = pairBySize(adapters, [gpu({ utilizationPct: 41, memoryUsedMb: 9000 })]);
+  check(result.length === 1, "stays one card");
+  check(result[0].utilizationPct === 41, "with its load");
+  check(result[0].memoryTotalMb === 24576, "and its real size, not the 4 GiB Windows reports");
 }
 
 console.log("");

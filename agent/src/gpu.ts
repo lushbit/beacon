@@ -218,6 +218,9 @@ async function readSysfs(): Promise<GpuUsage[]> {
  *    at all.
  *  - `U` lines are the load per adapter.
  *  - `M` lines are the dedicated memory in use per adapter.
+ *  - `V` lines are how much memory an adapter has, from the driver's registry
+ *    key. `Win32_VideoController.AdapterRAM` is a 32 bit field and saturates at
+ *    4 GiB, which is how a 24 GiB card came to report itself as a 4 GiB one.
  *
  * The performance counters are read through their CIM classes rather than
  * Get-Counter, because counter *paths* are translated on a localised Windows
@@ -256,6 +259,12 @@ foreach ($c in @(Get-CimInstance Win32_VideoController)) {
   if ($c.Name -match 'Basic Render|Basic Display|Remote Display') { continue }
   $out += "C|$($c.Name)|$($c.AdapterRAM)"
 }
+$class = 'HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}'
+foreach ($k in @(Get-ChildItem $class)) {
+  $desc = $k.GetValue('DriverDesc')
+  $size = $k.GetValue('HardwareInformation.qwMemorySize')
+  if ($desc -and $size) { $out += "V|$desc|$size" }
+}
 $out -join "\`n"
 `;
 
@@ -284,6 +293,7 @@ async function readWindows(): Promise<GpuUsage[]> {
     return created;
   };
   const named: GpuUsage[] = [];
+  const vram = new Map<string, number>();
 
   for (const line of output.split("\n")) {
     const [kind, key, raw] = line.trim().split("|");
@@ -294,6 +304,7 @@ async function readWindows(): Promise<GpuUsage[]> {
     }
     const value = numberOrNull(raw);
     if (value === null) continue;
+    if (kind === "V") vram.set(key, value);
     if (kind === "U") of(key).utilizationPct = Math.round(Math.min(100, value) * 10) / 10;
     if (kind === "M") of(key).memoryUsedMb = bytesToMb(value);
   }
@@ -303,23 +314,55 @@ async function readWindows(): Promise<GpuUsage[]> {
     return [];
   }
 
+  // The driver's own figure wins wherever it is bigger, which is the saturated
+  // 4 GiB case and nothing else.
+  for (const entry of named) {
+    const exact = bytesToMb(vram.get(entry.model) ?? null);
+    if (exact !== null && (entry.memoryTotalMb === null || exact > entry.memoryTotalMb)) {
+      entry.memoryTotalMb = exact;
+    }
+  }
+
   // Sorted by instance name so the order is stable between samples, which is
   // what lets a reading stay attached to the same adapter.
   const readings = [...adapters.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, entry]) => entry);
   if (named.length === 0) return readings;
 
-  /*
-   * The counters know an adapter by its LUID and `Win32_VideoController` knows
-   * it by name, and nothing in either connects the two. They are paired by
-   * position, which is right whenever there is one card and is at worst a
-   * swapped label on a machine with a chip beside a card. A wrong label beats
-   * no numbers, which is what this whole module exists to fix.
-   */
-  return named.map((entry, index) => ({
-    ...entry,
-    utilizationPct: readings[index]?.utilizationPct ?? null,
-    memoryUsedMb: readings[index]?.memoryUsedMb ?? null,
-  }));
+  return pairBySize(named, readings);
+}
+
+/**
+ * Puts a counter reading against the adapter it came from.
+ *
+ * The counters know an adapter by its LUID and `Win32_VideoController` knows it
+ * by name, and nothing in either connects the two. Pairing them by position put
+ * a 3.3 GiB reading against a 512 MiB chip on a PC with a chip beside a card,
+ * which the dashboard then drew as 654% memory in use.
+ *
+ * They are paired biggest to biggest instead. Dedicated memory in use cannot
+ * exceed the memory an adapter has, so the largest reading belongs to the
+ * largest adapter, and load breaks a tie because a machine at rest gives
+ * nothing else to go on. Two adapters of the same size are still a guess, which
+ * is as far as anything short of the graphics API can take it.
+ */
+export function pairBySize(named: GpuUsage[], readings: GpuUsage[]): GpuUsage[] {
+  const byLoad = readings
+    .slice()
+    .sort(
+      (a, b) =>
+        (b.memoryUsedMb ?? 0) - (a.memoryUsedMb ?? 0) || (b.utilizationPct ?? 0) - (a.utilizationPct ?? 0)
+    );
+  const paired = named.map((entry) => ({ ...entry }));
+
+  paired
+    .slice()
+    .sort((a, b) => (b.memoryTotalMb ?? 0) - (a.memoryTotalMb ?? 0))
+    .forEach((entry, rank) => {
+      entry.utilizationPct = byLoad[rank]?.utilizationPct ?? null;
+      entry.memoryUsedMb = byLoad[rank]?.memoryUsedMb ?? null;
+    });
+
+  return paired;
 }
 
 function bytesToMb(bytes: number | null): number | null {
@@ -424,6 +467,19 @@ export function merge(adapters: GpuUsage[], readings: GpuUsage[]): GpuUsage[] {
   return merged.filter((entry) => hasReading(entry) || entry.model || entry.vendor);
 }
 
+/**
+ * A card cannot be using more memory than it has. When it looks like it is, the
+ * total is the thing that is wrong: an adapter drawing on shared system memory,
+ * or a size Windows reported from a field too narrow to hold it. Reporting no
+ * total at all is honest, where keeping it gave the dashboard a GPU sitting at
+ * 654% memory in use.
+ */
+function trustworthy(entry: GpuUsage): GpuUsage {
+  if (entry.memoryUsedMb === null || entry.memoryTotalMb === null) return entry;
+  if (entry.memoryUsedMb <= entry.memoryTotalMb) return entry;
+  return { ...entry, memoryTotalMb: null };
+}
+
 export async function readGpus(): Promise<GpuUsage[]> {
   const [adapters, nvidia, sysfs, windows] = await Promise.all([
     readControllers(),
@@ -431,5 +487,5 @@ export async function readGpus(): Promise<GpuUsage[]> {
     readSysfs(),
     readWindows(),
   ]);
-  return merge(adapters, [...nvidia, ...sysfs, ...windows]);
+  return merge(adapters, [...nvidia, ...sysfs, ...windows]).map(trustworthy);
 }
