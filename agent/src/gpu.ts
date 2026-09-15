@@ -13,9 +13,12 @@
  *  - The GPU performance counters on Windows, which cover Intel and AMD too and
  *    are the numbers Task Manager shows.
  *
- * Identity (vendor, model, total memory) still comes from `si.graphics()`. It
- * is cached far longer than the readings, because it cannot change while the
- * agent is running and asking for it starts PowerShell on Windows.
+ * Identity (vendor, model, total memory) comes from `si.graphics()` where it
+ * can, cached far longer than the readings because it cannot change while the
+ * agent runs. Windows does not rely on it: `si.graphics()` comes back empty on
+ * some Windows 11 machines, which left a PC with a real card showing no GPU
+ * panel at all, so the adapters are named from `Win32_VideoController` in the
+ * same call that reads the counters.
  */
 import { execFile } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
@@ -206,7 +209,17 @@ async function readSysfs(): Promise<GpuUsage[]> {
 /* ----------------------------------------------------------------- windows */
 
 /*
- * The GPU performance counters are read through their CIM classes rather than
+ * One PowerShell call answers three questions, because starting PowerShell is
+ * the expensive part on Windows:
+ *
+ *  - `C` lines name the adapters, from `Win32_VideoController`. This does not
+ *    go through `si.graphics()`, which comes back empty on some Windows 11
+ *    machines and is the reason a PC with a real card was offered no GPU panel
+ *    at all.
+ *  - `U` lines are the load per adapter.
+ *  - `M` lines are the dedicated memory in use per adapter.
+ *
+ * The performance counters are read through their CIM classes rather than
  * Get-Counter, because counter *paths* are translated on a localised Windows
  * and "\GPU Engine(*)\Utilization Percentage" then matches nothing. The class
  * and property names below are the same in every language.
@@ -239,14 +252,18 @@ foreach ($adapter in ($rows | Group-Object Adapter)) {
 foreach ($m in @(Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory)) {
   $out += "M|$($m.Name)|$($m.DedicatedUsage)"
 }
+foreach ($c in @(Get-CimInstance Win32_VideoController)) {
+  if ($c.Name -match 'Basic Render|Basic Display|Remote Display') { continue }
+  $out += "C|$($c.Name)|$($c.AdapterRAM)"
+}
 $out -join "\`n"
 `;
 
-/** Set once the counters answer nothing, so old Windows stops being asked. */
-let windowsCounters = true;
+/** Cleared once Windows answers nothing at all, so it stops being asked. */
+let windowsGpuInfo = true;
 
 async function readWindows(): Promise<GpuUsage[]> {
-  if (process.platform !== "win32" || !windowsCounters) return [];
+  if (process.platform !== "win32" || !windowsGpuInfo) return [];
 
   const output = await run("powershell.exe", [
     "-NoProfile",
@@ -266,23 +283,47 @@ async function readWindows(): Promise<GpuUsage[]> {
     adapters.set(name, created);
     return created;
   };
+  const named: GpuUsage[] = [];
 
   for (const line of output.split("\n")) {
-    const [kind, adapter, raw] = line.trim().split("|");
+    const [kind, key, raw] = line.trim().split("|");
+    if (!key) continue;
+    if (kind === "C") {
+      named.push({ ...empty(), model: key, memoryTotalMb: bytesToMb(numberOrNull(raw)) });
+      continue;
+    }
     const value = numberOrNull(raw);
-    if (!adapter || value === null) continue;
-    if (kind === "U") of(adapter).utilizationPct = Math.round(Math.min(100, value) * 10) / 10;
-    if (kind === "M") of(adapter).memoryUsedMb = Math.round(value / 1024 / 1024);
+    if (value === null) continue;
+    if (kind === "U") of(key).utilizationPct = Math.round(Math.min(100, value) * 10) / 10;
+    if (kind === "M") of(key).memoryUsedMb = bytesToMb(value);
   }
 
-  if (adapters.size === 0) {
-    windowsCounters = false;
+  if (adapters.size === 0 && named.length === 0) {
+    windowsGpuInfo = false;
     return [];
   }
 
   // Sorted by instance name so the order is stable between samples, which is
   // what lets a reading stay attached to the same adapter.
-  return [...adapters.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, entry]) => entry);
+  const readings = [...adapters.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, entry]) => entry);
+  if (named.length === 0) return readings;
+
+  /*
+   * The counters know an adapter by its LUID and `Win32_VideoController` knows
+   * it by name, and nothing in either connects the two. They are paired by
+   * position, which is right whenever there is one card and is at worst a
+   * swapped label on a machine with a chip beside a card. A wrong label beats
+   * no numbers, which is what this whole module exists to fix.
+   */
+  return named.map((entry, index) => ({
+    ...entry,
+    utilizationPct: readings[index]?.utilizationPct ?? null,
+    memoryUsedMb: readings[index]?.memoryUsedMb ?? null,
+  }));
+}
+
+function bytesToMb(bytes: number | null): number | null {
+  return bytes === null ? null : Math.round(bytes / 1024 / 1024);
 }
 
 /* ------------------------------------------------------------------- merge */
@@ -321,34 +362,48 @@ function brandOf(entry: GpuUsage): string {
   return brand ?? "";
 }
 
+/** Where a reading goes: an adapter to fill in, a new entry, or nowhere. */
+const APPEND = -1;
+const DISCARD = -2;
+
 /**
  * Attaches each reading to the adapter it belongs to, by maker first and by
  * position second, so a laptop with an Intel chip beside an NVIDIA card does
  * not show the card's load against the chip.
  *
- * A reading that names its maker and matches no adapter becomes an entry of its
- * own, since a GPU si never saw is still worth reporting. An anonymous one is
- * dropped instead: on Windows the performance counters describe the same cards
- * nvidia-smi just described, and inventing a second nameless GPU for them would
- * be worse than losing a duplicate reading.
+ * A reading with no adapter to go to becomes an entry of its own. That is the
+ * case that matters most, because `si.graphics()` returns nothing at all on
+ * some Windows 11 machines, and a device whose only GPU knowledge comes from
+ * the performance counters still has a GPU worth showing.
+ *
+ * It is discarded only when a second source has already described the same
+ * card, which is what happens on Windows when nvidia-smi and the counters both
+ * report the one NVIDIA card in the machine. A duplicate reading is worth less
+ * than the first one and would otherwise appear as a phantom extra GPU.
  */
-function merge(adapters: GpuUsage[], readings: GpuUsage[]): GpuUsage[] {
+export function merge(adapters: GpuUsage[], readings: GpuUsage[]): GpuUsage[] {
   const merged = adapters.map((entry) => ({ ...entry }));
   const used = new Set<number>();
 
   const claim = (reading: GpuUsage): number => {
     const brand = brandOf(reading);
     if (brand) {
-      const byBrand = merged.findIndex((entry, index) => !used.has(index) && brandOf(entry) === brand);
-      if (byBrand !== -1) return byBrand;
+      const free = merged.findIndex((entry, index) => !used.has(index) && brandOf(entry) === brand);
+      if (free !== -1) return free;
+      // Every adapter from this maker is already spoken for.
+      if (merged.some((entry) => brandOf(entry) === brand)) return DISCARD;
+      return APPEND;
     }
-    return merged.findIndex((entry, index) => !used.has(index) && !hasReading(entry));
+    const spare = merged.findIndex((entry, index) => !used.has(index) && !hasReading(entry));
+    if (spare !== -1) return spare;
+    // Nameless and nowhere to go: only worth keeping when it is all there is.
+    return merged.length === 0 ? APPEND : DISCARD;
   };
 
   for (const reading of readings) {
     const index = claim(reading);
-    if (index === -1) {
-      if (!brandOf(reading) && !reading.model) continue;
+    if (index === DISCARD) continue;
+    if (index === APPEND) {
       merged.push({ ...reading });
       used.add(merged.length - 1);
       continue;

@@ -39,6 +39,13 @@ steps:
     commands:
       - node scripts/test-live.mjs
 
+  # Three sources can report the same card and none of them name it the same
+  # way, so check a reading still lands on the adapter it belongs to.
+  - name: GPU matching
+    image: node:20
+    commands:
+      - node scripts/test-gpu.mjs
+
   # Verifies the install command the documentation gives people for their own
   # machines: a device must get the agent WITHOUT the dashboard's dependencies.
   - name: Agent install check
