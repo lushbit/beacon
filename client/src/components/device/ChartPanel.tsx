@@ -10,7 +10,8 @@ interface ChartPanelProps {
   points: Point[];
   from: number;
   to: number;
-  format: (value: number) => string;
+  /** Passed the top of the axis too, so a unit can be picked for the scale. */
+  format: (value: number, axisMax?: number) => string;
   clampMax?: number;
   height?: number;
   footer?: ReactNode;

@@ -2,22 +2,46 @@ import { serverNow } from "@/lib/clock";
 
 export type UnitBase = 1000 | 1024;
 
-export function formatBytes(bytes: number | null | undefined, base: UnitBase = 1024, digits = 1): string {
+const UNITS: Record<UnitBase, string[]> = {
+  1024: ["B", "KiB", "MiB", "GiB", "TiB", "PiB"],
+  1000: ["B", "kB", "MB", "GB", "TB", "PB"],
+};
+
+/**
+ * `scaleFrom` is the value the unit is chosen for, which is not always the
+ * value being printed.
+ *
+ * A chart axis passes the top of its scale, so every label on it reads in the
+ * same unit. Left to pick a unit each, the ticks below a kilobyte all come out
+ * in plain bytes, where binary and decimal agree to the digit, and switching
+ * the size unit setting looks like it does nothing at all.
+ */
+export function formatBytes(bytes: number | null | undefined, base: UnitBase = 1024, scaleFrom?: number): string {
   if (bytes === null || bytes === undefined || !Number.isFinite(bytes)) return "—";
-  const units = base === 1024 ? ["B", "KiB", "MiB", "GiB", "TiB", "PiB"] : ["B", "kB", "MB", "GB", "TB", "PB"];
-  let value = Math.abs(bytes);
+  const units = UNITS[base] ?? UNITS[1024];
+
   let unit = 0;
-  while (value >= base && unit < units.length - 1) {
-    value /= base;
+  let scale = Math.abs(scaleFrom ?? bytes);
+  while (scale >= base && unit < units.length - 1) {
+    scale /= base;
     unit += 1;
   }
-  const rounded = unit === 0 ? Math.round(value) : Number(value.toFixed(value >= 100 ? 0 : digits));
-  return `${bytes < 0 ? "-" : ""}${rounded} ${units[unit]}`;
+
+  const value = Math.abs(bytes) / base ** unit;
+  // Whole bytes are never fractional. An axis needs a second decimal low down
+  // its scale to keep its labels apart, while a figure in running text reads
+  // better with one.
+  const digits = unit === 0 || value >= 100 ? 0 : scaleFrom !== undefined && value < 10 ? 2 : 1;
+  return `${bytes < 0 ? "-" : ""}${Number(value.toFixed(digits))} ${units[unit]}`;
 }
 
-export function formatRate(bytesPerSec: number | null | undefined, base: UnitBase = 1024): string {
+export function formatRate(
+  bytesPerSec: number | null | undefined,
+  base: UnitBase = 1024,
+  scaleFrom?: number
+): string {
   if (bytesPerSec === null || bytesPerSec === undefined) return "—";
-  return `${formatBytes(bytesPerSec, base)}/s`;
+  return `${formatBytes(bytesPerSec, base, scaleFrom)}/s`;
 }
 
 export function formatPercent(value: number | null | undefined, digits = 0): string {

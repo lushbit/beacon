@@ -290,7 +290,7 @@ function RowDetail({ device, unitBase }: { device: DeviceSummaryDto; unitBase: U
             series={netSeries}
             from={network.from}
             to={network.to}
-            format={(value) => formatRate(value, unitBase)}
+            format={(value, max) => formatRate(value, unitBase, max)}
             height={150}
           />
         </div>

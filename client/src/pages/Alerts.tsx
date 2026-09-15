@@ -29,7 +29,7 @@ import { useLive } from "@/context/LiveContext";
 import { useToast } from "@/context/ToastContext";
 import { api } from "@/lib/api";
 import { RelativeTime } from "@/components/RelativeTime";
-import { formatDateTime, formatRate } from "@/lib/format";
+import { formatDateTime, formatRate, type UnitBase } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 const SEVERITY_TONE = { info: "info", warning: "warning", critical: "danger" } as const;
@@ -57,14 +57,14 @@ const SUMMARY_LABELS: Partial<Record<AlertMetric, string>> = {
   load1: "Load average",
 };
 
-function thresholdWords(metric: AlertMetric, threshold: number): string {
+function thresholdWords(metric: AlertMetric, threshold: number, unitBase: UnitBase): string {
   switch (ALERT_METRIC_UNITS[metric]) {
     case "percent":
       return `${threshold}%`;
     case "celsius":
       return `${threshold} °C`;
     case "bytesPerSec":
-      return formatRate(threshold);
+      return formatRate(threshold, unitBase);
     case "seconds":
       return durationWords(threshold);
     default:
@@ -77,13 +77,13 @@ function thresholdWords(metric: AlertMetric, threshold: number): string {
  * left out because the section heading above the row already names it, and
  * repeating it on every row is what made the list hard to read.
  */
-function ruleSummary(rule: AlertRuleDto): string {
+function ruleSummary(rule: AlertRuleDto, unitBase: UnitBase): string {
   if (rule.metric === "offline") return `No report for ${durationWords(rule.threshold)}`;
   const label = SUMMARY_LABELS[rule.metric] ?? ALERT_METRIC_LABELS[rule.metric];
   const direction = rule.operator === "gt" ? "above" : "below";
   // A rule that fires on the first reading has no duration worth printing.
   const sustained = rule.durationSec > 0 ? ` for ${durationWords(rule.durationSec)}` : "";
-  return `${label} ${direction} ${thresholdWords(rule.metric, rule.threshold)}${sustained}`;
+  return `${label} ${direction} ${thresholdWords(rule.metric, rule.threshold, unitBase)}${sustained}`;
 }
 
 /**
@@ -258,13 +258,15 @@ function RuleRow({
   onEdit: (rule: AlertRuleDto) => void;
   onDelete: (rule: AlertRuleDto) => void;
 }) {
+  const { preferences } = useAuth();
+
   return (
     <li className="flex flex-wrap items-center gap-3 px-4 py-3">
       <div className="min-w-0 flex-1">
         <p className={cn("truncate text-sm", rule.enabled ? "text-foreground" : "text-muted-foreground")}>
           {rule.name}
         </p>
-        <p className="mt-0.5 text-2xs text-muted-foreground">{ruleSummary(rule)}</p>
+        <p className="mt-0.5 text-2xs text-muted-foreground">{ruleSummary(rule, preferences.unitBase)}</p>
       </div>
       <Badge tone={rule.enabled ? SEVERITY_TONE[rule.severity] : "neutral"}>
         {rule.enabled ? rule.severity : "disabled"}

@@ -450,6 +450,7 @@ function NotificationsTab() {
 }
 
 function ServerTab() {
+  const { preferences } = useAuth();
   const { attempt, notify } = useToast();
   const [settings, setSettings] = useState<ServerSettingsDto | null>(null);
   // What the hub last confirmed, so the bar at the bottom knows what is unsaved.
@@ -619,7 +620,7 @@ function ServerTab() {
             <p className="flex items-center gap-2 text-2xs text-muted-foreground">
               <Database className="h-3.5 w-3.5" />
               {storage.rows.toLocaleString()} samples across {storage.devices} devices ·{" "}
-              {formatBytes(storage.sizeBytes)} on disk
+              {formatBytes(storage.sizeBytes, preferences.unitBase)} on disk
             </p>
           ) : null}
 

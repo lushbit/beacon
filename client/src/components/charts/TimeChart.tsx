@@ -17,7 +17,13 @@ interface TimeChartProps {
   to: number;
   /** Upper bound the axis may never pass — 100 for a percentage. */
   clampMax?: number;
-  format: (value: number) => string;
+  /**
+   * Axis labels are formatted against the top of the axis, so a formatter with
+   * a choice of units picks one for the whole scale rather than a different one
+   * per tick. The hover reading is formatted on its own, where the unit that
+   * suits the number beats the unit that suits the scale.
+   */
+  format: (value: number, axisMax?: number) => string;
   height?: number;
   className?: string;
   emptyLabel?: string;
@@ -106,7 +112,7 @@ export function TimeChart({
                   strokeWidth={1}
                   shapeRendering="crispEdges"
                 />
-                {index === 0 || format(tick) !== format(yTicks[index - 1]) ? (
+                {index === 0 || format(tick, maxValue) !== format(yTicks[index - 1], maxValue) ? (
                   <text
                     x={-10}
                     y={y(tick)}
@@ -114,7 +120,7 @@ export function TimeChart({
                     dominantBaseline="middle"
                     className={cn("text-[10px] tabular", index === yTicks.length - 1 ? "fill-foreground/70" : "fill-muted-foreground")}
                   >
-                    {format(tick)}
+                    {format(tick, maxValue)}
                   </text>
                 ) : null}
               </g>
