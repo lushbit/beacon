@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { pathToFileURL } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const { merge, pairBySize } = await import(pathToFileURL(join(root, "agent", "dist", "gpu.js")).href);
+const { merge, pairBySize, WINDOWS_SCRIPT } = await import(pathToFileURL(join(root, "agent", "dist", "gpu.js")).href);
 
 const failures = [];
 
@@ -122,6 +122,23 @@ console.log("\nOne card whose counters arrive in either order…");
   check(result.length === 1, "stays one card");
   check(result[0].utilizationPct === 41, "with its load");
   check(result[0].memoryTotalMb === 24576, "and its real size, not the 4 GiB Windows reports");
+}
+
+console.log("\nThe script the agent hands to PowerShell…");
+{
+  /*
+   * It lives in a template literal, where a lone backslash is swallowed. That
+   * turned the registry path into "HKLM:SYSTEMCurrentControlSet..." and cost a
+   * 24 GiB card its real size, silently, because the script suppresses its own
+   * errors. Both escapes are checked here so it cannot happen again unseen.
+   */
+  check(
+    WINDOWS_SCRIPT.includes("HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\"),
+    "the registry path kept its backslashes"
+  );
+  check(WINDOWS_SCRIPT.includes("phys_\\d+"), "the adapter pattern is still a digit match");
+  check(WINDOWS_SCRIPT.includes('-join "`n"'), "the lines are joined by a real newline");
+  check(!WINDOWS_SCRIPT.includes("HKLM:SYSTEM"), "the path is not the flattened one that reads nothing");
 }
 
 console.log("");

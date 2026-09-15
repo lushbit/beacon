@@ -81,18 +81,34 @@ if (-not (Test-Admin)) {
   if ($InsecureTls) { $inner += " -InsecureTls" }
   if ($InstallDir) { $inner += " -InstallDir '$InstallDir'" }
 
+  # Kept unwrapped, so the line offered below is one a person can paste.
+  $plain = $inner
+
+  # The elevated window keeps its own errors on screen. Without this it runs,
+  # fails, and closes before anyone can read why, which looks from the ordinary
+  # window as though elevation itself went wrong.
+  $inner = "try { $inner } catch { Write-Host ''; Write-Host `$_.Exception.Message -ForegroundColor Red; Write-Host '' }"
+
+  # Passed base64 rather than as text. `Start-Process` joins its argument list
+  # with spaces and quotes nothing, so a command carrying spaces, quotes,
+  # brackets and an ampersand reaches the elevated window rearranged, which is
+  # what made it start and immediately give up. An encoded command is one token
+  # with nothing in it to rearrange.
+  $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($inner))
+
   try {
-    Start-Process -FilePath "powershell" -Verb RunAs -ArgumentList @(
-      "-NoProfile", "-ExecutionPolicy", "Bypass", "-NoExit", "-Command", $inner
-    )
+    Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList @(
+      "-NoProfile", "-ExecutionPolicy", "Bypass", "-NoExit", "-EncodedCommand", $encoded
+    ) | Out-Null
   } catch {
+    $reason = $_.Exception.Message
     Write-Host ""
-    Write-Host "Could not open an elevated window. Open Windows PowerShell as"
-    Write-Host "Administrator and run this there:"
+    Write-Host "Could not open an elevated window: $reason"
+    Write-Host "Open Windows PowerShell as Administrator and run this there:"
     Write-Host ""
-    Write-Host "  $inner"
+    Write-Host "  $plain"
     Write-Host ""
-    throw "Elevation was refused or is unavailable on this machine."
+    throw "Elevation failed: $reason"
   }
   return
 }

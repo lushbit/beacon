@@ -234,7 +234,7 @@ async function readSysfs(): Promise<GpuUsage[]> {
  * Task Manager's headline figure is the busiest engine type rather than the sum
  * of all of them, so that is what this reports.
  */
-const WINDOWS_SCRIPT = `
+export const WINDOWS_SCRIPT = `
 $ErrorActionPreference = 'SilentlyContinue'
 $rows = @()
 foreach ($e in @(Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine)) {
@@ -259,10 +259,12 @@ foreach ($c in @(Get-CimInstance Win32_VideoController)) {
   if ($c.Name -match 'Basic Render|Basic Display|Remote Display') { continue }
   $out += "C|$($c.Name)|$($c.AdapterRAM)"
 }
-$class = 'HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}'
-foreach ($k in @(Get-ChildItem $class)) {
+$class = 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}'
+foreach ($k in @(Get-ChildItem -LiteralPath $class)) {
   $desc = $k.GetValue('DriverDesc')
   $size = $k.GetValue('HardwareInformation.qwMemorySize')
+  if (-not $size) { $size = $k.GetValue('HardwareInformation.MemorySize') }
+  if ($size -is [byte[]]) { $size = [System.BitConverter]::ToUInt32($size, 0) }
   if ($desc -and $size) { $out += "V|$desc|$size" }
 }
 $out -join "\`n"
@@ -314,12 +316,21 @@ async function readWindows(): Promise<GpuUsage[]> {
     return [];
   }
 
-  // The driver's own figure wins wherever it is bigger, which is the saturated
-  // 4 GiB case and nothing else.
+  /*
+   * The driver's own figure wins wherever it is bigger, which is the saturated
+   * case and nothing else. Where the driver does not offer one, a total sitting
+   * exactly on the 4 GiB ceiling is reported as unknown rather than as fact: a
+   * 24 GiB card reading "3.5 GB of 4.3 GB" is not a rounding error, it is a
+   * different card, and no figure at all beats a wrong one.
+   */
   for (const entry of named) {
     const exact = bytesToMb(vram.get(entry.model) ?? null);
-    if (exact !== null && (entry.memoryTotalMb === null || exact > entry.memoryTotalMb)) {
-      entry.memoryTotalMb = exact;
+    if (exact !== null) {
+      if (entry.memoryTotalMb === null || exact > entry.memoryTotalMb) entry.memoryTotalMb = exact;
+      continue;
+    }
+    if (entry.memoryTotalMb !== null && entry.memoryTotalMb >= 4095 && entry.memoryTotalMb <= 4096) {
+      entry.memoryTotalMb = null;
     }
   }
 
