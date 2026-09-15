@@ -37,6 +37,15 @@ function Write-JsonFile($Path, $Value) {
   [System.IO.File]::WriteAllText($Path, $json, (New-Object System.Text.UTF8Encoding($false)))
 }
 
+# Account names are translated: "BUILTIN\Administrators" is
+# "VORDEFINIERT\Administratoren" on a German Windows, and building an access
+# rule from a name that does not resolve throws. Well-known SIDs are the same
+# everywhere, so the permissions below are set from those instead.
+function Get-Sid($WellKnown) {
+  $type = [Enum]::Parse([System.Security.Principal.WellKnownSidType], $WellKnown)
+  return New-Object System.Security.Principal.SecurityIdentifier($type, $null)
+}
+
 function Test-Admin {
   $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
   $principal = New-Object Security.Principal.WindowsPrincipal($identity)
@@ -77,7 +86,13 @@ if (-not (Test-Admin)) {
       "-NoProfile", "-ExecutionPolicy", "Bypass", "-NoExit", "-Command", $inner
     )
   } catch {
-    throw "Could not elevate automatically. Open Windows PowerShell as Administrator and run the command again."
+    Write-Host ""
+    Write-Host "Could not open an elevated window. Open Windows PowerShell as"
+    Write-Host "Administrator and run this there:"
+    Write-Host ""
+    Write-Host "  $inner"
+    Write-Host ""
+    throw "Elevation was refused or is unavailable on this machine."
   }
   return
 }
@@ -147,18 +162,33 @@ if ($InsecureTls) {
 # permissions are set explicitly: SYSTEM and administrators may write, everyone
 # else may only read.
 New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
-$dirAcl = Get-Acl $InstallDir
-$dirAcl.SetAccessRuleProtection($true, $false)
 $inherit = [System.Security.AccessControl.InheritanceFlags]"ContainerInherit, ObjectInherit"
 $noProp = [System.Security.AccessControl.PropagationFlags]::None
+$dirAcl = Get-Acl $InstallDir
+$dirAcl.SetAccessRuleProtection($true, $false)
 $dirAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
-  "SYSTEM", "FullControl", $inherit, $noProp, "Allow")))
+  (Get-Sid "LocalSystemSid"), "FullControl", $inherit, $noProp, "Allow")))
 $dirAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
-  "BUILTIN\Administrators", "FullControl", $inherit, $noProp, "Allow")))
+  (Get-Sid "BuiltinAdministratorsSid"), "FullControl", $inherit, $noProp, "Allow")))
 $dirAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
-  "BUILTIN\Users", "ReadAndExecute", $inherit, $noProp, "Allow")))
+  (Get-Sid "BuiltinUsersSid"), "ReadAndExecute", $inherit, $noProp, "Allow")))
 Set-Acl -Path $InstallDir -AclObject $dirAcl
 Write-Step "locked the install directory to SYSTEM and administrators"
+
+# -------------------------------------------------------------- stop the old
+
+# A reinstall replaces files the running agent is using, and Windows refuses to
+# delete a file while a process holds it, so a second install of the same
+# version failed where the first had worked. Stopping first also means the old
+# launcher cannot restart the old agent beside the new one.
+if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
+  Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+  Get-Process -Name node -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -and (Get-CimInstance Win32_Process -Filter "ProcessId=$($_.Id)").CommandLine -like "*$InstallDir*" } |
+    ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+  Start-Sleep -Milliseconds 500
+  Write-Step "stopped the agent that was already installed"
+}
 
 # ------------------------------------------------------------------- download
 
@@ -189,7 +219,9 @@ try {
   # Versioned layout: the launcher stays put while versions come and go, which
   # is what lets the agent replace itself later without touching the task.
   $versionDir = Join-Path $InstallDir "versions\$($manifest.version)"
-  if (Test-Path $versionDir) { Remove-Item -Recurse -Force $versionDir }
+  # Best effort: tar writes over whatever is left, so a file that will not go is
+  # not a reason to refuse the install.
+  if (Test-Path $versionDir) { Remove-Item -Recurse -Force $versionDir -ErrorAction SilentlyContinue }
   New-Item -ItemType Directory -Path $versionDir -Force | Out-Null
 
   # tar ships with Windows 10 1803 and newer.
@@ -248,8 +280,10 @@ if (Test-Path $configFile) {
   # to the service account and administrators.
   $acl = Get-Acl $configFile
   $acl.SetAccessRuleProtection($true, $false)
-  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule("SYSTEM", "FullControl", "Allow")))
-  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule("BUILTIN\Administrators", "FullControl", "Allow")))
+  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+    (Get-Sid "LocalSystemSid"), "FullControl", "Allow")))
+  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+    (Get-Sid "BuiltinAdministratorsSid"), "FullControl", "Allow")))
   Set-Acl -Path $configFile -AclObject $acl
 }
 
