@@ -85,7 +85,10 @@ function capabilities(probe: MetricSample): DeviceCapabilities {
     docker: isDockerAvailable(),
     selfUpdate: detectLayout() !== null,
     temperatures: probe.summary.cpuTempC !== null,
-    gpu: probe.detail.gpus.length > 0,
+    // Listing a GPU is not the same as being able to read one. A device that
+    // only knows an adapter's name used to get a GPU panel with nothing in it,
+    // so the panel is offered once a number has actually come back.
+    gpu: probe.summary.gpuPct !== null || probe.summary.gpuMemPct !== null,
     battery: probe.detail.battery !== null,
     diskIo: probe.summary.diskReadBps !== null || probe.summary.diskWriteBps !== null,
     processes: true,

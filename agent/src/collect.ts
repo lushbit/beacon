@@ -12,6 +12,7 @@ import type {
   ProcessSummary,
 } from "@beacon/shared";
 import { PROTOCOL_VERSION } from "@beacon/shared";
+import { readGpus } from "./gpu.js";
 import { AGENT_VERSION } from "./version.js";
 
 /** Lets the hub run scheduled updates during this device's own night. */
@@ -59,21 +60,7 @@ class Cached<T> {
   }
 }
 
-const gpuCache = new Cached<GpuUsage[]>(
-  async () => {
-    const graphics = await si.graphics();
-    return graphics.controllers.map((controller) => ({
-      model: controller.model ?? "",
-      vendor: controller.vendor ?? "",
-      utilizationPct: numberOrNull(controller.utilizationGpu),
-      memoryUsedMb: numberOrNull(controller.memoryUsed),
-      memoryTotalMb: numberOrNull(controller.memoryTotal),
-      temperatureC: numberOrNull(controller.temperatureGpu),
-    }));
-  },
-  15_000,
-  []
-);
+const gpuCache = new Cached<GpuUsage[]>(readGpus, 15_000, []);
 
 const disksCache = new Cached<DiskUsage[]>(
   async () => {
@@ -294,7 +281,11 @@ export async function collectSample(): Promise<MetricSample> {
     { used: 0, size: 0 }
   );
 
-  const gpu = gpus.find((entry) => entry.utilizationPct !== null) ?? gpus[0] ?? null;
+  const gpu =
+    gpus.find((entry) => entry.utilizationPct !== null) ??
+    gpus.find((entry) => entry.memoryTotalMb !== null) ??
+    gpus[0] ??
+    null;
   const loadAvg = process.platform === "win32" ? null : os.loadavg();
 
   const summary: MetricSummary = {

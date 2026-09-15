@@ -4,6 +4,7 @@ import type { DeviceDto, MetricSample } from "@beacon/shared";
 import { CoreBars } from "@/components/charts/CoreBars";
 import { Meter } from "@/components/charts/Meter";
 import { StatTile } from "@/components/StatTile";
+import type { ChartSeries } from "@/components/charts/TimeChart";
 import { ChartPanel } from "@/components/device/ChartPanel";
 import { EmptyState } from "@/components/ui/misc";
 import { useSeries } from "@/hooks/useSeries";
@@ -33,7 +34,7 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
   const memory = useSeries(device.id, rangeSeconds, ["memPct"]);
   const network = useSeries(device.id, rangeSeconds, ["netRxBps", "netTxBps"]);
   const disk = useSeries(device.id, rangeSeconds, ["diskReadBps", "diskWriteBps"]);
-  const thermal = useSeries(device.id, rangeSeconds, ["cpuTempC", "gpuPct"]);
+  const thermal = useSeries(device.id, rangeSeconds, ["cpuTempC", "gpuPct", "gpuMemPct"]);
 
   const visibleDisks = useMemo(
     () => (detail?.disks ?? []).filter((entry) => !device.settings.panels.hiddenDisks.includes(entry.mount)),
@@ -44,10 +45,28 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
     [detail, device.settings.panels.hiddenInterfaces]
   );
 
+  // A card that reports its memory but not its load, and one that reports the
+  // load but not the memory, are both common, so the GPU chart carries whatever
+  // the device actually sends and stays monochrome when that is one series.
+  const gpuSeries = useMemo(() => {
+    const hasUsage = summary?.gpuPct != null;
+    const hasMemory = summary?.gpuMemPct != null;
+    const series: ChartSeries[] = [];
+    if (hasUsage || !hasMemory) {
+      series.push({ key: "gpuPct", label: "Usage", color: hasMemory ? SERIES.in : SERIES.ink });
+    }
+    if (hasMemory) {
+      series.push({ key: "gpuMemPct", label: "Memory", color: hasUsage ? SERIES.out : SERIES.ink });
+    }
+    return series;
+  }, [summary?.gpuPct, summary?.gpuMemPct]);
+
   // The axis now stops at the tallest sample, so a chart that never leaves
   // single digits needs a decimal to keep its labels apart.
   const percent = (value: number) => formatPercent(value, value < 10 ? 1 : 0);
-  const rate = (value: number) => formatRate(value, unitBase);
+  // `max` is the top of the axis: every label on one axis shares the unit that
+  // suits it, rather than each tick picking its own.
+  const rate = (value: number, max?: number) => formatRate(value, unitBase, max);
 
   return (
     <div className="space-y-4">
@@ -196,8 +215,8 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
         {device.capabilities.gpu ? (
           <ChartPanel
             title="GPU usage"
-            value={formatPercent(summary?.gpuPct)}
-            series={[{ key: "gpuPct", label: "GPU", color: SERIES.ink }]}
+            value={formatPercent(summary?.gpuPct ?? summary?.gpuMemPct)}
+            series={gpuSeries}
             points={thermal.points}
             from={thermal.from}
             to={thermal.to}
@@ -208,8 +227,14 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
                 <ul className="space-y-1 text-xs text-muted-foreground">
                   {detail.gpus.map((gpu, index) => (
                     <li key={index} className="truncate">
-                      {[gpu.vendor, gpu.model].filter(Boolean).join(" ")}
-                      {gpu.memoryTotalMb ? ` · ${Math.round(gpu.memoryUsedMb ?? 0)} / ${Math.round(gpu.memoryTotalMb)} MB` : ""}
+                      {[gpu.vendor, gpu.model].filter(Boolean).join(" ") || `GPU ${index + 1}`}
+                      {gpu.memoryTotalMb
+                        ? ` · ${formatBytes((gpu.memoryUsedMb ?? 0) * 1024 * 1024, unitBase)} of ${formatBytes(
+                            gpu.memoryTotalMb * 1024 * 1024,
+                            unitBase
+                          )}`
+                        : ""}
+                      {gpu.temperatureC !== null ? ` · ${formatTemperature(gpu.temperatureC, temperatureUnit)}` : ""}
                     </li>
                   ))}
                 </ul>

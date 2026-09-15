@@ -1,0 +1,380 @@
+/**
+ * GPU readings.
+ *
+ * `si.graphics()` names the adapters on a device, but it only fills in a
+ * utilisation figure when it can reach nvidia-smi itself. Everywhere else every
+ * GPU field came back null, so the dashboard drew a panel with no numbers in
+ * it. The readings are collected here instead, from the source each platform
+ * actually exposes:
+ *
+ *  - nvidia-smi, on any platform, for NVIDIA cards.
+ *  - `/sys/class/drm` on Linux, which is where amdgpu publishes its busy
+ *    percentage, VRAM use and temperature.
+ *  - The GPU performance counters on Windows, which cover Intel and AMD too and
+ *    are the numbers Task Manager shows.
+ *
+ * Identity (vendor, model, total memory) still comes from `si.graphics()`. It
+ * is cached far longer than the readings, because it cannot change while the
+ * agent is running and asking for it starts PowerShell on Windows.
+ */
+import { execFile } from "node:child_process";
+import { readdir, readFile } from "node:fs/promises";
+import { promisify } from "node:util";
+import si from "systeminformation";
+import type { GpuUsage } from "@beacon/shared";
+
+const execFileAsync = promisify(execFile);
+
+/** Every probe here is optional, so a failure is an absent reading, not an error. */
+async function run(file: string, args: string[], timeoutMs = 8000): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync(file, args, {
+      timeout: timeoutMs,
+      windowsHide: true,
+      maxBuffer: 1024 * 1024,
+    });
+    return stdout;
+  } catch {
+    return null;
+  }
+}
+
+function numberOrNull(value: unknown): number | null {
+  const parsed = typeof value === "string" ? Number(value.trim()) : value;
+  return typeof parsed === "number" && Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function empty(): GpuUsage {
+  return {
+    model: "",
+    vendor: "",
+    utilizationPct: null,
+    memoryUsedMb: null,
+    memoryTotalMb: null,
+    temperatureC: null,
+  };
+}
+
+function hasReading(entry: GpuUsage): boolean {
+  return (
+    entry.utilizationPct !== null ||
+    entry.memoryUsedMb !== null ||
+    entry.memoryTotalMb !== null ||
+    entry.temperatureC !== null
+  );
+}
+
+/* ------------------------------------------------------------------- nvidia */
+
+const NVIDIA_CANDIDATES =
+  process.platform === "win32"
+    ? [
+        "nvidia-smi.exe",
+        "C:\\Windows\\System32\\nvidia-smi.exe",
+        "C:\\Program Files\\NVIDIA Corporation\\NVSMI\\nvidia-smi.exe",
+      ]
+    : ["nvidia-smi", "/usr/bin/nvidia-smi", "/usr/local/bin/nvidia-smi"];
+
+const NVIDIA_QUERY = [
+  "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu",
+  "--format=csv,noheader,nounits",
+];
+
+/**
+ * Remembered after the first look: `undefined` means the tool has not been
+ * searched for yet, `null` that this device has no NVIDIA card and should stop
+ * paying for the search on every sample.
+ */
+let nvidiaSmi: string | null | undefined;
+
+async function readNvidia(): Promise<GpuUsage[]> {
+  if (nvidiaSmi === null) return [];
+
+  let output: string | null = null;
+  if (nvidiaSmi === undefined) {
+    for (const candidate of NVIDIA_CANDIDATES) {
+      output = await run(candidate, NVIDIA_QUERY);
+      if (output !== null) {
+        nvidiaSmi = candidate;
+        break;
+      }
+    }
+    if (nvidiaSmi === undefined) {
+      nvidiaSmi = null;
+      return [];
+    }
+  } else {
+    output = await run(nvidiaSmi, NVIDIA_QUERY);
+  }
+
+  if (!output) return [];
+
+  return output
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      // name, utilization, memory used, memory total, temperature. A field the
+      // card does not report reads "[N/A]" and parses to null.
+      const [name, utilization, used, total, temperature] = line.split(",").map((field) => field.trim());
+      return {
+        model: name ?? "",
+        vendor: "NVIDIA",
+        utilizationPct: numberOrNull(utilization),
+        memoryUsedMb: numberOrNull(used),
+        memoryTotalMb: numberOrNull(total),
+        temperatureC: numberOrNull(temperature),
+      } satisfies GpuUsage;
+    });
+}
+
+/* -------------------------------------------------------------- linux sysfs */
+
+/** PCI vendor ids, so a card without a name at least says who made it. */
+const PCI_VENDORS: Record<string, string> = {
+  "0x1002": "AMD",
+  "0x1022": "AMD",
+  "0x10de": "NVIDIA",
+  "0x8086": "Intel",
+  "0x1a03": "ASPEED",
+  "0x15ad": "VMware",
+  "0x1af4": "Red Hat",
+  "0x1234": "QEMU",
+};
+
+async function readText(path: string): Promise<string | null> {
+  try {
+    return (await readFile(path, "utf8")).trim();
+  } catch {
+    return null;
+  }
+}
+
+async function readNumber(path: string): Promise<number | null> {
+  return numberOrNull(await readText(path));
+}
+
+/** amdgpu hangs its temperature off a hwmon directory with a generated name. */
+async function readCardTemperature(device: string): Promise<number | null> {
+  let entries: string[];
+  try {
+    entries = await readdir(`${device}/hwmon`);
+  } catch {
+    return null;
+  }
+  for (const entry of entries) {
+    const millidegrees = await readNumber(`${device}/hwmon/${entry}/temp1_input`);
+    if (millidegrees !== null) return Math.round(millidegrees / 1000);
+  }
+  return null;
+}
+
+async function readSysfs(): Promise<GpuUsage[]> {
+  if (process.platform !== "linux") return [];
+
+  let cards: string[];
+  try {
+    cards = (await readdir("/sys/class/drm"))
+      .filter((name) => /^card\d+$/.test(name))
+      .sort((a, b) => Number(a.slice(4)) - Number(b.slice(4)));
+  } catch {
+    return [];
+  }
+
+  const found: GpuUsage[] = [];
+  for (const card of cards) {
+    const device = `/sys/class/drm/${card}/device`;
+    const busy = await readNumber(`${device}/gpu_busy_percent`);
+    const used = await readNumber(`${device}/mem_info_vram_used`);
+    const total = await readNumber(`${device}/mem_info_vram_total`);
+    const temperature = await readCardTemperature(device);
+    // A card that reports none of these adds nothing si has not already said.
+    if (busy === null && used === null && total === null && temperature === null) continue;
+
+    found.push({
+      model: "",
+      vendor: PCI_VENDORS[(await readText(`${device}/vendor`)) ?? ""] ?? "",
+      utilizationPct: busy,
+      memoryUsedMb: used === null ? null : Math.round(used / 1024 / 1024),
+      memoryTotalMb: total === null ? null : Math.round(total / 1024 / 1024),
+      temperatureC: temperature,
+    });
+  }
+  return found;
+}
+
+/* ----------------------------------------------------------------- windows */
+
+/*
+ * The GPU performance counters are read through their CIM classes rather than
+ * Get-Counter, because counter *paths* are translated on a localised Windows
+ * and "\GPU Engine(*)\Utilization Percentage" then matches nothing. The class
+ * and property names below are the same in every language.
+ *
+ * An engine instance is named
+ *   pid_1234_luid_0x00000000_0x0000F7A9_phys_0_eng_0_engtype_3D
+ * so the adapter is the `luid…phys` part, which is also how the memory class
+ * names its instances. Work on one adapter is spread over several engines, and
+ * Task Manager's headline figure is the busiest engine type rather than the sum
+ * of all of them, so that is what this reports.
+ */
+const WINDOWS_SCRIPT = `
+$ErrorActionPreference = 'SilentlyContinue'
+$rows = @()
+foreach ($e in @(Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine)) {
+  $adapter = [regex]::Match($e.Name, 'luid_0x[0-9A-Fa-f]+_0x[0-9A-Fa-f]+_phys_\\d+').Value
+  if (-not $adapter) { continue }
+  $type = [regex]::Match($e.Name, 'engtype_.+$').Value
+  $rows += [pscustomobject]@{ Adapter = $adapter; Type = $type; Value = [double]$e.UtilizationPercentage }
+}
+$out = @()
+foreach ($adapter in ($rows | Group-Object Adapter)) {
+  $busiest = 0
+  foreach ($type in ($adapter.Group | Group-Object Type)) {
+    $sum = ($type.Group | Measure-Object Value -Sum).Sum
+    if ($sum -gt $busiest) { $busiest = $sum }
+  }
+  $out += "U|$($adapter.Name)|$busiest"
+}
+foreach ($m in @(Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory)) {
+  $out += "M|$($m.Name)|$($m.DedicatedUsage)"
+}
+$out -join "\`n"
+`;
+
+/** Set once the counters answer nothing, so old Windows stops being asked. */
+let windowsCounters = true;
+
+async function readWindows(): Promise<GpuUsage[]> {
+  if (process.platform !== "win32" || !windowsCounters) return [];
+
+  const output = await run("powershell.exe", [
+    "-NoProfile",
+    "-NonInteractive",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-Command",
+    WINDOWS_SCRIPT,
+  ]);
+  if (!output) return [];
+
+  const adapters = new Map<string, GpuUsage>();
+  const of = (name: string) => {
+    const existing = adapters.get(name);
+    if (existing) return existing;
+    const created = empty();
+    adapters.set(name, created);
+    return created;
+  };
+
+  for (const line of output.split("\n")) {
+    const [kind, adapter, raw] = line.trim().split("|");
+    const value = numberOrNull(raw);
+    if (!adapter || value === null) continue;
+    if (kind === "U") of(adapter).utilizationPct = Math.round(Math.min(100, value) * 10) / 10;
+    if (kind === "M") of(adapter).memoryUsedMb = Math.round(value / 1024 / 1024);
+  }
+
+  if (adapters.size === 0) {
+    windowsCounters = false;
+    return [];
+  }
+
+  // Sorted by instance name so the order is stable between samples, which is
+  // what lets a reading stay attached to the same adapter.
+  return [...adapters.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, entry]) => entry);
+}
+
+/* ------------------------------------------------------------------- merge */
+
+/** Cached hard: an adapter cannot change while the agent is running. */
+let controllers: GpuUsage[] | null = null;
+
+async function readControllers(): Promise<GpuUsage[]> {
+  if (controllers) return controllers;
+  try {
+    const graphics = await si.graphics();
+    controllers = graphics.controllers.map((controller) => ({
+      model: controller.model ?? "",
+      vendor: controller.vendor ?? "",
+      utilizationPct: null,
+      memoryUsedMb: null,
+      // `memoryTotal` is only filled in for cards si can query directly, so the
+      // adapter's reported VRAM stands in for the rest.
+      memoryTotalMb: numberOrNull(controller.memoryTotal) ?? numberOrNull(controller.vram),
+      temperatureC: null,
+    }));
+  } catch {
+    controllers = [];
+  }
+  return controllers;
+}
+
+const BRANDS = ["nvidia", "amd", "radeon", "intel", "apple"];
+
+/** Treats "Advanced Micro Devices" and "Radeon" as the same maker as "AMD". */
+function brandOf(entry: GpuUsage): string {
+  const text = `${entry.vendor} ${entry.model}`.toLowerCase();
+  const brand = BRANDS.find((candidate) => text.includes(candidate));
+  if (brand === "radeon") return "amd";
+  if (text.includes("advanced micro devices")) return "amd";
+  return brand ?? "";
+}
+
+/**
+ * Attaches each reading to the adapter it belongs to, by maker first and by
+ * position second, so a laptop with an Intel chip beside an NVIDIA card does
+ * not show the card's load against the chip.
+ *
+ * A reading that names its maker and matches no adapter becomes an entry of its
+ * own, since a GPU si never saw is still worth reporting. An anonymous one is
+ * dropped instead: on Windows the performance counters describe the same cards
+ * nvidia-smi just described, and inventing a second nameless GPU for them would
+ * be worse than losing a duplicate reading.
+ */
+function merge(adapters: GpuUsage[], readings: GpuUsage[]): GpuUsage[] {
+  const merged = adapters.map((entry) => ({ ...entry }));
+  const used = new Set<number>();
+
+  const claim = (reading: GpuUsage): number => {
+    const brand = brandOf(reading);
+    if (brand) {
+      const byBrand = merged.findIndex((entry, index) => !used.has(index) && brandOf(entry) === brand);
+      if (byBrand !== -1) return byBrand;
+    }
+    return merged.findIndex((entry, index) => !used.has(index) && !hasReading(entry));
+  };
+
+  for (const reading of readings) {
+    const index = claim(reading);
+    if (index === -1) {
+      if (!brandOf(reading) && !reading.model) continue;
+      merged.push({ ...reading });
+      used.add(merged.length - 1);
+      continue;
+    }
+    used.add(index);
+    merged[index] = {
+      model: merged[index].model || reading.model,
+      vendor: merged[index].vendor || reading.vendor,
+      utilizationPct: reading.utilizationPct ?? merged[index].utilizationPct,
+      memoryUsedMb: reading.memoryUsedMb ?? merged[index].memoryUsedMb,
+      memoryTotalMb: reading.memoryTotalMb ?? merged[index].memoryTotalMb,
+      temperatureC: reading.temperatureC ?? merged[index].temperatureC,
+    };
+  }
+
+  // An adapter nothing could be read from and that si could not even name is
+  // noise on the device page, so it is left out.
+  return merged.filter((entry) => hasReading(entry) || entry.model || entry.vendor);
+}
+
+export async function readGpus(): Promise<GpuUsage[]> {
+  const [adapters, nvidia, sysfs, windows] = await Promise.all([
+    readControllers(),
+    readNvidia(),
+    readSysfs(),
+    readWindows(),
+  ]);
+  return merge(adapters, [...nvidia, ...sysfs, ...windows]);
+}
