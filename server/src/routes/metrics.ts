@@ -2,7 +2,7 @@ import { Router } from "express";
 import { METRIC_TIERS } from "@beacon/shared";
 import type { MetricSummary, MetricTier } from "@beacon/shared";
 import { getDeviceRow } from "../devices.js";
-import { pickTier, queryGpuSeries, querySeries } from "../metrics/store.js";
+import { pickTier, queryDiskSeries, queryGpuSeries, querySeries } from "../metrics/store.js";
 import { getServerSettings } from "../settings.js";
 import { handler, notFound } from "./helpers.js";
 
@@ -47,6 +47,13 @@ metricsRouter.get(
         return;
       }
       res.json(queryGpuSeries(row.id, from, to, tier, gpu));
+      return;
+    }
+
+    // Same idea for a machine with more than one drive.
+    const disk = typeof req.query.disk === "string" ? req.query.disk.slice(0, 200) : "";
+    if (disk) {
+      res.json(queryDiskSeries(row.id, from, to, tier, disk));
       return;
     }
 

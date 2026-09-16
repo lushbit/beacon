@@ -61,6 +61,26 @@ function insertGpuSample(deviceId: string, sample: MetricSample): void {
   });
 }
 
+const insertDiskStmt = db.prepare(
+  `INSERT OR REPLACE INTO disk_samples (device_id, tier, ts, disk, read_bps, write_bps)
+   VALUES (?, 'raw', ?, ?, ?, ?)`
+);
+
+/** A row per drive beside the sample, for the same reason the GPUs get one. */
+function insertDiskSample(deviceId: string, sample: MetricSample): void {
+  for (const drive of sample.detail.drives ?? []) {
+    if (!drive.device) continue;
+    if (drive.readBps === null && drive.writeBps === null) continue;
+    insertDiskStmt.run(
+      deviceId,
+      sample.ts,
+      drive.device,
+      numberOrNull(drive.readBps),
+      numberOrNull(drive.writeBps)
+    );
+  }
+}
+
 export function insertSample(deviceId: string, sample: MetricSample): void {
   const params: Record<string, unknown> = {
     device_id: deviceId,
@@ -72,6 +92,7 @@ export function insertSample(deviceId: string, sample: MetricSample): void {
   }
   insertStmt.run(params);
   insertGpuSample(deviceId, sample);
+  insertDiskSample(deviceId, sample);
 }
 
 interface SampleRow {
@@ -96,6 +117,7 @@ function rowToSummary(row: SampleRow): MetricSummary {
 const EMPTY_DETAIL: MetricSample["detail"] = {
   cpu: { perCore: [], speedGhz: null, temperatures: [] },
   disks: [],
+  drives: [],
   network: [],
   gpus: [],
   battery: null,
@@ -232,6 +254,39 @@ export function queryGpuSeries(
   };
 }
 
+/** One drive's throughput, under the same keys the summary uses. */
+export function queryDiskSeries(
+  deviceId: string,
+  fromMs: number,
+  toMs: number,
+  tier: MetricTier,
+  disk: string
+): MetricSeriesDto {
+  const rows = db
+    .prepare(
+      `SELECT ts, read_bps, write_bps FROM disk_samples
+        WHERE device_id = ? AND tier = ? AND disk = ? AND ts >= ? AND ts <= ?
+        ORDER BY ts ASC`
+    )
+    .all(deviceId, tier, disk, fromMs, toMs) as SampleRow[];
+
+  return {
+    deviceId,
+    tier,
+    from: fromMs,
+    to: toMs,
+    stepSec: TIER_STEP_SEC[tier],
+    points: rows.map(
+      (row) =>
+        ({
+          ts: row.ts,
+          diskReadBps: numberOrNull(row.read_bps),
+          diskWriteBps: numberOrNull(row.write_bps),
+        }) as unknown as MetricSeriesDto["points"][number]
+    ),
+  };
+}
+
 /* ------------------------------------------------------------------- rollups */
 
 const AGG_COLUMNS = SUMMARY_COLUMNS.map(([, col]) => col);
@@ -260,17 +315,31 @@ function gpuRollupSql(target: MetricTier, source: MetricTier, bucketMs: number):
 
 const rollupMinute = db.prepare(rollupSql("minute", "raw", 60_000));
 const rollupHour = db.prepare(rollupSql("hour", "minute", 3_600_000));
+function diskRollupSql(target: MetricTier, source: MetricTier, bucketMs: number): string {
+  return `
+    INSERT OR REPLACE INTO disk_samples (device_id, tier, ts, disk, read_bps, write_bps)
+    SELECT device_id, '${target}', (ts / ${bucketMs}) * ${bucketMs} AS bucket, disk,
+           AVG(read_bps), AVG(write_bps)
+      FROM disk_samples
+     WHERE tier = '${source}' AND ts >= ? AND ts < ?
+     GROUP BY device_id, bucket, disk`;
+}
+
 const rollupGpuMinute = db.prepare(gpuRollupSql("minute", "raw", 60_000));
 const rollupGpuHour = db.prepare(gpuRollupSql("hour", "minute", 3_600_000));
+const rollupDiskMinute = db.prepare(diskRollupSql("minute", "raw", 60_000));
+const rollupDiskHour = db.prepare(diskRollupSql("hour", "minute", 3_600_000));
 
 /** Roll up everything that has finished since the last run. */
 export function runRollups(now = Date.now()): void {
   const minuteEnd = Math.floor(now / 60_000) * 60_000;
   rollupMinute.run(minuteEnd - 10 * 60_000, minuteEnd);
   rollupGpuMinute.run(minuteEnd - 10 * 60_000, minuteEnd);
+  rollupDiskMinute.run(minuteEnd - 10 * 60_000, minuteEnd);
   const hourEnd = Math.floor(now / 3_600_000) * 3_600_000;
   rollupHour.run(hourEnd - 3 * 3_600_000, hourEnd);
   rollupGpuHour.run(hourEnd - 3 * 3_600_000, hourEnd);
+  rollupDiskHour.run(hourEnd - 3 * 3_600_000, hourEnd);
 }
 
 export function pruneSamples(retention: { rawHours: number; minuteDays: number; hourDays: number }): void {
@@ -282,9 +351,11 @@ export function pruneSamples(retention: { rawHours: number; minuteDays: number; 
   ];
   const samples = db.prepare("DELETE FROM samples WHERE tier = ? AND ts < ?");
   const gpus = db.prepare("DELETE FROM gpu_samples WHERE tier = ? AND ts < ?");
+  const disks = db.prepare("DELETE FROM disk_samples WHERE tier = ? AND ts < ?");
   for (const [tier, cutoff] of cutoffs) {
     samples.run(tier, cutoff);
     gpus.run(tier, cutoff);
+    disks.run(tier, cutoff);
   }
 }
 

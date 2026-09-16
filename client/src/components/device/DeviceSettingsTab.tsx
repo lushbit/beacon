@@ -95,7 +95,16 @@ export function DeviceSettingsTab({ device, onSaved }: Props) {
       return { ...current, panels: { ...current.panels, [kind]: [...hidden] } };
     });
 
-  const disks = device.latest?.detail.disks ?? [];
+  const setPanel = <K extends keyof DeviceSettingsDto["panels"]>(
+    key: K,
+    value: DeviceSettingsDto["panels"][K]
+  ) => setSettings((current) => ({ ...current, panels: { ...current.panels, [key]: value } }));
+
+  // System volumes only appear in this list once they are being drawn, so the
+  // switches here always match what the device page is showing.
+  const allDisks = device.latest?.detail.disks ?? [];
+  const disks = settings.panels.showSystemVolumes ? allDisks : allDisks.filter((entry) => !entry.system);
+  const systemCount = allDisks.filter((entry) => entry.system).length;
   const interfaces = device.latest?.detail.network ?? [];
   // Named the same way the device page names them, since that is the name the
   // hidden list is keyed by and the one someone here is looking at on screen.
@@ -233,12 +242,28 @@ export function DeviceSettingsTab({ device, onSaved }: Props) {
         </Panel>
       </div>
 
-      {disks.length > 0 || interfaces.length > 0 || gpus.length > 0 ? (
+      {allDisks.length > 0 || interfaces.length > 0 || gpus.length > 0 ? (
         <Panel title="Panels" description="Choose what this device's page shows. Hidden entries are still collected, just not drawn.">
           <div className="grid gap-6 sm:grid-cols-2">
-            {disks.length > 0 ? (
+            {allDisks.length > 0 ? (
               <div className="space-y-2">
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Volumes</p>
+                {systemCount > 0 ? (
+                  <label className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-surface-2 px-3 py-2">
+                    <span className="min-w-0">
+                      <span className="block text-sm text-foreground">Show system volumes</span>
+                      <span className="mt-0.5 block text-2xs text-muted-foreground">
+                        {systemCount} firmware, pseudo or very small filesystem
+                        {systemCount === 1 ? " is" : "s are"} left out of the page.
+                      </span>
+                    </span>
+                    <Switch
+                      checked={settings.panels.showSystemVolumes}
+                      aria-label="Show system volumes"
+                      onCheckedChange={(checked) => setPanel("showSystemVolumes", checked)}
+                    />
+                  </label>
+                ) : null}
                 <ul className="space-y-2">
                   {disks.map((entry) => {
                     const id = entry.mount;

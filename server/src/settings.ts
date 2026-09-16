@@ -44,7 +44,7 @@ export function defaultDeviceSettings(): DeviceSettingsDto {
     allowProcessKill: false,
     updatePolicy: null,
     offlineAfterSec: server.defaultOfflineAfterSec,
-    panels: { panels: [], hiddenDisks: [], hiddenInterfaces: [], hiddenGpus: [] },
+    panels: { panels: [], hiddenDisks: [], hiddenInterfaces: [], hiddenGpus: [], showSystemVolumes: false },
   };
 }
 

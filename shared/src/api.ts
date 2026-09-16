@@ -130,6 +130,11 @@ export interface DevicePanelSettings {
   hiddenInterfaces: string[];
   /** GPUs left off the device page, by the name the agent reports. */
   hiddenGpus: string[];
+  /**
+   * Draw firmware, pseudo and tiny filesystems too. Off by default, because a
+   * NAS reports a dozen of them and none is anything to keep an eye on.
+   */
+  showSystemVolumes: boolean;
 }
 
 export interface DeviceSettingsDto {

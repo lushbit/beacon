@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Activity, Battery, BatteryCharging, Container, Cpu, HardDrive, MemoryStick } from "lucide-react";
-import type { DeviceDto, MetricSample } from "@beacon/shared";
+import type { DeviceDto, DiskDevice, DiskUsage, MetricSample } from "@beacon/shared";
 import { CoreBars } from "@/components/charts/CoreBars";
 import { Meter } from "@/components/charts/Meter";
 import { StatTile } from "@/components/StatTile";
@@ -22,25 +22,31 @@ import {
 } from "@/lib/format";
 
 /**
- * The chosen card outlives the page, so coming back to a device shows what was
- * left on screen rather than resetting to whichever one the agent calls main.
- * It is remembered by name, since a name is what the dropdown shows and what
- * survives a card being added beside it.
+ * A chosen card or drive outlives the page, so coming back to a device shows
+ * what was left on screen rather than resetting to whichever one the agent
+ * calls main. It is remembered by the name the dropdown shows, which is what
+ * survives another one being added beside it.
  */
-function rememberedGpu(deviceId: string): string | null {
+function remembered(kind: string, deviceId: string): string | null {
   try {
-    return window.localStorage.getItem(`beacon:gpu:${deviceId}`);
+    return window.localStorage.getItem(`beacon:${kind}:${deviceId}`);
   } catch {
     return null;
   }
 }
 
-function rememberGpu(deviceId: string, name: string): void {
+function remember(kind: string, deviceId: string, name: string): void {
   try {
-    window.localStorage.setItem(`beacon:gpu:${deviceId}`, name);
+    window.localStorage.setItem(`beacon:${kind}:${deviceId}`, name);
   } catch {
     /* private browsing has no storage, and the choice is not worth failing over */
   }
+}
+
+/** A drive's line in the dropdown: what it is, and how big. */
+function driveLabel(drive: DiskDevice): string {
+  const name = [drive.vendor, drive.name].filter(Boolean).join(" ").trim() || drive.device;
+  return name === drive.device ? name : `${name} (${drive.device})`;
 }
 
 interface OverviewTabProps {
@@ -61,10 +67,45 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
   const disk = useSeries(device.id, rangeSeconds, ["diskReadBps", "diskWriteBps"]);
   const thermal = useSeries(device.id, rangeSeconds, ["cpuTempC"]);
 
-  const visibleDisks = useMemo(
-    () => (detail?.disks ?? []).filter((entry) => !device.settings.panels.hiddenDisks.includes(entry.mount)),
-    [detail, device.settings.panels.hiddenDisks]
-  );
+  /*
+   * Firmware and scratch filesystems are left out until this device's settings
+   * ask for them, and a filesystem mounted at more than one path is one row
+   * naming both, since a NAS commonly mounts the same volume twice.
+   */
+  const visibleDisks = useMemo(() => {
+    const panels = device.settings.panels;
+    const wanted = (detail?.disks ?? []).filter(
+      (entry) => !panels.hiddenDisks.includes(entry.mount) && (panels.showSystemVolumes || !entry.system)
+    );
+    const merged = new Map<string, { disk: DiskUsage; mounts: string[] }>();
+    for (const disk of wanted) {
+      const key = `${disk.fs}:${disk.sizeBytes}:${disk.usedBytes}`;
+      const existing = merged.get(key);
+      if (existing) existing.mounts.push(disk.mount);
+      else merged.set(key, { disk, mounts: [disk.mount] });
+    }
+    return [...merged.values()];
+  }, [detail, device.settings.panels]);
+
+  /*
+   * Volumes under the drive they live on. A drive the agent could not name, and
+   * a filesystem it could not place, both fall into a group of their own rather
+   * than being dropped.
+   */
+  const volumeGroups = useMemo(() => {
+    const drives = detail?.drives ?? [];
+    const groups = new Map<string, { drive: DiskDevice | null; volumes: typeof visibleDisks }>();
+    for (const entry of visibleDisks) {
+      const key = entry.disk.device || "";
+      const group = groups.get(key);
+      if (group) group.volumes.push(entry);
+      else groups.set(key, { drive: drives.find((drive) => drive.device === key) ?? null, volumes: [entry] });
+    }
+    // Named drives first, then whatever could not be placed.
+    return [...groups.entries()]
+      .sort(([a], [b]) => (a === "" ? 1 : b === "" ? -1 : a.localeCompare(b)))
+      .map(([key, group]) => ({ key, ...group }));
+  }, [visibleDisks, detail]);
   const visibleInterfaces = useMemo(
     () => (detail?.network ?? []).filter((entry) => !device.settings.panels.hiddenInterfaces.includes(entry.iface)),
     [detail, device.settings.panels.hiddenInterfaces]
@@ -90,8 +131,8 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
     [gpus]
   );
 
-  const [chosenGpu, setChosenGpu] = useState<string | null>(() => rememberedGpu(device.id));
-  useEffect(() => setChosenGpu(rememberedGpu(device.id)), [device.id]);
+  const [chosenGpu, setChosenGpu] = useState<string | null>(() => remembered("gpu", device.id));
+  useEffect(() => setChosenGpu(remembered("gpu", device.id)), [device.id]);
 
   const selected = gpus.find((entry) => entry.name === chosenGpu) ?? mainGpu;
   const gpu = selected?.gpu ?? null;
@@ -100,7 +141,17 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
       ? Math.round((gpu.memoryUsedMb / gpu.memoryTotalMb) * 1000) / 10
       : null;
 
-  const gpuHistory = useSeries(device.id, rangeSeconds, ["gpuPct", "gpuMemPct"], selected?.index);
+  const gpuHistory = useSeries(device.id, rangeSeconds, ["gpuPct", "gpuMemPct"], { gpu: selected?.index });
+
+  /* Throughput is counted per drive, so the chart draws one drive at a time.
+   * With a single drive there is nothing to choose and the dropdown stays away. */
+  const drives = detail?.drives ?? [];
+  const [chosenDrive, setChosenDrive] = useState<string | null>(() => remembered("disk", device.id));
+  useEffect(() => setChosenDrive(remembered("disk", device.id)), [device.id]);
+  const drive = drives.find((entry) => entry.device === chosenDrive) ?? drives[0] ?? null;
+  const driveHistory = useSeries(device.id, rangeSeconds, ["diskReadBps", "diskWriteBps"], {
+    disk: drive?.device,
+  });
 
   // A card that reports its memory but not its load, and one that reports the
   // load but not the memory, are both common, so the GPU chart carries whatever
@@ -246,14 +297,50 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
         {device.capabilities.diskIo ? (
           <ChartPanel
             title="Disk activity"
+            value={drive ? formatRate((drive.readBps ?? 0) + (drive.writeBps ?? 0), unitBase) : undefined}
             series={[
               { key: "diskReadBps", label: "Read", color: SERIES.in },
               { key: "diskWriteBps", label: "Write", color: SERIES.out },
             ]}
-            points={disk.points}
-            from={disk.from}
-            to={disk.to}
+            points={drive ? driveHistory.points : disk.points}
+            from={drive ? driveHistory.from : disk.from}
+            to={drive ? driveHistory.to : disk.to}
             format={rate}
+            action={
+              drives.length > 1 ? (
+                <Select
+                  value={drive?.device ?? ""}
+                  onValueChange={(value) => {
+                    setChosenDrive(value);
+                    remember("disk", device.id, value);
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-48 text-xs [&>span]:truncate" aria-label="Which drive to chart">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="max-w-[22rem]">
+                    {drives.map((entry) => (
+                      <SelectItem key={entry.device} value={entry.device} className="truncate">
+                        {driveLabel(entry)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : null
+            }
+            footer={
+              drive ? (
+                <p className="truncate text-xs text-muted-foreground">
+                  {driveLabel(drive)}
+                  {drive.sizeBytes ? ` · ${formatBytes(drive.sizeBytes, unitBase)}` : ""}
+                  {drive.kind ? ` · ${drive.kind}` : ""}
+                  {drive.interfaceType ? ` · ${drive.interfaceType}` : ""}
+                  {drive.temperatureC !== null
+                    ? ` · ${formatTemperature(drive.temperatureC, temperatureUnit)}`
+                    : ""}
+                </p>
+              ) : null
+            }
           />
         ) : null}
 
@@ -285,7 +372,7 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
                   value={selected?.name ?? ""}
                   onValueChange={(value) => {
                     setChosenGpu(value);
-                    rememberGpu(device.id, value);
+                    remember("gpu", device.id, value);
                   }}
                 >
                   <SelectTrigger className="h-8 w-48 text-xs [&>span]:truncate" aria-label="Which GPU to chart">
@@ -337,18 +424,45 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
         {visibleDisks.length === 0 ? (
           <EmptyState icon={HardDrive} title="No volumes reported yet." />
         ) : (
-          <ul className="divide-y divide-border/60">
-            {visibleDisks.map((entry) => (
-              <li key={`${entry.fs}-${entry.mount}`} className="px-4 py-3">
-                <Meter
-                  label={entry.mount || entry.fs}
-                  value={entry.usePct}
-                  valueLabel={formatPercent(entry.usePct)}
-                  sublabel={`${formatBytes(entry.usedBytes, unitBase)} of ${formatBytes(entry.sizeBytes, unitBase)} used · ${entry.type || entry.fs}`}
-                />
-              </li>
+          <div className="divide-y divide-border/60">
+            {volumeGroups.map((group) => (
+              <div key={group.key || "unplaced"}>
+                {/* A drive with nothing under it is not drawn, so the heading
+                    only ever introduces volumes that follow it. */}
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 bg-surface/40 px-4 py-2">
+                  <p className="min-w-0 truncate text-xs font-medium text-foreground">
+                    {group.drive ? driveLabel(group.drive) : "Other volumes"}
+                  </p>
+                  <p className="shrink-0 text-2xs text-muted-foreground tabular">
+                    {group.drive
+                      ? [
+                          group.drive.sizeBytes ? formatBytes(group.drive.sizeBytes, unitBase) : "",
+                          group.drive.kind,
+                          group.drive.interfaceType,
+                          group.drive.temperatureC !== null
+                            ? formatTemperature(group.drive.temperatureC, temperatureUnit)
+                            : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")
+                      : "Not matched to a drive"}
+                  </p>
+                </div>
+                <ul className="divide-y divide-border/40">
+                  {group.volumes.map(({ disk: volume, mounts }) => (
+                    <li key={`${volume.fs}-${mounts[0]}`} className="px-4 py-3">
+                      <Meter
+                        label={mounts.filter(Boolean).join(" · ") || volume.fs}
+                        value={volume.usePct}
+                        valueLabel={formatPercent(volume.usePct)}
+                        sublabel={`${formatBytes(volume.usedBytes, unitBase)} of ${formatBytes(volume.sizeBytes, unitBase)} used · ${volume.type || volume.fs}`}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ))}
-          </ul>
+          </div>
         )}
       </section>
     </div>

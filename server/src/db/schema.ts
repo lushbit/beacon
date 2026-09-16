@@ -120,6 +120,24 @@ CREATE TABLE IF NOT EXISTS gpu_samples (
   PRIMARY KEY (device_id, tier, ts, gpu)
 ) WITHOUT ROWID;
 
+/*
+ * One row per drive per sample, so a machine with several drives can chart any
+ * of them. The summary columns carry the sum across every drive, which is what
+ * alert rules read and what the device tile shows.
+ *
+ * The disk column is the drive's device path, which is what a person sees on
+ * the page and what stays put while an index would not.
+ */
+CREATE TABLE IF NOT EXISTS disk_samples (
+  device_id TEXT NOT NULL,
+  tier      TEXT NOT NULL,
+  ts        INTEGER NOT NULL,
+  disk      TEXT NOT NULL,
+  read_bps  REAL,
+  write_bps REAL,
+  PRIMARY KEY (device_id, tier, ts, disk)
+) WITHOUT ROWID;
+
 CREATE TABLE IF NOT EXISTS alert_rules (
   id           TEXT PRIMARY KEY,
   name         TEXT NOT NULL,

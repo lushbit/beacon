@@ -21,6 +21,35 @@ export interface DiskUsage {
   sizeBytes: number;
   usedBytes: number;
   usePct: number;
+  /**
+   * The physical drive this filesystem lives on, empty when the agent cannot
+   * work it out. It is what groups the volumes on the device page.
+   */
+  device: string;
+  /**
+   * A firmware, pseudo or tiny system filesystem. The device page leaves these
+   * out until someone asks for them, because a NAS reports a dozen of them and
+   * none is anything to keep an eye on.
+   */
+  system: boolean;
+}
+
+/**
+ * A physical drive. Read and write rates are measured here rather than per
+ * filesystem, because that is the level the operating system counts them at.
+ */
+export interface DiskDevice {
+  /** `/dev/sda` on Linux, `\\.\PHYSICALDRIVE0` on Windows. Identifies the drive. */
+  device: string;
+  name: string;
+  vendor: string;
+  sizeBytes: number | null;
+  /** "SSD", "HD" or empty when unknown. */
+  kind: string;
+  interfaceType: string;
+  temperatureC: number | null;
+  readBps: number | null;
+  writeBps: number | null;
 }
 
 export interface NetInterfaceUsage {
@@ -76,6 +105,8 @@ export interface DockerContainer {
 export interface MetricDetail {
   cpu: CpuDetail;
   disks: DiskUsage[];
+  /** Empty from an agent older than 1.2.2, which reported no drives at all. */
+  drives: DiskDevice[];
   network: NetInterfaceUsage[];
   gpus: GpuUsage[];
   battery: BatteryUsage | null;

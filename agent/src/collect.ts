@@ -12,6 +12,7 @@ import type {
   ProcessSummary,
 } from "@beacon/shared";
 import { PROTOCOL_VERSION } from "@beacon/shared";
+import { readDisks, type DiskSnapshot } from "./disks.js";
 import { readGpus } from "./gpu.js";
 import { AGENT_VERSION } from "./version.js";
 
@@ -62,23 +63,13 @@ class Cached<T> {
 
 const gpuCache = new Cached<GpuUsage[]>(readGpus, 15_000, []);
 
-const disksCache = new Cached<DiskUsage[]>(
-  async () => {
-    const sizes = await si.fsSize();
-    return sizes
-      .filter((entry) => entry.size > 0 && !/^(devtmpfs|tmpfs|squashfs|overlay)$/i.test(entry.type ?? ""))
-      .map((entry) => ({
-        fs: entry.fs,
-        mount: entry.mount,
-        type: entry.type ?? "",
-        sizeBytes: entry.size,
-        usedBytes: entry.used,
-        usePct: Math.round((entry.use ?? 0) * 10) / 10,
-      }));
-  },
-  30_000,
-  []
-);
+/*
+ * Drives and filesystems come back together, because working out which drive a
+ * filesystem sits on needs both. Ten seconds rather than thirty: the read and
+ * write rates in here are charted, and a rate measured over half a minute is
+ * too blunt to show a burst.
+ */
+const disksCache = new Cached<DiskSnapshot>(readDisks, 10_000, { disks: [], drives: [] });
 
 interface ProcessSnapshot {
   total: number;
@@ -254,7 +245,7 @@ export async function collectSample(): Promise<MetricSample> {
     si.fsStats().catch(() => null),
   ]);
 
-  const disks = disksCache.get();
+  const { disks, drives } = disksCache.get();
   const gpus = gpuCache.get();
   const processes = processCache.get();
   const battery = batteryCache.get();
@@ -272,11 +263,20 @@ export async function collectSample(): Promise<MetricSample> {
       operstate: entry.operstate ?? "unknown",
     }));
 
-  const busiestDisk = disks.reduce<DiskUsage | null>(
+  /*
+   * Firmware and scratch filesystems are left out of both the busiest volume
+   * and the totals. A 192 KiB EFI variable store sitting at 88% is not a device
+   * running out of room, and counting it as one is how a tile came to disagree
+   * with every number under it.
+   */
+  const realDisks = disks.filter((disk) => !disk.system);
+  const busiestDisk = realDisks.reduce<DiskUsage | null>(
     (worst, disk) => (worst === null || disk.usePct > worst.usePct ? disk : worst),
     null
   );
-  const diskTotals = disks.reduce(
+  // A filesystem mounted twice is one filesystem, so it is counted once.
+  const counted = new Map(realDisks.map((disk) => [`${disk.fs}:${disk.sizeBytes}`, disk]));
+  const diskTotals = [...counted.values()].reduce(
     (acc, disk) => ({ used: acc.used + disk.usedBytes, size: acc.size + disk.sizeBytes }),
     { used: 0, size: 0 }
   );
@@ -292,6 +292,12 @@ export async function collectSample(): Promise<MetricSample> {
     null;
   const loadAvg = process.platform === "win32" ? null : os.loadavg();
 
+  /** Null rather than zero when no drive reported, so "unknown" stays unknown. */
+  const totalRate = (key: "readBps" | "writeBps"): number | null => {
+    const known = drives.map((drive) => drive[key]).filter((value): value is number => value !== null);
+    return known.length > 0 ? known.reduce((sum, value) => sum + value, 0) : null;
+  };
+
   const summary: MetricSummary = {
     cpuPct: Math.round((load.currentLoad ?? 0) * 10) / 10,
     memPct: mem.total > 0 ? Math.round((mem.active / mem.total) * 1000) / 10 : 0,
@@ -301,8 +307,10 @@ export async function collectSample(): Promise<MetricSample> {
     diskMaxPct: busiestDisk ? busiestDisk.usePct : null,
     diskUsedBytes: diskTotals.size > 0 ? diskTotals.used : null,
     diskTotalBytes: diskTotals.size > 0 ? diskTotals.size : null,
-    diskReadBps: fsStats ? numberOrNull(fsStats.rx_sec) : null,
-    diskWriteBps: fsStats ? numberOrNull(fsStats.wx_sec) : null,
+    // The sum across the drives, which is a real figure on Windows where the
+    // machine-wide one never was. macOS has neither counter and keeps si's.
+    diskReadBps: totalRate("readBps") ?? (fsStats ? numberOrNull(fsStats.rx_sec) : null),
+    diskWriteBps: totalRate("writeBps") ?? (fsStats ? numberOrNull(fsStats.wx_sec) : null),
     netRxBps: interfaces.length ? interfaces.reduce((sum, entry) => sum + entry.rxBytesPerSec, 0) : null,
     netTxBps: interfaces.length ? interfaces.reduce((sum, entry) => sum + entry.txBytesPerSec, 0) : null,
     gpuPct: gpu?.utilizationPct ?? null,
@@ -322,6 +330,7 @@ export async function collectSample(): Promise<MetricSample> {
   };
 
   const detail: MetricDetail = {
+    drives,
     cpu: {
       perCore: (load.cpus ?? []).map((core) => Math.round((core.load ?? 0) * 10) / 10),
       speedGhz: null,

@@ -100,6 +100,7 @@ const settingsSchema = z.object({
       hiddenDisks: z.array(z.string()).max(100).optional(),
       hiddenInterfaces: z.array(z.string()).max(100).optional(),
       hiddenGpus: z.array(z.string()).max(20).optional(),
+      showSystemVolumes: z.boolean().optional(),
     })
     .optional(),
 });

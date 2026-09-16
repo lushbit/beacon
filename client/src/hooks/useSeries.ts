@@ -11,11 +11,17 @@ type Field = keyof MetricSummary;
  * Loads a metric window, then keeps it moving from the live socket while the
  * range is short enough for new samples to be visible.
  *
- * `gpu` asks for one adapter's own history instead of the summary fields, which
- * is how a device with a chip beside a card charts either of them. The points
- * come back under the same two keys, so nothing downstream changes.
+ * `of` asks for one GPU's or one drive's own history instead of the summary
+ * fields, which is how a machine with two of either charts them apart. The
+ * points come back under the same keys, so nothing downstream changes.
  */
-export function useSeries(deviceId: string, rangeSeconds: number, fields: Field[], gpu?: number) {
+export function useSeries(
+  deviceId: string,
+  rangeSeconds: number,
+  fields: Field[],
+  of: { gpu?: number; disk?: string } = {}
+) {
+  const { gpu, disk } = of;
   const { samples } = useLive();
   const [points, setPoints] = useState<Point[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,7 +41,7 @@ export function useSeries(deviceId: string, rangeSeconds: number, fields: Field[
     const ticket = ++request.current;
     setLoading(true);
     try {
-      const series = await api.series(deviceId, { from, to, fields: fieldKey, gpu });
+      const series = await api.series(deviceId, { from, to, fields: fieldKey, gpu, disk });
       if (ticket !== request.current) return;
       // Points and axis change in the same render. Moving the axis first leaves
       // the previous range's data squeezed into a corner of the new one for a
@@ -51,7 +57,7 @@ export function useSeries(deviceId: string, rangeSeconds: number, fields: Field[
     } finally {
       if (ticket === request.current) setLoading(false);
     }
-  }, [deviceId, rangeSeconds, fieldKey, gpu]);
+  }, [deviceId, rangeSeconds, fieldKey, gpu, disk]);
 
   useEffect(() => {
     void load();
@@ -71,7 +77,11 @@ export function useSeries(deviceId: string, rangeSeconds: number, fields: Field[
     liveRef.current = sample.ts;
 
     const next: Point = { ts: sample.ts };
-    if (gpu === undefined) {
+    if (disk !== undefined) {
+      const drive = sample.detail.drives?.find((entry) => entry.device === disk);
+      next.diskReadBps = drive?.readBps ?? null;
+      next.diskWriteBps = drive?.writeBps ?? null;
+    } else if (gpu === undefined) {
       for (const field of fieldKey.split(",") as Field[]) {
         const value = sample.summary[field];
         next[field] = typeof value === "number" ? value : null;
@@ -93,7 +103,7 @@ export function useSeries(deviceId: string, rangeSeconds: number, fields: Field[
       return [...current.filter((point) => point.ts > cutoff), next];
     });
     setWindow((current) => ({ from: sample.ts - range * 1000, to: Math.max(sample.ts, current.to) }));
-  }, [sample, fieldKey, gpu]);
+  }, [sample, fieldKey, gpu, disk]);
 
   return { points, loading, from: window_.from, to: window_.to, reload: load };
 }

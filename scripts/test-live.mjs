@@ -124,6 +124,12 @@ const capabilities = {
   processKill: false,
 };
 
+/** Two drives, so the per-drive history has something to tell apart. */
+const DRIVES = [
+  { device: "/dev/sda", name: "System SSD", vendor: "Maker", sizeBytes: 512 * 1024 ** 3, kind: "SSD", interfaceType: "NVMe", temperatureC: 38, readBps: 1024, writeBps: 2048 },
+  { device: "/dev/sdb", name: "Bulk HDD", vendor: "Maker", sizeBytes: 8 * 1024 ** 4, kind: "HD", interfaceType: "SATA", temperatureC: 31, readBps: 900000, writeBps: 40 },
+];
+
 /** Two adapters, so the per-GPU history has something to tell apart. */
 const GPUS = [
   { model: "Onboard Graphics", vendor: "Chipmaker", utilizationPct: 3, memoryUsedMb: 128, memoryTotalMb: 512, temperatureC: 40 },
@@ -161,6 +167,7 @@ function sampleWith(cpuPct) {
     detail: {
       cpu: { perCore: [1, 2, 3, 4], speedGhz: null, temperatures: [] },
       disks: [],
+      drives: DRIVES,
       network: [],
       gpus: GPUS,
       battery: null,
@@ -287,6 +294,30 @@ async function main() {
       headers: { Cookie: cookie },
     });
     check(outOfRange.status === 400, "a GPU that cannot exist is refused");
+  }
+
+  console.log("Storing a history per drive…");
+  {
+    const window_ = `from=${Date.now() - 600_000}&to=${Date.now() + 60_000}&tier=raw`;
+    const read = async (disk) =>
+      (await fetch(`${BASE}/api/devices/${ack.deviceId}/series?${window_}&disk=${encodeURIComponent(disk)}`, {
+        headers: { Cookie: cookie },
+      })).json();
+
+    const ssd = await read("/dev/sda");
+    const hdd = await read("/dev/sdb");
+    check(ssd.points.length > 0, "the SSD has points of its own");
+    check(
+      ssd.points.every((point) => point.diskReadBps === 1024 && point.diskWriteBps === 2048),
+      "its throughput is its own, not the other drive's"
+    );
+    check(
+      hdd.points.every((point) => point.diskReadBps === 900000 && point.diskWriteBps === 40),
+      "and the second drive keeps its own"
+    );
+
+    const unknown = await read("/dev/nope");
+    check(unknown.points.length === 0, "a drive that never reported has no history");
   }
 
   console.log("Reporting capabilities found after the hello…");
