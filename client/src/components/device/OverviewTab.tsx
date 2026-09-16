@@ -148,7 +148,19 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
   const drives = detail?.drives ?? [];
   const [chosenDrive, setChosenDrive] = useState<string | null>(() => remembered("disk", device.id));
   useEffect(() => setChosenDrive(remembered("disk", device.id)), [device.id]);
-  const drive = drives.find((entry) => entry.device === chosenDrive) ?? drives[0] ?? null;
+
+  /*
+   * Until a drive is chosen, the one the system is installed on is the one
+   * worth opening on, since it is the drive whose activity a person is usually
+   * looking for. The largest stands in where the system volume cannot be
+   * placed, so a machine never opens on a 256 MiB boot device by accident.
+   */
+  const systemVolume = (detail?.disks ?? []).find((entry) => entry.mount === "/" || /^c:/i.test(entry.mount));
+  const defaultDrive =
+    drives.find((entry) => entry.device && entry.device === systemVolume?.device) ??
+    drives.slice().sort((a, b) => (b.sizeBytes ?? 0) - (a.sizeBytes ?? 0))[0] ??
+    null;
+  const drive = drives.find((entry) => entry.device === chosenDrive) ?? defaultDrive;
   const driveHistory = useSeries(device.id, rangeSeconds, ["diskReadBps", "diskWriteBps"], {
     disk: drive?.device,
   });
