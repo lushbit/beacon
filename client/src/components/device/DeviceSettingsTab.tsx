@@ -14,6 +14,7 @@ import { useToast } from "@/context/ToastContext";
 import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { DEVICE_COLORS, deviceColor } from "@/lib/colors";
+import { gpuName } from "@/lib/gpu";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -86,7 +87,7 @@ export function DeviceSettingsTab({ device, onSaved }: Props) {
     setSettings((current) => ({ ...current, [key]: value }));
 
   /** Panels are stored as a hidden-list, so new volumes show up by default. */
-  const toggleHidden = (kind: "hiddenDisks" | "hiddenInterfaces", id: string, visible: boolean) =>
+  const toggleHidden = (kind: "hiddenDisks" | "hiddenInterfaces" | "hiddenGpus", id: string, visible: boolean) =>
     setSettings((current) => {
       const hidden = new Set(current.panels[kind]);
       if (visible) hidden.delete(id);
@@ -96,6 +97,12 @@ export function DeviceSettingsTab({ device, onSaved }: Props) {
 
   const disks = device.latest?.detail.disks ?? [];
   const interfaces = device.latest?.detail.network ?? [];
+  // Named the same way the device page names them, since that is the name the
+  // hidden list is keyed by and the one someone here is looking at on screen.
+  const gpus = (device.latest?.detail.gpus ?? []).map((entry, index) => ({
+    entry,
+    name: gpuName(entry, index),
+  }));
 
   // Everything on this page is saved by one button, so the bar at the bottom
   // has to know whether anything actually changed.
@@ -226,7 +233,7 @@ export function DeviceSettingsTab({ device, onSaved }: Props) {
         </Panel>
       </div>
 
-      {disks.length > 0 || interfaces.length > 0 ? (
+      {disks.length > 0 || interfaces.length > 0 || gpus.length > 0 ? (
         <Panel title="Panels" description="Choose what this device's page shows. Hidden entries are still collected, just not drawn.">
           <div className="grid gap-6 sm:grid-cols-2">
             {disks.length > 0 ? (
@@ -266,6 +273,29 @@ export function DeviceSettingsTab({ device, onSaved }: Props) {
                           checked={visible}
                           aria-label={`Show ${entry.iface}`}
                           onCheckedChange={(checked) => toggleHidden("hiddenInterfaces", entry.iface, checked)}
+                        />
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ) : null}
+
+            {gpus.length > 0 ? (
+              <div className="space-y-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">GPUs</p>
+                <ul className="space-y-2">
+                  {gpus.map(({ name }) => {
+                    const visible = !settings.panels.hiddenGpus.includes(name);
+                    return (
+                      <li key={name} className="flex items-center justify-between gap-3">
+                        <span className="min-w-0 truncate text-sm text-foreground" title={name}>
+                          {name}
+                        </span>
+                        <Switch
+                          checked={visible}
+                          aria-label={`Show ${name}`}
+                          onCheckedChange={(checked) => toggleHidden("hiddenGpus", name, checked)}
                         />
                       </li>
                     );

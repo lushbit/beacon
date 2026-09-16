@@ -2,7 +2,7 @@ import { Router } from "express";
 import { METRIC_TIERS } from "@beacon/shared";
 import type { MetricSummary, MetricTier } from "@beacon/shared";
 import { getDeviceRow } from "../devices.js";
-import { pickTier, querySeries } from "../metrics/store.js";
+import { pickTier, queryGpuSeries, querySeries } from "../metrics/store.js";
 import { getServerSettings } from "../settings.js";
 import { handler, notFound } from "./helpers.js";
 
@@ -37,6 +37,18 @@ metricsRouter.get(
     const tier: MetricTier = (METRIC_TIERS as readonly string[]).includes(requestedTier)
       ? (requestedTier as MetricTier)
       : pickTier(from, to, getServerSettings().retention.rawHours);
+
+    // A device with more than one GPU charts whichever the page asks for. The
+    // answer is shaped like any other series, so the chart needs no special case.
+    const gpu = req.query.gpu === undefined ? null : parseNumber(req.query.gpu, -1);
+    if (gpu !== null) {
+      if (gpu < 0 || gpu > 15) {
+        res.status(400).json({ error: "`gpu` is out of range." });
+        return;
+      }
+      res.json(queryGpuSeries(row.id, from, to, tier, gpu));
+      return;
+    }
 
     const fields = String(req.query.fields ?? "")
       .split(",")

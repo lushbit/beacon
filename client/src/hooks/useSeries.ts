@@ -10,8 +10,12 @@ type Field = keyof MetricSummary;
 /**
  * Loads a metric window, then keeps it moving from the live socket while the
  * range is short enough for new samples to be visible.
+ *
+ * `gpu` asks for one adapter's own history instead of the summary fields, which
+ * is how a device with a chip beside a card charts either of them. The points
+ * come back under the same two keys, so nothing downstream changes.
  */
-export function useSeries(deviceId: string, rangeSeconds: number, fields: Field[]) {
+export function useSeries(deviceId: string, rangeSeconds: number, fields: Field[], gpu?: number) {
   const { samples } = useLive();
   const [points, setPoints] = useState<Point[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,7 +35,7 @@ export function useSeries(deviceId: string, rangeSeconds: number, fields: Field[
     const ticket = ++request.current;
     setLoading(true);
     try {
-      const series = await api.series(deviceId, { from, to, fields: fieldKey });
+      const series = await api.series(deviceId, { from, to, fields: fieldKey, gpu });
       if (ticket !== request.current) return;
       // Points and axis change in the same render. Moving the axis first leaves
       // the previous range's data squeezed into a corner of the new one for a
@@ -47,7 +51,7 @@ export function useSeries(deviceId: string, rangeSeconds: number, fields: Field[
     } finally {
       if (ticket === request.current) setLoading(false);
     }
-  }, [deviceId, rangeSeconds, fieldKey]);
+  }, [deviceId, rangeSeconds, fieldKey, gpu]);
 
   useEffect(() => {
     void load();
@@ -67,9 +71,20 @@ export function useSeries(deviceId: string, rangeSeconds: number, fields: Field[
     liveRef.current = sample.ts;
 
     const next: Point = { ts: sample.ts };
-    for (const field of fieldKey.split(",") as Field[]) {
-      const value = sample.summary[field];
-      next[field] = typeof value === "number" ? value : null;
+    if (gpu === undefined) {
+      for (const field of fieldKey.split(",") as Field[]) {
+        const value = sample.summary[field];
+        next[field] = typeof value === "number" ? value : null;
+      }
+    } else {
+      // The live sample carries every adapter, so the chosen one keeps moving
+      // between window reloads the same way the summary fields do.
+      const entry = sample.detail.gpus[gpu];
+      next.gpuPct = entry?.utilizationPct ?? null;
+      next.gpuMemPct =
+        entry && entry.memoryTotalMb && entry.memoryUsedMb !== null
+          ? Math.round((entry.memoryUsedMb / entry.memoryTotalMb) * 1000) / 10
+          : null;
     }
 
     const range = shownRange.current;
@@ -78,7 +93,7 @@ export function useSeries(deviceId: string, rangeSeconds: number, fields: Field[
       return [...current.filter((point) => point.ts > cutoff), next];
     });
     setWindow((current) => ({ from: sample.ts - range * 1000, to: Math.max(sample.ts, current.to) }));
-  }, [sample, fieldKey]);
+  }, [sample, fieldKey, gpu]);
 
   return { points, loading, from: window_.from, to: window_.to, reload: load };
 }

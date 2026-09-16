@@ -99,6 +99,7 @@ const settingsSchema = z.object({
       panels: z.array(z.string()).max(40).optional(),
       hiddenDisks: z.array(z.string()).max(100).optional(),
       hiddenInterfaces: z.array(z.string()).max(100).optional(),
+      hiddenGpus: z.array(z.string()).max(20).optional(),
     })
     .optional(),
 });

@@ -128,6 +128,8 @@ export interface DevicePanelSettings {
   panels: string[];
   hiddenDisks: string[];
   hiddenInterfaces: string[];
+  /** GPUs left off the device page, by the name the agent reports. */
+  hiddenGpus: string[];
 }
 
 export interface DeviceSettingsDto {

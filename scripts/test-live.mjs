@@ -124,6 +124,12 @@ const capabilities = {
   processKill: false,
 };
 
+/** Two adapters, so the per-GPU history has something to tell apart. */
+const GPUS = [
+  { model: "Onboard Graphics", vendor: "Chipmaker", utilizationPct: 3, memoryUsedMb: 128, memoryTotalMb: 512, temperatureC: 40 },
+  { model: "Big Card", vendor: "Cardmaker", utilizationPct: 64, memoryUsedMb: 6144, memoryTotalMb: 24576, temperatureC: 61 },
+];
+
 function sampleWith(cpuPct) {
   return {
     ts: Date.now(),
@@ -156,7 +162,7 @@ function sampleWith(cpuPct) {
       cpu: { perCore: [1, 2, 3, 4], speedGhz: null, temperatures: [] },
       disks: [],
       network: [],
-      gpus: [],
+      gpus: GPUS,
       battery: null,
       topProcesses: [],
       containers: [],
@@ -247,6 +253,40 @@ async function main() {
     check(true, "further samples keep arriving without reconnecting");
   } catch (error) {
     check(false, `further samples keep arriving without reconnecting (${error.message})`);
+  }
+
+  console.log("Storing a history per GPU…");
+  {
+    const window_ = `from=${Date.now() - 600_000}&to=${Date.now() + 60_000}&tier=raw`;
+    const read = async (gpu) =>
+      (await fetch(`${BASE}/api/devices/${ack.deviceId}/series?${window_}&gpu=${gpu}`, {
+        headers: { Cookie: cookie },
+      })).json();
+
+    const onboard = await read(0);
+    const card = await read(1);
+    check(onboard.points.length > 0, "the chip has points of its own");
+    check(card.points.length > 0, "so does the card");
+    check(
+      onboard.points.every((point) => point.gpuPct === 3),
+      "the chip's load is its own, not the card's"
+    );
+    check(
+      card.points.every((point) => point.gpuPct === 64),
+      "and the card's is the card's"
+    );
+    // 6144 of 24576 is a quarter, and 128 of 512 is a quarter as well, so the
+    // memory check uses the totals rather than the percentages to tell them
+    // apart. What matters is that a percentage is derived at all.
+    check(
+      card.points.every((point) => point.gpuMemPct === 25),
+      "memory in use is stored as a share of the card's own memory"
+    );
+
+    const outOfRange = await fetch(`${BASE}/api/devices/${ack.deviceId}/series?${window_}&gpu=99`, {
+      headers: { Cookie: cookie },
+    });
+    check(outOfRange.status === 400, "a GPU that cannot exist is refused");
   }
 
   console.log("Reporting capabilities found after the hello…");

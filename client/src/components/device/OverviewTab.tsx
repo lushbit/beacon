@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Activity, Battery, BatteryCharging, Container, Cpu, HardDrive, MemoryStick } from "lucide-react";
 import type { DeviceDto, MetricSample } from "@beacon/shared";
 import { CoreBars } from "@/components/charts/CoreBars";
@@ -7,8 +7,11 @@ import { StatTile } from "@/components/StatTile";
 import type { ChartSeries } from "@/components/charts/TimeChart";
 import { ChartPanel } from "@/components/device/ChartPanel";
 import { EmptyState } from "@/components/ui/misc";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useSeries } from "@/hooks/useSeries";
 import { SERIES } from "@/lib/colors";
+import { gpuName } from "@/lib/gpu";
+import { cn } from "@/lib/utils";
 import {
   formatBytes,
   formatDuration,
@@ -17,6 +20,28 @@ import {
   formatTemperature,
   type UnitBase,
 } from "@/lib/format";
+
+/**
+ * The chosen card outlives the page, so coming back to a device shows what was
+ * left on screen rather than resetting to whichever one the agent calls main.
+ * It is remembered by name, since a name is what the dropdown shows and what
+ * survives a card being added beside it.
+ */
+function rememberedGpu(deviceId: string): string | null {
+  try {
+    return window.localStorage.getItem(`beacon:gpu:${deviceId}`);
+  } catch {
+    return null;
+  }
+}
+
+function rememberGpu(deviceId: string, name: string): void {
+  try {
+    window.localStorage.setItem(`beacon:gpu:${deviceId}`, name);
+  } catch {
+    /* private browsing has no storage, and the choice is not worth failing over */
+  }
+}
 
 interface OverviewTabProps {
   device: DeviceDto;
@@ -34,7 +59,7 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
   const memory = useSeries(device.id, rangeSeconds, ["memPct"]);
   const network = useSeries(device.id, rangeSeconds, ["netRxBps", "netTxBps"]);
   const disk = useSeries(device.id, rangeSeconds, ["diskReadBps", "diskWriteBps"]);
-  const thermal = useSeries(device.id, rangeSeconds, ["cpuTempC", "gpuPct", "gpuMemPct"]);
+  const thermal = useSeries(device.id, rangeSeconds, ["cpuTempC"]);
 
   const visibleDisks = useMemo(
     () => (detail?.disks ?? []).filter((entry) => !device.settings.panels.hiddenDisks.includes(entry.mount)),
@@ -45,12 +70,44 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
     [detail, device.settings.panels.hiddenInterfaces]
   );
 
+  /*
+   * Every adapter the device reports, minus the ones this device's settings
+   * leave out. The position is carried along because that is how the hub stores
+   * a GPU's history, while the name is what the dropdown and the settings use.
+   */
+  const gpus = useMemo(
+    () =>
+      (detail?.gpus ?? [])
+        .map((gpu, index) => ({ gpu, index, name: gpuName(gpu, index) }))
+        .filter((entry) => !device.settings.panels.hiddenGpus.includes(entry.name)),
+    [detail, device.settings.panels.hiddenGpus]
+  );
+
+  // The card with the most memory, which is the one the agent puts in the
+  // summary, so the chart and the tile agree before anything is chosen.
+  const mainGpu = useMemo(
+    () => gpus.slice().sort((a, b) => (b.gpu.memoryTotalMb ?? 0) - (a.gpu.memoryTotalMb ?? 0))[0] ?? null,
+    [gpus]
+  );
+
+  const [chosenGpu, setChosenGpu] = useState<string | null>(() => rememberedGpu(device.id));
+  useEffect(() => setChosenGpu(rememberedGpu(device.id)), [device.id]);
+
+  const selected = gpus.find((entry) => entry.name === chosenGpu) ?? mainGpu;
+  const gpu = selected?.gpu ?? null;
+  const gpuMemPct =
+    gpu && gpu.memoryTotalMb && gpu.memoryUsedMb !== null
+      ? Math.round((gpu.memoryUsedMb / gpu.memoryTotalMb) * 1000) / 10
+      : null;
+
+  const gpuHistory = useSeries(device.id, rangeSeconds, ["gpuPct", "gpuMemPct"], selected?.index);
+
   // A card that reports its memory but not its load, and one that reports the
   // load but not the memory, are both common, so the GPU chart carries whatever
   // the device actually sends and stays monochrome when that is one series.
   const gpuSeries = useMemo(() => {
-    const hasUsage = summary?.gpuPct != null;
-    const hasMemory = summary?.gpuMemPct != null;
+    const hasUsage = gpu?.utilizationPct != null;
+    const hasMemory = gpuMemPct != null;
     const series: ChartSeries[] = [];
     if (hasUsage || !hasMemory) {
       series.push({ key: "gpuPct", label: "Usage", color: hasMemory ? SERIES.in : SERIES.ink });
@@ -59,7 +116,7 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
       series.push({ key: "gpuMemPct", label: "Memory", color: hasUsage ? SERIES.out : SERIES.ink });
     }
     return series;
-  }, [summary?.gpuPct, summary?.gpuMemPct]);
+  }, [gpu?.utilizationPct, gpuMemPct]);
 
   // The axis now stops at the tallest sample, so a chart that never leaves
   // single digits needs a decimal to keep its labels apart.
@@ -212,33 +269,61 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
           />
         ) : null}
 
-        {device.capabilities.gpu ? (
+        {device.capabilities.gpu && gpus.length > 0 ? (
           <ChartPanel
             title="GPU usage"
-            value={formatPercent(summary?.gpuPct ?? summary?.gpuMemPct)}
+            value={formatPercent(gpu?.utilizationPct ?? gpuMemPct)}
             series={gpuSeries}
-            points={thermal.points}
-            from={thermal.from}
-            to={thermal.to}
+            points={gpuHistory.points}
+            from={gpuHistory.from}
+            to={gpuHistory.to}
             format={percent}
             clampMax={100}
-            footer={
-              detail && detail.gpus.length > 0 ? (
-                <ul className="space-y-1 text-xs text-muted-foreground">
-                  {detail.gpus.map((gpu, index) => (
-                    <li key={index} className="truncate">
-                      {[gpu.vendor, gpu.model].filter(Boolean).join(" ") || `GPU ${index + 1}`}
-                      {gpu.memoryTotalMb
-                        ? ` · ${formatBytes((gpu.memoryUsedMb ?? 0) * 1024 * 1024, unitBase)} of ${formatBytes(
-                            gpu.memoryTotalMb * 1024 * 1024,
-                            unitBase
-                          )}`
-                        : ""}
-                      {gpu.temperatureC !== null ? ` · ${formatTemperature(gpu.temperatureC, temperatureUnit)}` : ""}
-                    </li>
-                  ))}
-                </ul>
+            action={
+              gpus.length > 1 ? (
+                <Select
+                  value={selected?.name ?? ""}
+                  onValueChange={(value) => {
+                    setChosenGpu(value);
+                    rememberGpu(device.id, value);
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-48 text-xs [&>span]:truncate" aria-label="Which GPU to chart">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="max-w-[22rem]">
+                    {gpus.map((entry) => (
+                      <SelectItem key={entry.name} value={entry.name} className="truncate">
+                        {entry.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               ) : null
+            }
+            footer={
+              <ul className="space-y-1 text-xs">
+                {gpus.map((entry) => (
+                  <li
+                    key={entry.name}
+                    className={cn(
+                      "truncate",
+                      entry.name === selected?.name ? "text-foreground" : "text-muted-foreground"
+                    )}
+                  >
+                    {entry.name}
+                    {entry.gpu.memoryTotalMb
+                      ? ` · ${formatBytes((entry.gpu.memoryUsedMb ?? 0) * 1024 * 1024, unitBase)} of ${formatBytes(
+                          entry.gpu.memoryTotalMb * 1024 * 1024,
+                          unitBase
+                        )}`
+                      : ""}
+                    {entry.gpu.temperatureC !== null
+                      ? ` · ${formatTemperature(entry.gpu.temperatureC, temperatureUnit)}`
+                      : ""}
+                  </li>
+                ))}
+              </ul>
             }
           />
         ) : null}

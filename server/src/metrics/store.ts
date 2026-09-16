@@ -39,6 +39,28 @@ function numberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+const insertGpuStmt = db.prepare(
+  `INSERT OR REPLACE INTO gpu_samples (device_id, tier, ts, gpu, gpu_pct, gpu_mem_pct)
+   VALUES (?, 'raw', ?, ?, ?, ?)`
+);
+
+/**
+ * A row per GPU beside the sample, so the device page can chart a card the
+ * summary does not carry. Only the two charted numbers are kept: everything
+ * else about an adapter is in the detail blob of the newest sample, which is
+ * where the page reads its name and its size from.
+ */
+function insertGpuSample(deviceId: string, sample: MetricSample): void {
+  sample.detail.gpus.forEach((entry, index) => {
+    const memPct =
+      entry.memoryTotalMb && entry.memoryUsedMb !== null
+        ? Math.round((entry.memoryUsedMb / entry.memoryTotalMb) * 1000) / 10
+        : null;
+    if (entry.utilizationPct === null && memPct === null) return;
+    insertGpuStmt.run(deviceId, sample.ts, index, numberOrNull(entry.utilizationPct), memPct);
+  });
+}
+
 export function insertSample(deviceId: string, sample: MetricSample): void {
   const params: Record<string, unknown> = {
     device_id: deviceId,
@@ -49,6 +71,7 @@ export function insertSample(deviceId: string, sample: MetricSample): void {
     params[col] = numberOrNull(sample.summary[key]);
   }
   insertStmt.run(params);
+  insertGpuSample(deviceId, sample);
 }
 
 interface SampleRow {
@@ -172,6 +195,43 @@ export function querySeries(
   };
 }
 
+/**
+ * The same shape as `querySeries`, under the same two keys, so the chart that
+ * draws the device's main GPU draws any other one without knowing the
+ * difference.
+ */
+export function queryGpuSeries(
+  deviceId: string,
+  fromMs: number,
+  toMs: number,
+  tier: MetricTier,
+  gpu: number
+): MetricSeriesDto {
+  const rows = db
+    .prepare(
+      `SELECT ts, gpu_pct, gpu_mem_pct FROM gpu_samples
+        WHERE device_id = ? AND tier = ? AND gpu = ? AND ts >= ? AND ts <= ?
+        ORDER BY ts ASC`
+    )
+    .all(deviceId, tier, gpu, fromMs, toMs) as SampleRow[];
+
+  return {
+    deviceId,
+    tier,
+    from: fromMs,
+    to: toMs,
+    stepSec: TIER_STEP_SEC[tier],
+    points: rows.map(
+      (row) =>
+        ({
+          ts: row.ts,
+          gpuPct: numberOrNull(row.gpu_pct),
+          gpuMemPct: numberOrNull(row.gpu_mem_pct),
+        }) as unknown as MetricSeriesDto["points"][number]
+    ),
+  };
+}
+
 /* ------------------------------------------------------------------- rollups */
 
 const AGG_COLUMNS = SUMMARY_COLUMNS.map(([, col]) => col);
@@ -188,23 +248,44 @@ function rollupSql(target: MetricTier, source: MetricTier, bucketMs: number): st
      GROUP BY device_id, bucket`;
 }
 
+function gpuRollupSql(target: MetricTier, source: MetricTier, bucketMs: number): string {
+  return `
+    INSERT OR REPLACE INTO gpu_samples (device_id, tier, ts, gpu, gpu_pct, gpu_mem_pct)
+    SELECT device_id, '${target}', (ts / ${bucketMs}) * ${bucketMs} AS bucket, gpu,
+           AVG(gpu_pct), AVG(gpu_mem_pct)
+      FROM gpu_samples
+     WHERE tier = '${source}' AND ts >= ? AND ts < ?
+     GROUP BY device_id, bucket, gpu`;
+}
+
 const rollupMinute = db.prepare(rollupSql("minute", "raw", 60_000));
 const rollupHour = db.prepare(rollupSql("hour", "minute", 3_600_000));
+const rollupGpuMinute = db.prepare(gpuRollupSql("minute", "raw", 60_000));
+const rollupGpuHour = db.prepare(gpuRollupSql("hour", "minute", 3_600_000));
 
 /** Roll up everything that has finished since the last run. */
 export function runRollups(now = Date.now()): void {
   const minuteEnd = Math.floor(now / 60_000) * 60_000;
   rollupMinute.run(minuteEnd - 10 * 60_000, minuteEnd);
+  rollupGpuMinute.run(minuteEnd - 10 * 60_000, minuteEnd);
   const hourEnd = Math.floor(now / 3_600_000) * 3_600_000;
   rollupHour.run(hourEnd - 3 * 3_600_000, hourEnd);
+  rollupGpuHour.run(hourEnd - 3 * 3_600_000, hourEnd);
 }
 
 export function pruneSamples(retention: { rawHours: number; minuteDays: number; hourDays: number }): void {
   const now = Date.now();
-  const stmt = db.prepare("DELETE FROM samples WHERE tier = ? AND ts < ?");
-  stmt.run("raw", now - retention.rawHours * 3600_000);
-  stmt.run("minute", now - retention.minuteDays * 86400_000);
-  stmt.run("hour", now - retention.hourDays * 86400_000);
+  const cutoffs: [MetricTier, number][] = [
+    ["raw", now - retention.rawHours * 3600_000],
+    ["minute", now - retention.minuteDays * 86400_000],
+    ["hour", now - retention.hourDays * 86400_000],
+  ];
+  const samples = db.prepare("DELETE FROM samples WHERE tier = ? AND ts < ?");
+  const gpus = db.prepare("DELETE FROM gpu_samples WHERE tier = ? AND ts < ?");
+  for (const [tier, cutoff] of cutoffs) {
+    samples.run(tier, cutoff);
+    gpus.run(tier, cutoff);
+  }
 }
 
 export function storageStats(): { devices: number; rows: number; sizeBytes: number } {

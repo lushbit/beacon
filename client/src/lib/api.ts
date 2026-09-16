@@ -109,7 +109,7 @@ export const api = {
     request<ListProcessesResult>(`/devices/${id}/processes${query(options)}`),
   killProcess: (id: string, body: { pid: number; signal: "term" | "kill" }) =>
     post<{ ok: true }>(`/devices/${id}/processes/kill`, body),
-  series: (id: string, options: { from: number; to: number; fields?: string; tier?: string }) =>
+  series: (id: string, options: { from: number; to: number; fields?: string; tier?: string; gpu?: number }) =>
     request<MetricSeriesDto>(`/devices/${id}/series${query(options)}`),
 
   enrollTokens: () => request<EnrollTokenDto[]>("/enroll-tokens"),

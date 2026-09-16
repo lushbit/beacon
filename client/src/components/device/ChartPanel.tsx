@@ -15,6 +15,8 @@ interface ChartPanelProps {
   clampMax?: number;
   height?: number;
   footer?: ReactNode;
+  /** Sits beside the value, for a control that changes what the chart draws. */
+  action?: ReactNode;
   className?: string;
 }
 
@@ -29,6 +31,7 @@ export function ChartPanel({
   clampMax,
   height = 210,
   footer,
+  action,
   className,
 }: ChartPanelProps) {
   return (
@@ -38,7 +41,10 @@ export function ChartPanel({
           <h3 className="text-sm font-medium text-foreground">{title}</h3>
           <ChartLegend series={series} className="mt-1.5" />
         </div>
-        {value ? <p className="shrink-0 text-lg font-semibold leading-none text-foreground">{value}</p> : null}
+        <div className="flex shrink-0 items-center gap-3">
+          {action}
+          {value ? <p className="text-lg font-semibold leading-none text-foreground">{value}</p> : null}
+        </div>
       </header>
       <div className="px-2 pb-2 pt-3">
         <TimeChart

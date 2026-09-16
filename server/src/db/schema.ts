@@ -102,6 +102,24 @@ CREATE TABLE IF NOT EXISTS samples (
   PRIMARY KEY (device_id, tier, ts)
 ) WITHOUT ROWID;
 
+/*
+ * One row per GPU per sample, so a machine with a chip beside a card can chart
+ * either of them. The summary columns above still carry the device's main GPU,
+ * which is what alert rules read and what the tile shows.
+ *
+ * The gpu column is the adapter's position in the list the agent reports. It is
+ * stable for as long as the hardware is, which is what the history needs.
+ */
+CREATE TABLE IF NOT EXISTS gpu_samples (
+  device_id TEXT NOT NULL,
+  tier      TEXT NOT NULL,
+  ts        INTEGER NOT NULL,
+  gpu       INTEGER NOT NULL,
+  gpu_pct     REAL,
+  gpu_mem_pct REAL,
+  PRIMARY KEY (device_id, tier, ts, gpu)
+) WITHOUT ROWID;
+
 CREATE TABLE IF NOT EXISTS alert_rules (
   id           TEXT PRIMARY KEY,
   name         TEXT NOT NULL,
