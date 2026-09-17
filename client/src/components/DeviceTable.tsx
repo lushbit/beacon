@@ -35,15 +35,17 @@ interface Column {
  * are instead of in a separate menu above the list.
  */
 const COLUMNS: Column[] = [
-  { sort: "name", width: "w-[18rem]" },
-  { sort: "cpu", width: "w-[9rem]" },
-  { sort: "memory", width: "w-[9rem]" },
-  { sort: "disk", width: "w-[9rem]", visibility: "hidden md:table-cell" },
-  { sort: "net", width: "w-[7rem]", visibility: "hidden lg:table-cell" },
-  { sort: "temp", width: "w-[6rem]", visibility: "hidden xl:table-cell" },
-  { sort: "uptime", width: "w-[7rem]", visibility: "hidden lg:table-cell" },
-  { sort: "alerts", width: "w-[5.5rem]", visibility: "hidden 2xl:table-cell" },
-  { sort: "agent", width: "w-[6rem]", visibility: "hidden 2xl:table-cell" },
+  { sort: "name", width: "w-[14rem]" },
+  { sort: "cpu", width: "w-[7rem]" },
+  { sort: "gpu", width: "w-[7rem]", visibility: "hidden lg:table-cell" },
+  { sort: "memory", width: "w-[7rem]" },
+  { sort: "disk", width: "w-[7rem]", visibility: "hidden md:table-cell" },
+  { sort: "net", width: "w-[6rem]", visibility: "hidden xl:table-cell" },
+  { sort: "temp", width: "w-[5rem]", visibility: "hidden xl:table-cell" },
+  { sort: "battery", width: "w-[7rem]", visibility: "hidden 2xl:table-cell" },
+  { sort: "uptime", width: "w-[6.5rem]", visibility: "hidden lg:table-cell" },
+  { sort: "alerts", width: "w-[5rem]", visibility: "hidden 2xl:table-cell" },
+  { sort: "agent", width: "w-[5.5rem]", visibility: "hidden 2xl:table-cell" },
 ];
 
 /**
@@ -196,24 +198,36 @@ function otherHostname(device: DeviceSummaryDto): string | null {
 }
 
 /** A number beside the same severity fill the meters use, so a hot value shows. */
-function UsageCell({ value, compact }: { value: number | null | undefined; compact: boolean }) {
+/**
+ * A percentage with its bar. `low` flips which end is bad, because a battery at
+ * 8% is the thing to worry about and a CPU at 8% is not.
+ */
+function UsageCell({
+  value,
+  compact,
+  low,
+}: {
+  value: number | null | undefined;
+  compact: boolean;
+  low?: boolean;
+}) {
   const known = typeof value === "number" && Number.isFinite(value);
+  const level = known ? (low ? levelOf(100 - value) : levelOf(value)) : levelOf(null);
   const percent = known ? Math.max(0, Math.min(100, value)) : 0;
-  const fill = LEVEL_FILL[levelOf(known ? value : null)];
+  const fill = LEVEL_FILL[level];
 
   return (
-    <div className="flex items-center gap-2.5">
+    <div className="flex items-center gap-2">
       <span
         className={cn(
-          "w-12 shrink-0 tabular",
-          compact ? "text-xs" : "text-sm",
+          "w-10 shrink-0 text-xs tabular",
           known ? "text-foreground" : "text-muted-foreground"
         )}
       >
-        {known ? formatPercent(value, 1) : "—"}
+        {known ? formatPercent(value, value < 10 ? 1 : 0) : "—"}
       </span>
       <span
-        className="h-1.5 w-full overflow-hidden rounded-full"
+        className={cn("w-full overflow-hidden rounded-full", compact ? "h-2" : "h-2.5")}
         style={{ background: `color-mix(in srgb, ${fill} 22%, hsl(var(--surface-2)))` }}
         aria-hidden
       >
@@ -361,6 +375,8 @@ export function DeviceTable({
         );
       case "cpu":
         return <UsageCell value={summary?.cpuPct} compact={compact} />;
+      case "gpu":
+        return <UsageCell value={summary?.gpuPct} compact={compact} />;
       case "memory":
         return <UsageCell value={summary?.memPct} compact={compact} />;
       case "disk":
@@ -371,6 +387,8 @@ export function DeviceTable({
             {summary ? formatRate((summary.netRxBps ?? 0) + (summary.netTxBps ?? 0), unitBase) : "—"}
           </span>
         );
+      case "battery":
+        return <UsageCell value={summary?.batteryPct} compact={compact} low />;
       case "temp":
         return (
           <span className="text-xs text-muted-foreground tabular">
@@ -476,15 +494,21 @@ export function DeviceTable({
               <dl className="space-y-1.5 pb-2.5 pl-5 pr-3">
                 {(
                   [
-                    ["CPU", summary?.cpuPct],
-                    ["Memory", summary?.memPct],
-                    ["Disk", summary?.diskMaxPct],
+                    ["CPU", summary?.cpuPct, false],
+                    // Only devices that report one, so a machine without a GPU
+                    // does not carry an empty row on every card.
+                    ...(summary?.gpuPct != null ? ([["GPU", summary.gpuPct, false]] as const) : []),
+                    ["Memory", summary?.memPct, false],
+                    ["Disk", summary?.diskMaxPct, false],
+                    // A bar belongs with the other bars rather than in the row
+                    // of figures below, which is text.
+                    ...(summary?.batteryPct != null ? ([["Battery", summary.batteryPct, true]] as const) : []),
                   ] as const
-                ).map(([label, value]) => (
+                ).map(([label, value, low]) => (
                   <div key={label} className="flex items-center gap-3">
                     <dt className="w-14 shrink-0 text-xs text-muted-foreground">{label}</dt>
                     <dd className="min-w-0 flex-1">
-                      <UsageCell value={value} compact />
+                      <UsageCell value={value} compact low={low} />
                     </dd>
                   </div>
                 ))}

@@ -79,6 +79,8 @@ export function OverviewPage() {
           return device.name.toLowerCase();
         case "cpu":
           return summary?.cpuPct ?? -1;
+        case "gpu":
+          return summary?.gpuPct ?? -1;
         case "memory":
           return summary?.memPct ?? -1;
         case "disk":
@@ -87,6 +89,8 @@ export function OverviewPage() {
           return summary ? (summary.netRxBps ?? 0) + (summary.netTxBps ?? 0) : -1;
         case "temp":
           return summary?.cpuTempC ?? -1;
+        case "battery":
+          return summary?.batteryPct ?? -1;
         case "uptime":
           return (isOnline(device) ? summary?.uptimeSec : null) ?? -1;
         case "alerts":

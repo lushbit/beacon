@@ -21,6 +21,7 @@
  * same call that reads the counters.
  */
 import { execFile } from "node:child_process";
+import os from "node:os";
 import { readdir, readFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import si from "systeminformation";
@@ -54,8 +55,18 @@ function empty(): GpuUsage {
     utilizationPct: null,
     memoryUsedMb: null,
     memoryTotalMb: null,
+    memoryShared: false,
     temperatureC: null,
   };
+}
+
+/**
+ * What Windows lets an adapter borrow from system RAM, which is half of it.
+ * This is the figure Task Manager draws its shared memory bar against, and the
+ * only sensible total for a chip that has no memory of its own.
+ */
+function sharedLimitMb(): number {
+  return Math.round(os.totalmem() / 2 / 1024 / 1024);
 }
 
 function hasReading(entry: GpuUsage): boolean {
@@ -126,6 +137,7 @@ async function readNvidia(): Promise<GpuUsage[]> {
         utilizationPct: numberOrNull(utilization),
         memoryUsedMb: numberOrNull(used),
         memoryTotalMb: numberOrNull(total),
+        memoryShared: false,
         temperatureC: numberOrNull(temperature),
       } satisfies GpuUsage;
     });
@@ -200,6 +212,7 @@ async function readSysfs(): Promise<GpuUsage[]> {
       utilizationPct: busy,
       memoryUsedMb: used === null ? null : Math.round(used / 1024 / 1024),
       memoryTotalMb: total === null ? null : Math.round(total / 1024 / 1024),
+      memoryShared: false,
       temperatureC: temperature,
     });
   }
@@ -217,7 +230,10 @@ async function readSysfs(): Promise<GpuUsage[]> {
  *    machines and is the reason a PC with a real card was offered no GPU panel
  *    at all.
  *  - `U` lines are the load per adapter.
- *  - `M` lines are the dedicated memory in use per adapter.
+ *  - `M` lines are the dedicated memory in use per adapter, and `S` lines the
+ *    memory it has borrowed from system RAM. An onboard chip has no memory of
+ *    its own, so its dedicated figure is zero and the borrowed one is the only
+ *    one that means anything.
  *  - `V` lines are how much memory an adapter has, from the driver's registry
  *    key. `Win32_VideoController.AdapterRAM` is a 32 bit field and saturates at
  *    4 GiB, which is how a 24 GiB card came to report itself as a 4 GiB one.
@@ -254,6 +270,7 @@ foreach ($adapter in ($rows | Group-Object Adapter)) {
 }
 foreach ($m in @(Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory)) {
   $out += "M|$($m.Name)|$($m.DedicatedUsage)"
+  $out += "S|$($m.Name)|$($m.SharedUsage)"
 }
 foreach ($c in @(Get-CimInstance Win32_VideoController)) {
   if ($c.Name -match 'Basic Render|Basic Display|Remote Display') { continue }
@@ -296,6 +313,7 @@ async function readWindows(): Promise<GpuUsage[]> {
   };
   const named: GpuUsage[] = [];
   const vram = new Map<string, number>();
+  const shared = new Map<string, number>();
 
   for (const line of output.split("\n")) {
     const [kind, key, raw] = line.trim().split("|");
@@ -309,6 +327,20 @@ async function readWindows(): Promise<GpuUsage[]> {
     if (kind === "V") vram.set(key, value);
     if (kind === "U") of(key).utilizationPct = Math.round(Math.min(100, value) * 10) / 10;
     if (kind === "M") of(key).memoryUsedMb = bytesToMb(value);
+    if (kind === "S") shared.set(key, bytesToMb(value) ?? 0);
+  }
+
+  /*
+   * An adapter using none of its own memory but some of the system's is an
+   * onboard chip. Reporting "0 B of 2.1 GB" for one is both numbers wrong, so
+   * it is measured against what it may borrow instead.
+   */
+  for (const [key, entry] of adapters) {
+    const borrowed = shared.get(key) ?? 0;
+    if (entry.memoryUsedMb || borrowed <= 0) continue;
+    entry.memoryUsedMb = borrowed;
+    entry.memoryTotalMb = sharedLimitMb();
+    entry.memoryShared = true;
   }
 
   if (adapters.size === 0 && named.length === 0) {
@@ -357,20 +389,24 @@ async function readWindows(): Promise<GpuUsage[]> {
  * is as far as anything short of the graphics API can take it.
  */
 export function pairBySize(named: GpuUsage[], readings: GpuUsage[]): GpuUsage[] {
+  // Borrowed memory says nothing about how big an adapter is, so it sorts last.
+  // The chip with none of its own is the one doing the borrowing.
+  const own = (entry: GpuUsage) => (entry.memoryShared ? 0 : (entry.memoryUsedMb ?? 0));
   const byLoad = readings
     .slice()
-    .sort(
-      (a, b) =>
-        (b.memoryUsedMb ?? 0) - (a.memoryUsedMb ?? 0) || (b.utilizationPct ?? 0) - (a.utilizationPct ?? 0)
-    );
+    .sort((a, b) => own(b) - own(a) || (b.utilizationPct ?? 0) - (a.utilizationPct ?? 0));
   const paired = named.map((entry) => ({ ...entry }));
 
   paired
     .slice()
     .sort((a, b) => (b.memoryTotalMb ?? 0) - (a.memoryTotalMb ?? 0))
     .forEach((entry, rank) => {
-      entry.utilizationPct = byLoad[rank]?.utilizationPct ?? null;
-      entry.memoryUsedMb = byLoad[rank]?.memoryUsedMb ?? null;
+      const reading = byLoad[rank];
+      entry.utilizationPct = reading?.utilizationPct ?? null;
+      entry.memoryUsedMb = reading?.memoryUsedMb ?? null;
+      entry.memoryShared = reading?.memoryShared ?? false;
+      // Measured against what it may borrow, not against a pool it has not got.
+      if (reading?.memoryShared && reading.memoryTotalMb !== null) entry.memoryTotalMb = reading.memoryTotalMb;
     });
 
   return paired;
@@ -397,6 +433,7 @@ async function readControllers(): Promise<GpuUsage[]> {
       // `memoryTotal` is only filled in for cards si can query directly, so the
       // adapter's reported VRAM stands in for the rest.
       memoryTotalMb: numberOrNull(controller.memoryTotal) ?? numberOrNull(controller.vram),
+      memoryShared: false,
       temperatureC: null,
     }));
   } catch {
@@ -469,6 +506,7 @@ export function merge(adapters: GpuUsage[], readings: GpuUsage[]): GpuUsage[] {
       utilizationPct: reading.utilizationPct ?? merged[index].utilizationPct,
       memoryUsedMb: reading.memoryUsedMb ?? merged[index].memoryUsedMb,
       memoryTotalMb: reading.memoryTotalMb ?? merged[index].memoryTotalMb,
+      memoryShared: reading.memoryShared || merged[index].memoryShared,
       temperatureC: reading.temperatureC ?? merged[index].temperatureC,
     };
   }

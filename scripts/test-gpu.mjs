@@ -36,6 +36,7 @@ function gpu(fields = {}) {
     utilizationPct: null,
     memoryUsedMb: null,
     memoryTotalMb: null,
+    memoryShared: false,
     temperatureC: null,
     ...fields,
   };
@@ -139,6 +140,31 @@ console.log("\nThe script the agent hands to PowerShell…");
   check(WINDOWS_SCRIPT.includes("phys_\\d+"), "the adapter pattern is still a digit match");
   check(WINDOWS_SCRIPT.includes('-join "`n"'), "the lines are joined by a real newline");
   check(!WINDOWS_SCRIPT.includes("HKLM:SYSTEM"), "the path is not the flattened one that reads nothing");
+}
+
+console.log("\nAn onboard chip borrowing system memory…");
+{
+  /*
+   * The laptop case: the chip has no memory of its own, so its dedicated figure
+   * is zero and the dashboard read "0 B of 2.1 GB", where both numbers were
+   * wrong. Borrowed memory also sorts last, because it says nothing about how
+   * big the adapter is.
+   */
+  const adapters = [
+    gpu({ model: "Intel(R) Iris(R) Xe Graphics", memoryTotalMb: 2048 }),
+    gpu({ model: "Big Card", memoryTotalMb: 24576 }),
+  ];
+  const counters = [
+    gpu({ utilizationPct: 5, memoryUsedMb: 1126, memoryTotalMb: 7987, memoryShared: true }),
+    gpu({ utilizationPct: 61, memoryUsedMb: 3379 }),
+  ];
+
+  const result = pairBySize(adapters, counters);
+  check(result[0].memoryShared === true, "the chip is marked as borrowing");
+  check(result[0].memoryUsedMb === 1126, "and reports what it has borrowed rather than zero");
+  check(result[0].memoryTotalMb === 7987, "against what it may borrow, not its 2 GB of nothing");
+  check(result[1].memoryUsedMb === 3379, "the card keeps its own dedicated figure");
+  check(result[1].memoryShared === false, "and is not marked as borrowing");
 }
 
 console.log("");

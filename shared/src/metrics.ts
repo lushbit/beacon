@@ -67,6 +67,12 @@ export interface GpuUsage {
   utilizationPct: number | null;
   memoryUsedMb: number | null;
   memoryTotalMb: number | null;
+  /**
+   * The memory above is borrowed from system RAM rather than the adapter's own,
+   * which is all an onboard chip has. The total is then what Windows lets it
+   * borrow, so the two numbers still belong together.
+   */
+  memoryShared: boolean;
   temperatureC: number | null;
 }
 

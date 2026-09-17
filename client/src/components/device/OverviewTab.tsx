@@ -415,7 +415,7 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
                       ? ` · ${formatBytes((entry.gpu.memoryUsedMb ?? 0) * 1024 * 1024, unitBase)} of ${formatBytes(
                           entry.gpu.memoryTotalMb * 1024 * 1024,
                           unitBase
-                        )}`
+                        )}${entry.gpu.memoryShared ? " shared" : ""}`
                       : ""}
                     {entry.gpu.temperatureC !== null
                       ? ` · ${formatTemperature(entry.gpu.temperatureC, temperatureUnit)}`
