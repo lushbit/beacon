@@ -178,6 +178,7 @@ export async function testChannel(row: ChannelRow): Promise<{ ok: boolean; error
     deviceId: "",
     deviceName: "Beacon",
     metric: "cpuPct",
+    operator: "gt",
     severity: "info",
     state: "firing",
     value: 42,

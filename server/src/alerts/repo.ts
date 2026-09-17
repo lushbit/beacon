@@ -30,6 +30,7 @@ export interface AlertRow {
   rule_name: string;
   device_id: string;
   metric: AlertMetric;
+  operator: string;
   severity: AlertSeverity;
   state: "firing" | "resolved";
   value: number | null;
@@ -142,6 +143,7 @@ export function toAlertDto(row: AlertRow, deviceName: string): AlertDto {
     deviceId: row.device_id,
     deviceName,
     metric: row.metric,
+    operator: row.operator ?? "gt",
     severity: row.severity,
     state: row.state,
     value: row.value,

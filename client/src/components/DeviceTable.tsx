@@ -24,8 +24,6 @@ import { cn } from "@/lib/utils";
 
 interface Column {
   sort: DeviceSort;
-  /** Tailwind classes that hold the column back until there is room for it. */
-  visibility?: string;
   width?: string;
 }
 
@@ -37,16 +35,47 @@ interface Column {
 const COLUMNS: Column[] = [
   { sort: "name", width: "w-[14rem]" },
   { sort: "cpu", width: "w-[7rem]" },
-  { sort: "gpu", width: "w-[7rem]", visibility: "hidden lg:table-cell" },
+  { sort: "gpu", width: "w-[7rem]" },
   { sort: "memory", width: "w-[7rem]" },
-  { sort: "disk", width: "w-[7rem]", visibility: "hidden md:table-cell" },
-  { sort: "net", width: "w-[6rem]", visibility: "hidden xl:table-cell" },
-  { sort: "temp", width: "w-[5rem]", visibility: "hidden xl:table-cell" },
-  { sort: "battery", width: "w-[7rem]", visibility: "hidden 2xl:table-cell" },
-  { sort: "uptime", width: "w-[6.5rem]", visibility: "hidden lg:table-cell" },
-  { sort: "alerts", width: "w-[5rem]", visibility: "hidden 2xl:table-cell" },
-  { sort: "agent", width: "w-[5.5rem]", visibility: "hidden 2xl:table-cell" },
+  { sort: "disk", width: "w-[7rem]" },
+  { sort: "net", width: "w-[6rem]" },
+  { sort: "temp", width: "w-[5rem]" },
+  { sort: "battery", width: "w-[7rem]" },
+  { sort: "uptime", width: "w-[6.5rem]" },
+  { sort: "alerts", width: "w-[5rem]" },
+  { sort: "agent", width: "w-[5.5rem]" },
 ];
+
+/**
+ * The width the columns above add up to. Narrower than this and the table
+ * scrolls sideways rather than dropping columns off the end, which is how a
+ * laptop came to be missing half the figures with no way to reach them.
+ */
+const TABLE_MIN_WIDTH = "min-w-[80rem]";
+
+/**
+ * The expand control is pinned to the right edge, so it can be reached at any
+ * scroll position rather than only at the far end of a row that runs off the
+ * screen.
+ *
+ * It needs an opaque background of its own, because the cells it sits over
+ * slide underneath it. The row tint cannot be that background, since it is
+ * white at three percent and everything behind would show through, so the tint
+ * is laid over the opaque base instead. The gradient on the left edge is what
+ * makes a row that continues past it read as cut off rather than as ending.
+ */
+const PINNED_BASE =
+  "sticky right-0 z-10 before:pointer-events-none before:absolute before:inset-y-0 before:-left-5 " +
+  "before:w-5 before:content-['']";
+
+const PINNED =
+  `${PINNED_BASE} bg-card before:bg-gradient-to-l before:from-card before:to-transparent ` +
+  "after:pointer-events-none after:absolute after:inset-0 after:bg-white/[0.03] after:opacity-0 " +
+  "after:transition-opacity group-hover:after:opacity-100";
+
+const PINNED_HEAD =
+  `${PINNED_BASE} bg-card before:bg-gradient-to-l before:from-card before:to-transparent ` +
+  "after:pointer-events-none after:absolute after:inset-0 after:bg-surface-2/50 after:content-['']";
 
 /**
  * The desktop columns a phone card has no meter for, shown as a row of small
@@ -154,7 +183,7 @@ function SortHeader({
   return (
     <th
       scope="col"
-      className={cn("py-1.5 text-left font-normal", first ? "pl-5 pr-3" : "px-3", column.width, column.visibility)}
+      className={cn("py-1.5 text-left font-normal", first ? "pl-5 pr-3" : "px-3", column.width)}
     >
       <SortButton option={column.sort} active={active} direction={direction} onSort={onSort} className="-mx-1.5" />
     </th>
@@ -534,7 +563,7 @@ export function DeviceTable({
 
   return (
     <div className="scroll-slim overflow-x-auto rounded-lg border border-border/70 bg-card">
-      <table className="w-full min-w-[36rem] table-fixed border-collapse text-left">
+      <table className={cn("w-full table-fixed border-collapse text-left", TABLE_MIN_WIDTH)}>
         <thead className="border-b border-border/60 bg-surface-2/50">
           <tr>
             {COLUMNS.map((column, index) => (
@@ -547,7 +576,7 @@ export function DeviceTable({
                 onSort={onSort}
               />
             ))}
-            <th scope="col" className="w-12 px-2">
+            <th scope="col" className={cn("w-12 px-2", PINNED_HEAD)}>
               <span className="sr-only">Expand</span>
             </th>
           </tr>
@@ -564,7 +593,7 @@ export function DeviceTable({
                 <tr
                   onClick={() => navigate(`/devices/${device.id}`)}
                   className={cn(
-                    "cursor-pointer border-t border-border/50 transition-colors first:border-t-0",
+                    "group cursor-pointer border-t border-border/50 transition-colors first:border-t-0",
                     "hover:bg-white/[0.03]",
                     isExpanded && "bg-white/[0.03]"
                   )}
@@ -572,13 +601,13 @@ export function DeviceTable({
                   {COLUMNS.map((column, index) => (
                     <td
                       key={column.sort}
-                      className={cn(index === 0 ? "relative pl-5 pr-3" : "px-3", pad, column.visibility)}
+                      className={cn(index === 0 ? "relative pl-5 pr-3" : "px-3", pad)}
                     >
                       {index === 0 ? <ColorBar color={device.color} /> : null}
                       {renderCell(column, device, summary, online)}
                     </td>
                   ))}
-                  <td className={cn("px-2", pad)}>
+                  <td className={cn("px-2", pad, PINNED, isExpanded && "after:opacity-100")}>
                     <button
                       type="button"
                       aria-expanded={isExpanded}
@@ -589,7 +618,7 @@ export function DeviceTable({
                         setExpanded(isExpanded ? null : device.id);
                       }}
                       className={cn(
-                        "flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors",
+                        "relative z-10 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors",
                         "hover:bg-white/[0.08] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
                       )}
                     >

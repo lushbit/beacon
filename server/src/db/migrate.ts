@@ -30,6 +30,10 @@ function tableExists(db: Database, table: string): boolean {
 const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
   { table: "samples", column: "containers_running", definition: "REAL" },
   { table: "samples", column: "containers_total", definition: "REAL" },
+  // Which side of its limit the alert was raised on, so the dashboard can say
+  // "above the limit for 12m" rather than guessing from a reading that has
+  // since crossed back.
+  { table: "alerts", column: "operator", definition: "TEXT NOT NULL DEFAULT 'gt'" },
 ];
 
 /**

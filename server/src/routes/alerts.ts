@@ -158,6 +158,7 @@ rulesRouter.post(
       deviceId: device?.id ?? "",
       deviceName,
       metric: rule.metric,
+      operator: rule.operator,
       severity: rule.severity,
       state: "firing",
       value,

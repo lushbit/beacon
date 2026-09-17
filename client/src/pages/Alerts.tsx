@@ -28,7 +28,7 @@ import { useAuth, useIsAdmin } from "@/context/AuthContext";
 import { useLive } from "@/context/LiveContext";
 import { useToast } from "@/context/ToastContext";
 import { api } from "@/lib/api";
-import { RelativeTime } from "@/components/RelativeTime";
+import { Duration, RelativeTime } from "@/components/RelativeTime";
 import { formatDateTime, formatRate, type UnitBase } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -189,8 +189,45 @@ function TabCount({ value }: { value: number }) {
   );
 }
 
+/**
+ * When the thing the alert is about actually started.
+ *
+ * For a device that went quiet, the alert only fires once the rule's patience
+ * runs out, and the reading it carries is how long the device had already been
+ * gone by then. Counting from that point is what makes the dashboard agree with
+ * the device's own last seen time instead of being a few minutes short.
+ */
+function conditionStartedAt(alert: AlertDto): number {
+  if (alert.metric !== "offline" || alert.value === null) return alert.startedAt;
+  return alert.startedAt - alert.value * 1000;
+}
+
+/** How long it has been going, or how long it went on for. */
+function DurationPhrase({ alert }: { alert: AlertDto }) {
+  const from = conditionStartedAt(alert);
+  const counting = <Duration from={from} to={alert.resolvedAt} />;
+
+  if (alert.metric === "offline") return <span>offline for {counting}</span>;
+
+  const side = alert.operator === "lt" ? "below" : "above";
+  return (
+    <span>
+      {side} the limit for {counting}
+    </span>
+  );
+}
+
 function AlertRow({ alert, onAcknowledge }: { alert: AlertDto; onAcknowledge: (id: string) => void }) {
   const Icon = SEVERITY_ICON[alert.severity];
+  /*
+   * An offline alert used to have its duration written into its text when it
+   * fired, which was out of date a minute later. Alerts raised since no longer
+   * carry one, and the ones already in the database are re-worded here so the
+   * line does not disagree with the figure counting up beside it.
+   */
+  const title =
+    alert.metric === "offline" && alert.state === "firing" ? `${alert.deviceName} is offline.` : alert.message;
+
   return (
     <li className="flex flex-wrap items-start gap-3 px-4 py-3">
       <Icon
@@ -199,7 +236,7 @@ function AlertRow({ alert, onAcknowledge }: { alert: AlertDto; onAcknowledge: (i
         }`}
       />
       <div className="min-w-0 flex-1">
-        <p className="text-sm text-foreground">{alert.message}</p>
+        <p className="text-sm text-foreground">{title}</p>
         <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-2xs text-muted-foreground">
           <Link to={`/devices/${alert.deviceId}`} className="underline-offset-2 hover:underline">
             {alert.deviceName}
@@ -210,6 +247,8 @@ function AlertRow({ alert, onAcknowledge }: { alert: AlertDto; onAcknowledge: (i
           <span title={formatDateTime(alert.startedAt)}>
             started <RelativeTime value={alert.startedAt} />
           </span>
+          <span aria-hidden>·</span>
+          <DurationPhrase alert={alert} />
           {alert.resolvedAt ? (
             <span>
               · resolved <RelativeTime value={alert.resolvedAt} />

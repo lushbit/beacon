@@ -32,7 +32,13 @@ export function firingMessage(
 ): string {
   const limit = formatMetricValue(metric, threshold);
   const reading = value === null ? null : formatMetricValue(metric, value);
-  if (metric === "offline") return `${deviceName} has been offline for ${reading ?? limit}.`;
+  /*
+   * No duration in here. It was true at the moment the alert fired and wrong a
+   * minute later, which is how a device that had just gone offline came to be
+   * described as offline for nine hours. How long it has been is counted live
+   * on the dashboard instead, from the alert itself.
+   */
+  if (metric === "offline") return `${deviceName} is offline.`;
   const comparison = operator === "lt" ? "below" : "above";
   return `${label(metric)} on ${deviceName} is ${reading ?? "unknown"}, ${comparison} the ${limit} limit.`;
 }

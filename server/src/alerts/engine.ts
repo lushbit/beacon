@@ -44,9 +44,9 @@ function fire(rule: AlertRuleRow, deviceId: string, deviceName: string, value: n
   const id = newId();
   const message = firingMessage(rule.metric, deviceName, rule.operator, value, rule.threshold);
   db.prepare(
-    `INSERT INTO alerts (id, rule_id, rule_name, device_id, metric, severity, state, value, threshold, message, started_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'firing', ?, ?, ?, ?)`
-  ).run(id, rule.id, rule.name, deviceId, rule.metric, rule.severity, value, rule.threshold, message, at);
+    `INSERT INTO alerts (id, rule_id, rule_name, device_id, metric, operator, severity, state, value, threshold, message, started_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'firing', ?, ?, ?, ?)`
+  ).run(id, rule.id, rule.name, deviceId, rule.metric, rule.operator, rule.severity, value, rule.threshold, message, at);
   const row = getAlert(id)!;
   const dto = toAlertDto(row, deviceName);
   log.info(`firing: ${message}`);

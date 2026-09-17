@@ -167,6 +167,7 @@ CREATE TABLE IF NOT EXISTS alerts (
   rule_name       TEXT NOT NULL,
   device_id       TEXT NOT NULL,
   metric          TEXT NOT NULL,
+  operator        TEXT NOT NULL DEFAULT 'gt',
   severity        TEXT NOT NULL,
   state           TEXT NOT NULL,
   value           REAL,

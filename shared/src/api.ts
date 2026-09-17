@@ -254,6 +254,8 @@ export interface AlertDto {
   deviceId: string;
   deviceName: string;
   metric: AlertMetric;
+  /** The side of the limit the rule watches, "gt" or "lt". */
+  operator: string;
   severity: AlertSeverity;
   state: AlertState;
   value: number | null;
