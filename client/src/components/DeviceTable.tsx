@@ -543,7 +543,14 @@ export function DeviceTable({
                   <DeviceMarkers device={device} online={online} className="h-6" />
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-2">
-                      <span className="truncate font-medium text-foreground">{device.name}</span>
+                      <span
+                        className={cn(
+                          "truncate font-medium",
+                          online ? "text-foreground" : "text-muted-foreground"
+                        )}
+                      >
+                        {device.name}
+                      </span>
                       {device.activeAlerts > 0 ? (
                         <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-danger/30 bg-danger/10 px-1.5 py-0.5 text-2xs font-medium text-danger">
                           <Bell className="h-3 w-3" />
@@ -585,7 +592,7 @@ export function DeviceTable({
                   <div key={label} className="flex items-center gap-3">
                     <dt className="w-14 shrink-0 text-xs text-muted-foreground">{label}</dt>
                     <dd className="min-w-0 flex-1">
-                      <UsageCell value={value} compact low={low} />
+                      <UsageCell value={value} compact low={low} stale={!online} />
                     </dd>
                   </div>
                 ))}
