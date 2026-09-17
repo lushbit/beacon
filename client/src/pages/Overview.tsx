@@ -68,13 +68,7 @@ export function OverviewPage() {
         )
       : devices;
 
-    /*
-     * The list shows no readings for a device that is not reporting, so it must
-     * not sort by them either. Sorting by a value the row does not show is what
-     * would put an idle, long-gone machine above a busy one.
-     */
-    const summaryOf = (device: DeviceSummaryDto) =>
-      isOnline(device) ? ((samples[device.id] ?? device.latest)?.summary ?? null) : null;
+    const summaryOf = (device: DeviceSummaryDto) => (samples[device.id] ?? device.latest)?.summary ?? null;
 
     // Ascending is always "smallest first": A before Z, idle before busy,
     // coolest before hottest.

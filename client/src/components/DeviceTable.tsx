@@ -257,10 +257,13 @@ function UsageCell({
   value,
   compact,
   low,
+  stale,
 }: {
   value: number | null | undefined;
   compact: boolean;
   low?: boolean;
+  /** The last thing the device sent rather than what it is doing now. */
+  stale?: boolean;
 }) {
   const known = typeof value === "number" && Number.isFinite(value);
 
@@ -272,13 +275,16 @@ function UsageCell({
 
   const level = low ? levelOf(100 - value) : levelOf(value);
   const percent = Math.max(0, Math.min(100, value));
-  const fill = LEVEL_FILL[level];
+  // Mixed towards the track rather than towards transparency, so an old reading
+  // sinks into the row instead of being a paler version of an alarming colour.
+  const colour = LEVEL_FILL[level];
+  const fill = stale ? `color-mix(in srgb, ${colour} 35%, hsl(var(--surface-2)))` : colour;
 
   return (
     <div className="flex items-center gap-1.5">
       {/* Right aligned, so the gap before the bar is the gap and not whatever
           room a shorter reading left behind in a fixed box. */}
-      <span className="w-9 shrink-0 text-right text-xs tabular text-foreground">
+      <span className={cn("w-9 shrink-0 text-right text-xs tabular", stale ? "text-muted-foreground" : "text-foreground")}>
         {formatPercent(value, value < 10 ? 1 : 0)}
       </span>
       <span
@@ -399,14 +405,14 @@ export function DeviceTable({
   const wideEnoughForTable = useMediaQuery("(min-width: 640px)");
 
   /*
-   * A device that is not reporting has no readings, only the last ones it sent.
-   * Drawing those is how a machine that has been off since yesterday sits in
-   * the list looking busy, so they are shown as unknown instead. Uptime is the
-   * exception: it says when the device was last seen, which is the one thing
-   * worth knowing about a device that is gone.
+   * A device that is not reporting still shows the last figures it sent, which
+   * are worth having: what it was doing when it went is often the reason it
+   * went. They are drawn greyed rather than hidden, so the row says "these are
+   * old" instead of "there is nothing here". Zeroes were the other option and
+   * are worse, since a zero is a reading and would claim the machine is idle.
    */
-  const readingsOf = (device: DeviceSummaryDto, online: boolean): MetricSummary | null =>
-    online ? ((samples[device.id] ?? device.latest)?.summary ?? null) : null;
+  const readingsOf = (device: DeviceSummaryDto): MetricSummary | null =>
+    (samples[device.id] ?? device.latest)?.summary ?? null;
 
   const renderCell = (
     column: Column,
@@ -427,7 +433,13 @@ export function DeviceTable({
           >
             <DeviceMarkers device={device} online={online} />
             <span className="min-w-0">
-              <span className={cn("block truncate font-medium text-foreground", compact ? "text-sm" : "text-[0.95rem]")}>
+              <span
+                className={cn(
+                  "block truncate font-medium",
+                  online ? "text-foreground" : "text-muted-foreground",
+                  compact ? "text-sm" : "text-[0.95rem]"
+                )}
+              >
                 {device.name}
               </span>
               {!compact ? (
@@ -439,13 +451,13 @@ export function DeviceTable({
           </Link>
         );
       case "cpu":
-        return <UsageCell value={summary?.cpuPct} compact={compact} />;
+        return <UsageCell value={summary?.cpuPct} compact={compact} stale={!online} />;
       case "gpu":
-        return <UsageCell value={summary?.gpuPct} compact={compact} />;
+        return <UsageCell value={summary?.gpuPct} compact={compact} stale={!online} />;
       case "memory":
-        return <UsageCell value={summary?.memPct} compact={compact} />;
+        return <UsageCell value={summary?.memPct} compact={compact} stale={!online} />;
       case "disk":
-        return <UsageCell value={summary?.diskMaxPct} compact={compact} />;
+        return <UsageCell value={summary?.diskMaxPct} compact={compact} stale={!online} />;
       case "net":
         return (
           <span className="text-xs text-muted-foreground tabular">
@@ -453,7 +465,7 @@ export function DeviceTable({
           </span>
         );
       case "battery":
-        return <UsageCell value={summary?.batteryPct} compact={compact} low />;
+        return <UsageCell value={summary?.batteryPct} compact={compact} low stale={!online} />;
       case "temp":
         return (
           <span className="text-xs text-muted-foreground tabular">
@@ -516,7 +528,7 @@ export function DeviceTable({
         <ul className="divide-y divide-border/50">
         {devices.map((device) => {
           const online = isOnline(device);
-          const summary = readingsOf(device, online);
+          const summary = readingsOf(device);
           const isExpanded = expanded === device.id;
           const details = [otherHostname(device), device.os].filter(Boolean).join(" · ");
 
@@ -621,7 +633,7 @@ export function DeviceTable({
         <tbody>
           {devices.map((device) => {
             const online = isOnline(device);
-            const summary = readingsOf(device, online);
+            const summary = readingsOf(device);
             const isExpanded = expanded === device.id;
 
             return (
