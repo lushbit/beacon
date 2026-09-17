@@ -25,6 +25,12 @@ import { cn } from "@/lib/utils";
 interface Column {
   sort: DeviceSort;
   width?: string;
+  /**
+   * A column whose cell is a reading and its bar. Its heading sits in the
+   * middle of the column rather than over the reading, which is the only part
+   * of the cell narrow enough to make a left-aligned heading look adrift.
+   */
+  meter?: boolean;
 }
 
 /**
@@ -34,13 +40,13 @@ interface Column {
  */
 const COLUMNS: Column[] = [
   { sort: "name", width: "w-[14rem]" },
-  { sort: "cpu", width: "w-[7rem]" },
-  { sort: "gpu", width: "w-[7rem]" },
-  { sort: "memory", width: "w-[7rem]" },
-  { sort: "disk", width: "w-[7rem]" },
+  { sort: "cpu", width: "w-[7rem]", meter: true },
+  { sort: "gpu", width: "w-[7rem]", meter: true },
+  { sort: "memory", width: "w-[7rem]", meter: true },
+  { sort: "disk", width: "w-[7rem]", meter: true },
   { sort: "net", width: "w-[6rem]" },
   { sort: "temp", width: "w-[5rem]" },
-  { sort: "battery", width: "w-[7rem]" },
+  { sort: "battery", width: "w-[7rem]", meter: true },
   { sort: "uptime", width: "w-[6.5rem]" },
   { sort: "alerts", width: "w-[5rem]" },
   { sort: "agent", width: "w-[5.5rem]" },
@@ -185,7 +191,13 @@ function SortHeader({
       scope="col"
       className={cn("py-1.5 text-left font-normal", first ? "pl-5 pr-3" : "px-3", column.width)}
     >
-      <SortButton option={column.sort} active={active} direction={direction} onSort={onSort} className="-mx-1.5" />
+      <SortButton
+        option={column.sort}
+        active={active}
+        direction={direction}
+        onSort={onSort}
+        className={column.meter ? "mx-auto w-fit" : "-mx-1.5"}
+      />
     </th>
   );
 }
@@ -241,19 +253,23 @@ function UsageCell({
   low?: boolean;
 }) {
   const known = typeof value === "number" && Number.isFinite(value);
-  const level = known ? (low ? levelOf(100 - value) : levelOf(value)) : levelOf(null);
-  const percent = known ? Math.max(0, Math.min(100, value)) : 0;
+
+  // An empty bar beside a dash says the same nothing twice, so a device that
+  // does not report this at all gets the dash on its own.
+  if (!known) {
+    return <p className="text-center text-xs text-muted-foreground">—</p>;
+  }
+
+  const level = low ? levelOf(100 - value) : levelOf(value);
+  const percent = Math.max(0, Math.min(100, value));
   const fill = LEVEL_FILL[level];
 
   return (
-    <div className="flex items-center gap-2">
-      <span
-        className={cn(
-          "w-10 shrink-0 text-xs tabular",
-          known ? "text-foreground" : "text-muted-foreground"
-        )}
-      >
-        {known ? formatPercent(value, value < 10 ? 1 : 0) : "—"}
+    <div className="flex items-center gap-1.5">
+      {/* Right aligned, so the gap before the bar is the gap and not whatever
+          room a shorter reading left behind in a fixed box. */}
+      <span className="w-9 shrink-0 text-right text-xs tabular text-foreground">
+        {formatPercent(value, value < 10 ? 1 : 0)}
       </span>
       <span
         className={cn("w-full overflow-hidden rounded-full", compact ? "h-2" : "h-2.5")}
