@@ -70,18 +70,30 @@ const TABLE_MIN_WIDTH = "min-w-[80rem]";
  * is laid over the opaque base instead. The gradient on the left edge is what
  * makes a row that continues past it read as cut off rather than as ending.
  */
-const PINNED_BASE =
-  "sticky right-0 z-10 before:pointer-events-none before:absolute before:inset-y-0 before:-left-5 " +
-  "before:w-5 before:content-['']";
+const PINNED_BASE = "sticky right-0 z-10 bg-card";
 
+/*
+ * The fade that hides a row sliding under the pinned column ends at the card
+ * colour with no alpha rather than at `transparent`. They are not the same
+ * thing: `transparent` is transparent *black*, and a gradient running to it
+ * passes through grey on the way, which is the smear that appeared down the
+ * right-hand edge whether or not anything was scrolled. Ending on the colour it
+ * started from leaves the fade invisible until there is something underneath it
+ * to hide.
+ */
 const PINNED =
-  `${PINNED_BASE} bg-card before:bg-gradient-to-l before:from-card before:to-transparent ` +
+  `${PINNED_BASE} before:pointer-events-none before:absolute before:inset-y-0 before:-left-5 before:w-5 ` +
+  "before:content-[''] before:bg-gradient-to-l before:from-card before:to-[hsl(var(--card)/0)] " +
   "after:pointer-events-none after:absolute after:inset-0 after:bg-white/[0.03] after:opacity-0 " +
   "after:transition-opacity group-hover:after:opacity-100";
 
+/*
+ * The heading strip is one flat tint from end to end, so a column passing under
+ * this one is hidden by the tint itself. It needs no fade, and a fade is what
+ * made the seam visible up here.
+ */
 const PINNED_HEAD =
-  `${PINNED_BASE} bg-card before:bg-gradient-to-l before:from-card before:to-transparent ` +
-  "after:pointer-events-none after:absolute after:inset-0 after:bg-surface-2/50 after:content-['']";
+  `${PINNED_BASE} after:pointer-events-none after:absolute after:inset-0 after:bg-surface-2/50 after:content-['']`;
 
 /**
  * The desktop columns a phone card has no meter for, shown as a row of small
