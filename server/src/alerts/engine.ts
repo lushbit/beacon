@@ -122,6 +122,55 @@ function step(rule: AlertRuleRow, deviceId: string, deviceName: string, value: n
 }
 
 /**
+ * Lets go of whatever a rule is currently firing.
+ *
+ * A rule's runtime row is the only link between the rule and the alert it
+ * raised. Editing or deleting the rule drops that row, and dropped without
+ * resolving the alert first the alert stays active with nothing left that could
+ * ever end it, while the rule raises a second one beside it at the next breach.
+ * That is how a device came to have two alerts saying it was offline, neither
+ * of which went away when it came back.
+ */
+export function releaseRule(ruleId: string): void {
+  const rows = db.prepare("SELECT * FROM rule_runtime WHERE rule_id = ?").all(ruleId) as RuntimeRow[];
+  const at = Date.now();
+  for (const row of rows) {
+    if (!row.alert_id) continue;
+    resolve(row.alert_id, getDeviceRow(row.device_id)?.name ?? "Unknown", null, at);
+  }
+  db.prepare("DELETE FROM rule_runtime WHERE rule_id = ?").run(ruleId);
+}
+
+/**
+ * Ends alerts that nothing else ever will.
+ *
+ * Two of them. A device that is connected right now is not offline, whatever an
+ * alert raised earlier still says. And an alert its own rule has stopped
+ * pointing at is unreachable: the rule is driving a different alert, or is gone
+ * altogether, so nothing is left to notice the condition clearing.
+ *
+ * This runs beside the offline sweep rather than only at the moment a rule
+ * changes, so alerts already stranded in the database are cleared up too.
+ */
+export function sweepStaleAlerts(onlineDeviceIds: Set<string>): void {
+  const firing = db.prepare("SELECT * FROM alerts WHERE state = 'firing'").all() as AlertRow[];
+  const at = Date.now();
+  const link = db.prepare("SELECT alert_id FROM rule_runtime WHERE rule_id = ? AND device_id = ?");
+
+  for (const alert of firing) {
+    const deviceName = getDeviceRow(alert.device_id)?.name ?? "Unknown";
+    if (alert.metric === "offline" && onlineDeviceIds.has(alert.device_id)) {
+      resolve(alert.id, deviceName, null, at);
+      continue;
+    }
+    const held = alert.rule_id
+      ? (link.get(alert.rule_id, alert.device_id) as { alert_id: string | null } | undefined)
+      : undefined;
+    if (!held || held.alert_id !== alert.id) resolve(alert.id, deviceName, null, at);
+  }
+}
+
+/**
  * Offline rules cannot be driven by incoming samples — by definition there are
  * none — so they are swept on a timer instead.
  */

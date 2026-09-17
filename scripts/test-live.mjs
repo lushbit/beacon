@@ -326,6 +326,59 @@ async function main() {
   const device = await (await fetch(`${BASE}/api/devices/${ack.deviceId}`, { headers: { Cookie: cookie } })).json();
   check(device.capabilities?.temperatures === true, "capabilities sent after the hello are stored");
 
+  console.log("Keeping alerts reachable when their rule changes…");
+  {
+    const api = async (path, init) =>
+      fetch(`${BASE}/api${path}`, {
+        ...init,
+        headers: { Cookie: cookie, "Content-Type": "application/json", ...(init?.headers ?? {}) },
+      });
+
+    // A rule that is already breaching, so it fires on the next sample.
+    const created = await (
+      await api("/alert-rules", {
+        method: "POST",
+        body: JSON.stringify({
+          name: "CPU for the test",
+          deviceId: ack.deviceId,
+          metric: "cpuPct",
+          operator: "gt",
+          threshold: 1,
+          durationSec: 0,
+          severity: "warning",
+          cooldownSec: 0,
+          enabled: true,
+        }),
+      })
+    ).json();
+
+    agent.send(JSON.stringify({ type: "sample", sample: sampleWith(95) }));
+    await wait(400);
+    const firing = async () =>
+      ((await (await api("/alerts?state=firing")).json()) ?? []).filter((a) => a.ruleId === created.id);
+    check((await firing()).length === 1, "the rule raises an alert");
+
+    /*
+     * Editing the rule used to drop the row linking it to that alert, which
+     * left the alert active with nothing able to end it, and the rule raised a
+     * second one beside it at the next breach.
+     */
+    await api(`/alert-rules/${created.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ threshold: 99 }),
+    });
+    await wait(300);
+    check((await firing()).length === 0, "editing the rule ends the alert it was firing");
+
+    agent.send(JSON.stringify({ type: "sample", sample: sampleWith(99.9) }));
+    await wait(400);
+    check((await firing()).length === 1, "and the edited rule raises exactly one new alert");
+
+    await api(`/alert-rules/${created.id}`, { method: "DELETE" });
+    await wait(300);
+    check((await firing()).length === 0, "deleting the rule ends that one too");
+  }
+
   console.log("Checking the offline notice…");
   const statusPending = expectMessage(
     live,

@@ -17,6 +17,7 @@ import {
   toRuleDto,
   updateRule,
 } from "../alerts/repo.js";
+import { releaseRule } from "../alerts/engine.js";
 import { testMessage } from "../alerts/messages.js";
 import { sendTestAlert } from "../alerts/notify.js";
 import { db } from "../db/index.js";
@@ -125,8 +126,9 @@ rulesRouter.patch(
     if (!body) return;
     const row = updateRule(req.params.id, body);
     if (!row) return notFound(res, "Rule not found.");
-    // A changed threshold should not inherit the old breach timer.
-    db.prepare("DELETE FROM rule_runtime WHERE rule_id = ?").run(row.id);
+    // A changed threshold should not inherit the old breach timer, and the
+    // alert the rule was firing has to be ended rather than abandoned.
+    releaseRule(row.id);
     audit({ actor: actorOf(req), action: "alert.rule.updated", target: row.id, detail: row.name, ip: ipOf(req) });
     res.json(toRuleDto(row));
   })
@@ -188,6 +190,9 @@ rulesRouter.delete(
   handler((req, res) => {
     const row = getRule(req.params.id);
     if (!row) return notFound(res, "Rule not found.");
+    // Ends whatever it is firing, so deleting a rule cannot leave an alert
+    // behind that nothing is watching any more.
+    releaseRule(row.id);
     deleteRule(row.id);
     audit({ actor: actorOf(req), action: "alert.rule.deleted", target: row.id, detail: row.name, ip: ipOf(req) });
     res.json({ ok: true });

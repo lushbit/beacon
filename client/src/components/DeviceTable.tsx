@@ -388,6 +388,16 @@ export function DeviceTable({
   // Tailwind's `sm`. Below it the table cannot fit, so the list takes over.
   const wideEnoughForTable = useMediaQuery("(min-width: 640px)");
 
+  /*
+   * A device that is not reporting has no readings, only the last ones it sent.
+   * Drawing those is how a machine that has been off since yesterday sits in
+   * the list looking busy, so they are shown as unknown instead. Uptime is the
+   * exception: it says when the device was last seen, which is the one thing
+   * worth knowing about a device that is gone.
+   */
+  const readingsOf = (device: DeviceSummaryDto, online: boolean): MetricSummary | null =>
+    online ? ((samples[device.id] ?? device.latest)?.summary ?? null) : null;
+
   const renderCell = (
     column: Column,
     device: DeviceSummaryDto,
@@ -496,7 +506,7 @@ export function DeviceTable({
         <ul className="divide-y divide-border/50">
         {devices.map((device) => {
           const online = isOnline(device);
-          const summary = (samples[device.id] ?? device.latest)?.summary ?? null;
+          const summary = readingsOf(device, online);
           const isExpanded = expanded === device.id;
           const details = [otherHostname(device), device.os].filter(Boolean).join(" · ");
 
@@ -601,7 +611,7 @@ export function DeviceTable({
         <tbody>
           {devices.map((device) => {
             const online = isOnline(device);
-            const summary = (samples[device.id] ?? device.latest)?.summary ?? null;
+            const summary = readingsOf(device, online);
             const isExpanded = expanded === device.id;
 
             return (

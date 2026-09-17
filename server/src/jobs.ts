@@ -2,7 +2,7 @@ import { purgeOldAttempts } from "./auth/ratelimit.js";
 import { purgeExpiredSessions } from "./auth/sessions.js";
 import { purgeExpiredEnrollTokens } from "./devices.js";
 import { purgeOldAudit } from "./audit.js";
-import { sweepOfflineRules } from "./alerts/engine.js";
+import { sweepOfflineRules, sweepStaleAlerts } from "./alerts/engine.js";
 import { sweepScheduledUpdates } from "./agentUpdates.js";
 import { onlineDeviceIds } from "./hub/agents.js";
 import { pruneSamples, runRollups } from "./metrics/store.js";
@@ -23,6 +23,7 @@ export function startJobs(): void {
   // Offline detection has to be quick, everything else can be lazy.
   const offlineTimer = setInterval(() => {
     safely("offline-sweep", () => sweepOfflineRules(onlineDeviceIds()));
+    safely("stale-alerts", () => sweepStaleAlerts(onlineDeviceIds()));
   }, 15_000);
 
   // Scheduled agent updates: checked often enough to catch a window opening,
