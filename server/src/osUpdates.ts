@@ -7,6 +7,7 @@ import type {
   OsUpdateSummaryDto,
   OsUpdatesDto,
 } from "@beacon/shared";
+import { formatLogLine } from "@beacon/shared";
 import { updateStateFor } from "./agentUpdates.js";
 import { audit } from "./audit.js";
 import { db, parseJson } from "./db/index.js";
@@ -163,7 +164,7 @@ function appendLog(jobId: string, lines: string[]): void {
     const text = (db.prepare("SELECT log FROM os_update_jobs WHERE id = ?").get(jobId) as { log: string }).log;
     const kept = text.split("\n").slice(-MAX_LOG_LINES);
     db.prepare("UPDATE os_update_jobs SET log = ?, log_lines = ? WHERE id = ?").run(
-      ["… earlier lines were trimmed", ...kept].join("\n"),
+      [formatLogLine("WARN", "Earlier lines were trimmed"), ...kept].join("\n"),
       kept.length + 1,
       jobId
     );
@@ -219,8 +220,9 @@ function closeJob(
     error,
     finishedAt: Date.now(),
   });
-  appendLog(jobId, [message]);
-  bus.emit("os_update", { deviceId, job: toDto(jobRow(deviceId, jobId)!), log: [message] });
+  const line = formatLogLine(state === "succeeded" ? "INFO" : state === "failed" ? "ERROR" : "WARN", message);
+  appendLog(jobId, [line]);
+  bus.emit("os_update", { deviceId, job: toDto(jobRow(deviceId, jobId)!), log: [line] });
 }
 
 /* ------------------------------------------------------------------ actions */
@@ -344,7 +346,7 @@ export async function onAgentConnected(deviceId: string): Promise<void> {
     // The last word from the agent was that it was restarting.
     const since = jobRow(deviceId, active.id)?.updated_at ?? active.startedAt;
     const seconds = Math.max(1, Math.round((Date.now() - since) / 1000));
-    closeJob(deviceId, active.id, "succeeded", `The device restarted and was back online after ${seconds}s.`, null);
+    closeJob(deviceId, active.id, "succeeded", `Device back online ${seconds}s after the restart`, null);
     const inventory = inventoryFor(deviceId);
     if (inventory) noteInventory(deviceId, { ...inventory, rebootRequired: false });
     // A fresh list shows what the restart finished off.
@@ -378,7 +380,7 @@ export async function onAgentConnected(deviceId: string): Promise<void> {
       deviceId,
       active.id,
       "interrupted",
-      "The agent restarted while this was running, so how it ended is unknown.",
+      "The agent restarted during the job, so its outcome is unknown",
       "The agent restarted part way through."
     );
   }
@@ -388,9 +390,9 @@ export async function onAgentConnected(deviceId: string): Promise<void> {
 export function onAgentDisconnected(deviceId: string): void {
   const active = activeJob(deviceId);
   if (!active || active.phase === "rebooting") return;
-  const message = "Lost contact with the device. Waiting for it to come back.";
-  appendLog(active.id, [message]);
-  bus.emit("os_update", { deviceId, job: active, log: [message] });
+  const line = formatLogLine("WARN", "Lost contact with the device, waiting for it to come back");
+  appendLog(active.id, [line]);
+  bus.emit("os_update", { deviceId, job: active, log: [line] });
 }
 
 /** Gives up on jobs whose device went quiet and stayed away. */
@@ -406,8 +408,8 @@ export function sweepOsJobs(): void {
       row.id,
       "interrupted",
       row.phase === "rebooting"
-        ? "The device did not come back within 30 minutes of restarting."
-        : "The device has been offline for 30 minutes, so how this ended is unknown.",
+        ? "The device did not come back within 30 minutes of restarting"
+        : "The device has been offline for 30 minutes, so the outcome is unknown",
       row.phase === "rebooting" ? "The device did not come back after restarting." : "Lost contact with the device."
     );
   }

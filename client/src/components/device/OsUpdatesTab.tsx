@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import {
   OS_UPDATE_MANAGER_LABELS,
+  parseLogLine,
   type DeviceDto,
   type OsUpdateItem,
   type OsUpdateJobDto,
@@ -646,7 +647,8 @@ function LogView({
       return defaultOpen;
     }
   });
-  const box = useRef<HTMLPreElement>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const parsed = useMemo(() => lines.map(parseLogLine), [lines]);
   // Follows new lines only while the reader is at the bottom, so scrolling up
   // to read something is not undone by the next line arriving.
   const pinned = useRef(true);
@@ -696,16 +698,67 @@ function LogView({
         ) : null}
       </div>
       {open ? (
-        <pre
+        <div
           ref={box}
+          role="log"
           onScroll={(event) => {
             const element = event.currentTarget;
             pinned.current = element.scrollHeight - element.scrollTop - element.clientHeight < 24;
           }}
-          className="scroll-slim mx-4 mb-4 max-h-80 overflow-auto whitespace-pre-wrap break-all rounded-md border border-border/60 bg-surface-2/60 p-3 font-mono text-[11px] leading-relaxed text-foreground/85"
+          className="scroll-slim mx-4 mb-4 max-h-80 overflow-auto rounded-md border border-border/60 bg-surface-2/60 py-2 font-mono text-[11px] leading-5"
         >
-          {lines.length > 0 ? lines.join("\n") : "Nothing logged yet."}
-        </pre>
+          {parsed.length === 0 ? (
+            <p className="px-3 text-muted-foreground">Nothing logged yet.</p>
+          ) : (
+            parsed.map((entry, index) => (
+              <div
+                key={index}
+                className={cn(
+                  "grid grid-cols-[4.75rem_3.25rem_1fr] gap-x-2 px-3 hover:bg-white/[0.03]",
+                  entry.level === null && "grid-cols-1"
+                )}
+              >
+                {entry.level !== null ? (
+                  <>
+                    <span className="text-muted-foreground/70 tabular">
+                      {entry.at !== null
+                        ? new Date(entry.at).toLocaleTimeString(undefined, {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            second: "2-digit",
+                            hour12: false,
+                          })
+                        : ""}
+                    </span>
+                    <span
+                      className={cn(
+                        "font-medium",
+                        entry.level === "ERROR" && "text-danger",
+                        entry.level === "WARN" && "text-warning",
+                        entry.level === "INFO" && "text-foreground/70",
+                        (entry.level === "CMD" || entry.level === "OUT") && "text-muted-foreground/70"
+                      )}
+                    >
+                      {entry.level}
+                    </span>
+                  </>
+                ) : null}
+                <span
+                  className={cn(
+                    "whitespace-pre-wrap break-words",
+                    entry.level === "ERROR" && "text-danger",
+                    entry.level === "WARN" && "text-warning",
+                    entry.level === "CMD" && "text-foreground",
+                    entry.level === "OUT" && "text-muted-foreground",
+                    (entry.level === "INFO" || entry.level === null) && "text-foreground/85"
+                  )}
+                >
+                  {entry.level === "CMD" ? `$ ${entry.text}` : entry.text}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
       ) : null}
     </div>
   );
