@@ -44,6 +44,11 @@ export interface OsUpdateItem {
   /** Installing it needs a restart, where the manager says so. */
   restart: boolean;
   kind: "package" | "system" | "driver" | "other";
+  /**
+   * Offered but not recommended, like the driver updates Windows keeps under
+   * Optional updates. Left out of counts and of "install all".
+   */
+  optional?: boolean;
 }
 
 export interface OsUpdateInventory {

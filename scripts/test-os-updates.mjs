@@ -37,6 +37,7 @@ const {
   WINDOWS_INSTALL,
   WINDOWS_CIM_LIST,
   WINDOWS_CIM_INSTALL,
+  WINDOWS_USO_SCAN,
 } = await import(pathToFileURL(join(root, "agent", "dist", "osUpdates.js")).href);
 
 const PORT = 4898;
@@ -167,6 +168,11 @@ console.log("Windows Update…");
   );
   check(service.items[0].security && service.items[0].restart, "from the service, a cumulative update still reads as security and restart");
   check(service.items[1].kind === "driver", "a driver is recognised by its title when there are no categories");
+  check(service.items[1].optional === true && !service.items[0].optional, "and counts as optional, like in Settings");
+  const browse = parseWindowsList(
+    `BEACON-JSON {"items":[{"id":"d","title":"Dell Inc. Firmware Driver Update (0.1.35.0)","kb":"","size":41615360,"severity":"","categories":"Drivers","type":2,"reboot":0,"browseOnly":true},{"id":"e","title":"2026-09 Cumulative Update","kb":"KB5099999","size":1,"severity":"Critical","categories":"Security Updates","type":1,"reboot":1,"browseOnly":false}],"reboot":false}`
+  );
+  check(browse.items[0].optional === true && browse.items[1].optional === false, "Windows' own optional flag is used where it gives one");
   check(service.items[2].kind === "other" && !service.items[2].security, "a definitions update is neither a driver nor a security fix");
   const single = parseWindowsList(
     `BEACON-JSON {"items":{"id":"x","title":"One","kb":"","size":1,"severity":"","categories":"Updates","type":1,"reboot":0},"reboot":false}`
@@ -190,6 +196,7 @@ console.log("Windows Update…");
   writeFileSync(join(dir, "os-updates-install.ps1"), WINDOWS_INSTALL);
   writeFileSync(join(dir, "os-updates-service-list.ps1"), WINDOWS_CIM_LIST);
   writeFileSync(join(dir, "os-updates-service-install.ps1"), WINDOWS_CIM_INSTALL);
+  writeFileSync(join(dir, "os-updates-scan.ps1"), WINDOWS_USO_SCAN);
   check(existsSync(join(dir, "os-updates-install.ps1")), "the Windows Update scripts are written out for the PowerShell check");
 }
 

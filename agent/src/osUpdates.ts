@@ -378,8 +378,12 @@ class Job {
           .filter(Boolean)
           .slice(-3)
           .join(" ");
+        const reported = reportedError(output);
         reject(
-          new ExitError(`${path.basename(command)} exited with code ${code ?? "unknown"}${tail ? `: ${tail}` : ""}`, code)
+          new ExitError(
+            reported ?? `${path.basename(command)} exited with code ${code ?? "unknown"}${tail ? `: ${tail}` : ""}`,
+            code
+          )
         );
       });
     });
@@ -409,6 +413,33 @@ class Job {
       }
     }
   }
+}
+
+/** What the common Windows Update error codes mean, in words a person can act on. */
+const WINDOWS_ERRORS: Record<string, string> = {
+  "80240438": "Windows Update could not be reached from the system account",
+  "8024402C": "The update server's name could not be looked up. Check the PC's internet connection",
+  "80072EE7": "The update server's name could not be looked up. Check the PC's internet connection",
+  "80072EE2": "The connection to Windows Update timed out",
+  "8024401C": "The connection to Windows Update timed out",
+  "80070422": "The Windows Update service is turned off on this PC",
+  "8024001E": "The Windows Update service stopped while it was working",
+  "80240016": "Another install is already running on this PC. Try again once it is done",
+  "80070005": "Access was denied. The agent has to run as the system account",
+};
+
+/** The error a script reported itself, which says more than its exit code. */
+function reportedError(output: string): string | null {
+  const line = output
+    .split("\n")
+    .map(cleanLine)
+    .reverse()
+    .find((entry) => entry.startsWith("BEACON-ERROR "));
+  if (!line) return null;
+  const text = line.slice(13).trim();
+  const code = /0x([0-9A-F]{8})/i.exec(text)?.[1]?.toUpperCase();
+  const meaning = code ? WINDOWS_ERRORS[code] : undefined;
+  return meaning ? `${meaning} (0x${code}).` : text;
 }
 
 /** A tool that ran and ended with an exit code nobody expected. */
@@ -443,7 +474,7 @@ const quietRun: Run = (command, args, options = {}) =>
         const code = error ? (typeof error.code === "number" ? error.code : null) : 0;
         const output = `${stdout}${stderr}`;
         if (code !== null && (options.ok ?? [0]).includes(code)) resolve({ code, output });
-        else reject(new ExitError(error?.message ?? `${command} failed`, code));
+        else reject(new ExitError(reportedError(output) ?? error?.message ?? `${command} failed`, code));
       }
     );
     // Nothing to say to it, and a tool that asks a question must not wait.
@@ -883,10 +914,22 @@ const WINDOWS_COM = `${WINDOWS_COMMON}
 Say 'Starting the Windows Update client'
 $session = New-Object -ComObject Microsoft.Update.Session
 $session.ClientApplicationID = 'Beacon'
+function Search-With($searcher) { $searcher.Search("IsInstalled=0 and IsHidden=0").Updates }
 function Find-Updates([bool]$online) {
   $searcher = $session.CreateUpdateSearcher()
   $searcher.Online = $online
-  $searcher.Search("IsInstalled=0 and IsHidden=0").Updates
+  if (-not $online) { return Search-With $searcher }
+  try { return Search-With $searcher }
+  catch {
+    # The default server can be one the system account cannot reach, which
+    # Windows reports as 0x80240438. Windows Update itself is worth a try.
+    Say ('The default update server did not answer: ' + (Describe $_))
+    Say 'Trying Windows Update directly'
+    $searcher = $session.CreateUpdateSearcher()
+    $searcher.Online = $true
+    $searcher.ServerSelection = 2
+    return Search-With $searcher
+  }
 }
 `;
 
@@ -897,9 +940,14 @@ function Find-Updates([bool]$online) {
  */
 const WINDOWS_CIM = `${WINDOWS_COMMON}
 $ns = 'root/Microsoft/Windows/WindowsUpdate'
-try { Get-CimClass -Namespace $ns -ClassName MSFT_WUOperations | Out-Null } catch { Say 'BEACON-NOCIM'; exit 3 }
-function Scan-Updates {
-  $scan = Invoke-CimMethod -Namespace $ns -ClassName MSFT_WUOperations -MethodName ScanForUpdates -Arguments @{ SearchCriteria = 'IsInstalled=0 and IsHidden=0' }
+try { Get-CimClass -Namespace $ns -ClassName MSFT_WUOperations | Out-Null }
+catch {
+  Say 'This Windows has no Windows Update service interface, so the Windows Update client is used instead.'
+  Say 'BEACON-NOCIM'
+  exit 3
+}
+function Scan-Updates([string]$criteria = 'IsInstalled=0 and IsHidden=0') {
+  $scan = Invoke-CimMethod -Namespace $ns -ClassName MSFT_WUOperations -MethodName ScanForUpdates -Arguments @{ SearchCriteria = $criteria }
   if ($scan.ReturnValue -ne 0) { throw ('Windows Update answered with code 0x{0:X8}' -f $scan.ReturnValue) }
   return ,@($scan.Updates)
 }
@@ -935,6 +983,7 @@ try {
       categories = (($u.Categories | ForEach-Object { $_.Name }) -join '|')
       type = [int]$u.Type
       reboot = [int]$u.InstallationBehavior.RebootBehavior
+      browseOnly = [bool]$u.BrowseOnly
     }
   }
   $reboot = [bool](New-Object -ComObject Microsoft.Update.SystemInfo).RebootRequired
@@ -972,6 +1021,33 @@ try {
 `;
 
 /*
+ * What the Check for updates button in Settings does: the update orchestrator
+ * runs the scan inside the Windows Update service, and the result lands in the
+ * last-scan list, which is quick to read afterwards. The scan is finished when
+ * Windows moves its last successful search time.
+ */
+export const WINDOWS_USO_SCAN = `${WINDOWS_COMMON}
+try {
+  $uso = Join-Path $env:SystemRoot 'System32\\UsoClient.exe'
+  if (-not (Test-Path $uso)) { Say 'This Windows has no update orchestrator.'; Say 'BEACON-NOUSO'; exit 4 }
+  $before = (New-Object -ComObject Microsoft.Update.AutoUpdate).Results.LastSearchSuccessDate
+  Say 'Asking Windows to check for updates, the same way Settings does'
+  Start-Process -FilePath $uso -ArgumentList 'StartScan' -WindowStyle Hidden -Wait
+  $deadline = (Get-Date).AddMinutes(10)
+  while ((Get-Date) -lt $deadline) {
+    Start-Sleep -Seconds 10
+    $after = (New-Object -ComObject Microsoft.Update.AutoUpdate).Results.LastSearchSuccessDate
+    if ($after -and (-not $before -or $after -gt $before)) { Say 'Windows finished checking'; exit 0 }
+  }
+  Say 'Windows did not finish its own check within 10 minutes, so Windows Update is asked directly instead.'
+  exit 5
+} catch {
+  Say ('BEACON-ERROR ' + (Describe $_))
+  exit 1
+}
+`;
+
+/*
  * Updates are downloaded and then installed one at a time, which is slower than
  * one batch but is the only way a script gets to say where it is. The client
  * object looks updates up in what Windows already knows first, which is what
@@ -986,7 +1062,8 @@ try {
   function Pick($updates) {
     $out = New-Object System.Collections.ArrayList
     foreach ($u in $updates) {
-      if ($wanted -eq 'all' -or ($ids -contains $u.Identity.UpdateID)) { [void]$out.Add($u) }
+      # "All" means what Windows would install by itself, as in Settings.
+      if (($wanted -eq 'all' -and -not $u.BrowseOnly) -or ($ids -contains $u.Identity.UpdateID)) { [void]$out.Add($u) }
     }
     return ,$out
   }
@@ -1044,7 +1121,8 @@ try {
   $wanted = $env:BEACON_UPDATE_IDS
   $ids = @($wanted -split ',')
   Say 'Asking the Windows Update service for the chosen updates'
-  $list = @(Scan-Updates | Where-Object { $wanted -eq 'all' -or ($ids -contains [string]$_.UpdateID) })
+  if ($wanted -eq 'all') { $list = @(Scan-Updates 'IsInstalled=0 and IsHidden=0 and BrowseOnly=0') }
+  else { $list = @(Scan-Updates | Where-Object { $ids -contains [string]$_.UpdateID }) }
   $n = $list.Count
   if ($n -eq 0) { Say 'NOTHING'; exit 0 }
   Say ('Found ' + $n + ' update(s) to install')
@@ -1100,6 +1178,7 @@ interface WindowsEntry {
   categories: string;
   type: number;
   reboot: number;
+  browseOnly?: boolean;
 }
 
 /** The JSON line the listing script prints, or its error. */
@@ -1128,6 +1207,9 @@ export function parseWindowsList(output: string): Listing {
       security: categories.includes("Security Updates") || (!definitions && entry.severity !== "" && entry.severity !== null),
       restart: entry.reboot === 1 || /Cumulative Update/i.test(title),
       kind: driver ? "driver" : definitions ? "other" : "system",
+      // Windows says so where it can. The service interface does not, and the
+      // drivers it lists are the ones Settings keeps under Optional updates.
+      optional: entry.browseOnly === true || (entry.browseOnly === undefined && categories.length === 0 && driver),
     });
   });
   return { items, rebootRequired: parsed.reboot === true };
@@ -1172,7 +1254,22 @@ const windows: Adapter = {
     if (!refresh) return listWith(WINDOWS_LIST, POWERSHELL_MTA, false);
     return withService(
       () => listWith(WINDOWS_CIM_LIST, POWERSHELL, true),
-      () => listWith(WINDOWS_LIST, POWERSHELL_MTA, true)
+      async () => {
+        // Without the service interface, the scan Settings runs is next best,
+        // and asking Windows Update from here is the last resort.
+        try {
+          await run("powershell.exe", [...POWERSHELL_MTA, WINDOWS_USO_SCAN], {
+            quiet: true,
+            keep: (line) => !line.startsWith("BEACON-"),
+            waiting: "Still waiting for Windows to finish checking",
+            timeoutMs: 12 * 60_000,
+          });
+          return await listWith(WINDOWS_LIST, POWERSHELL_MTA, false);
+        } catch (error) {
+          if (error instanceof CancelledError) throw error;
+          return listWith(WINDOWS_LIST, POWERSHELL_MTA, true);
+        }
+      }
     );
   },
 
