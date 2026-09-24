@@ -36,6 +36,8 @@ export interface ChartPanelProps {
    * than per device, so opening the CPU details once opens them everywhere.
    */
   moreKey?: string;
+  /** Time to shade behind the line, passed straight to the chart. */
+  band?: { spans: { from: number; to: number }[]; inside: string; outside: string };
   className?: string;
 }
 
@@ -71,6 +73,7 @@ export function ChartPanel({
   action,
   more = [],
   moreKey,
+  band,
   className,
 }: ChartPanelProps) {
   const [open, setOpen] = useState(() => rememberedOpen(moreKey));
@@ -88,7 +91,7 @@ export function ChartPanel({
       <header className="flex items-start justify-between gap-3 px-4 pt-4">
         <div>
           <h3 className="text-sm font-medium text-foreground">{title}</h3>
-          <ChartLegend series={series} className="mt-1.5" />
+          <ChartLegend series={series} band={band?.inside} className="mt-1.5" />
         </div>
         <div className="flex shrink-0 items-center gap-3">
           {action}
@@ -104,8 +107,13 @@ export function ChartPanel({
           format={format}
           clampMax={clampMax}
           height={height}
+          band={band}
         />
       </div>
+
+      {/* The footer reads the main chart's current value, so it stays with it,
+          and the extra charts open below everything else. */}
+      {footer ? <div className="border-t border-border/60 px-4 py-3">{footer}</div> : null}
 
       {more.length > 0 ? (
         <>
@@ -156,8 +164,6 @@ export function ChartPanel({
           ) : null}
         </>
       ) : null}
-
-      {footer ? <div className="border-t border-border/60 px-4 py-3">{footer}</div> : null}
     </section>
   );
 }
