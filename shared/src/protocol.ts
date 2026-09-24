@@ -14,6 +14,7 @@ import type {
   MetricSample,
   ProcessSummary,
 } from "./metrics.js";
+import type { OsUpdateInventory, OsUpdateJobDto, OsUpdateJobSnapshot } from "./osUpdates.js";
 
 export const PROTOCOL_VERSION = 1;
 
@@ -67,8 +68,27 @@ export interface AgentPongMessage {
   ts: number;
 }
 
+/**
+ * Progress of an OS update job, sent as it happens. `log` carries only the
+ * lines since the last event. Added in 1.3.0, and ignored by older hubs.
+ */
+export interface AgentOsUpdateEventMessage {
+  type: "os_update_event";
+  job: OsUpdateJobSnapshot;
+  log: string[];
+  inventory?: OsUpdateInventory;
+}
+
+/** The result of a check the agent ran on its own schedule. */
+export interface AgentOsUpdateInventoryMessage {
+  type: "os_update_inventory";
+  inventory: OsUpdateInventory;
+}
+
 export type AgentMessage =
   | AgentHelloMessage
+  | AgentOsUpdateEventMessage
+  | AgentOsUpdateInventoryMessage
   | AgentSampleMessage
   | AgentCapabilitiesMessage
   | AgentRpcResultMessage
@@ -81,6 +101,11 @@ export interface AgentConfig {
   sampleIntervalMs: number;
   /** Terminating processes from the dashboard can be disabled per device. */
   allowProcessKill: boolean;
+  /**
+   * Installing OS updates and restarting from the dashboard. Missing from a
+   * hub older than 1.3.0, which never asks for either.
+   */
+  allowOsUpdates?: boolean;
 }
 
 export interface HubHelloAckMessage {
@@ -129,7 +154,16 @@ export type HubMessage =
 
 /* ------------------------------------------------------------------------- rpc */
 
-export type AgentRpcMethod = "list_processes" | "kill_process" | "refresh_static" | "agent_update";
+export type AgentRpcMethod =
+  | "list_processes"
+  | "kill_process"
+  | "refresh_static"
+  | "agent_update"
+  | "os_updates_check"
+  | "os_updates_install"
+  | "os_updates_cancel"
+  | "os_updates_status"
+  | "os_reboot";
 
 export interface AgentUpdateParams {
   version: string;
@@ -217,7 +251,20 @@ export interface LiveAgentUpdateMessage {
   };
 }
 
+/**
+ * An OS update job changed. `log` is only the new lines, so a page that shows
+ * the log appends them rather than fetching it again.
+ */
+export interface LiveOsUpdateMessage {
+  type: "os_update";
+  deviceId: string;
+  job: OsUpdateJobDto | null;
+  log: string[];
+  inventory?: OsUpdateInventory | null;
+}
+
 export type LiveServerMessage =
+  | LiveOsUpdateMessage
   | LiveSampleMessage
   | LiveDeviceStatusMessage
   | LiveAlertMessage
@@ -226,4 +273,5 @@ export type LiveServerMessage =
 export const DEFAULT_AGENT_CONFIG: AgentConfig = {
   sampleIntervalMs: 5000,
   allowProcessKill: false,
+  allowOsUpdates: true,
 };

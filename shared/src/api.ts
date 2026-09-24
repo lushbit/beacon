@@ -11,6 +11,7 @@ import type {
   MetricSummary,
   MetricTier,
 } from "./metrics.js";
+import type { OsUpdateSummaryDto } from "./osUpdates.js";
 
 export type UserRole = "admin" | "viewer";
 
@@ -148,6 +149,8 @@ export interface DeviceSettingsDto {
   /** Empty means "follow the server default". */
   updatePolicy: UpdatePolicy | null;
   allowProcessKill: boolean;
+  /** Admins may install OS updates and restart this device from the dashboard. */
+  allowOsUpdates: boolean;
   offlineAfterSec: number;
   panels: DevicePanelSettings;
 }
@@ -174,6 +177,7 @@ export interface DeviceDto {
   updateState: AgentUpdateStateDto;
   latest: MetricSample | null;
   activeAlerts: number;
+  osUpdates: OsUpdateSummaryDto | null;
 }
 
 export interface DeviceSummaryDto {

@@ -12,9 +12,21 @@ import {
   type AgentUpdateParams,
   type ListProcessesParams,
   type MetricSample,
+  type OsUpdateInstallParams,
+  type OsUpdateJobParams,
 } from "@beacon/shared";
 import { collectSample, collectStaticInfo, isDockerAvailable, listProcesses, probeDocker } from "./collect.js";
 import { HELP_TEXT, loadConfig, parseArgs, saveConfig, toSocketUrl, type AgentFileConfig } from "./config.js";
+import {
+  backgroundCheck,
+  cancelJob,
+  osUpdatesBusy,
+  osUpdateStatus,
+  startCheck,
+  startInstall,
+  startReboot,
+  type OsUpdateEmit,
+} from "./osUpdates.js";
 import { applyUpdate, confirmRunningVersion, detectLayout } from "./update.js";
 import { AGENT_VERSION } from "./version.js";
 
@@ -76,6 +88,7 @@ function baseCapabilities(): DeviceCapabilities {
     diskIo: false,
     processes: true,
     processKill: true,
+    osUpdates: true,
   };
 }
 
@@ -93,6 +106,7 @@ function capabilities(probe: MetricSample): DeviceCapabilities {
     diskIo: probe.summary.diskReadBps !== null || probe.summary.diskWriteBps !== null,
     processes: true,
     processKill: true,
+    osUpdates: true,
   };
 }
 
@@ -141,6 +155,34 @@ function startSampling(): void {
   void tick();
 }
 
+/** Every job event goes straight to the hub. One missed while offline is caught up on reconnect. */
+const emitOsUpdate: OsUpdateEmit = (job, lines, inventory) => {
+  send({ type: "os_update_event", job, log: lines, ...(inventory ? { inventory } : {}) });
+};
+
+function requireOsUpdatesAllowed(): void {
+  // A hub older than 1.3.0 never sends the flag, and never asks either.
+  if (hubConfig.allowOsUpdates === false) {
+    throw new Error("Installing updates from the dashboard is turned off for this device.");
+  }
+}
+
+const BACKGROUND_CHECK_MS = 6 * 3600_000;
+let backgroundTimer: NodeJS.Timeout | null = null;
+
+/** Checks for updates on its own a little after start, then every six hours. */
+function scheduleBackgroundChecks(): void {
+  if (backgroundTimer) return;
+  const run = async () => {
+    const inventory = await backgroundCheck();
+    if (inventory) send({ type: "os_update_inventory", inventory });
+  };
+  backgroundTimer = setTimeout(() => {
+    void run();
+    backgroundTimer = setInterval(() => void run(), BACKGROUND_CHECK_MS);
+  }, 90_000);
+}
+
 async function handleRpc(id: string, method: string, params: unknown): Promise<void> {
   const reply = (ok: boolean, result?: unknown, error?: string) => {
     send({ type: "rpc_result", id, ok, result, error });
@@ -163,7 +205,35 @@ async function handleRpc(id: string, method: string, params: unknown): Promise<v
         reply(true, { ok: true });
         return;
       }
+      case "os_updates_check": {
+        startCheck((params as OsUpdateJobParams).jobId, emitOsUpdate);
+        reply(true, { accepted: true });
+        return;
+      }
+      case "os_updates_install": {
+        requireOsUpdatesAllowed();
+        startInstall(params as OsUpdateInstallParams, emitOsUpdate);
+        reply(true, { accepted: true });
+        return;
+      }
+      case "os_reboot": {
+        requireOsUpdatesAllowed();
+        startReboot((params as OsUpdateJobParams).jobId, emitOsUpdate);
+        reply(true, { accepted: true });
+        return;
+      }
+      case "os_updates_cancel": {
+        cancelJob((params as OsUpdateJobParams).jobId);
+        reply(true, { accepted: true });
+        return;
+      }
+      case "os_updates_status": {
+        reply(true, osUpdateStatus());
+        return;
+      }
       case "agent_update": {
+        // Restarting the agent would stop a package manager part way through.
+        if (osUpdatesBusy()) throw new Error("An OS update is running on this device. Try again once it is done.");
         const input = params as AgentUpdateParams;
         log(`updating to ${input.version}…`);
         await applyUpdate({
@@ -222,6 +292,7 @@ function handleMessage(message: HubMessage): void {
       // launcher would roll it back on the next restart.
       confirmRunningVersion();
       startSampling();
+      scheduleBackgroundChecks();
       return;
     }
     case "config": {

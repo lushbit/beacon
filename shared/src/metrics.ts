@@ -236,6 +236,8 @@ export interface DeviceCapabilities {
   diskIo: boolean;
   processes: boolean;
   processKill: boolean;
+  /** The agent can check for and install operating system updates. From 1.3.0. */
+  osUpdates?: boolean;
 }
 
 /** Metric keys an alert rule can be written against. */
