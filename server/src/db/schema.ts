@@ -187,6 +187,43 @@ CREATE TABLE IF NOT EXISTS disk_samples (
   PRIMARY KEY (device_id, tier, ts, disk)
 ) WITHOUT ROWID;
 
+/*
+ * Operating system update runs, one row each, with the log the agent sent. A
+ * row stays "running" until the agent reports an outcome, or until the hub
+ * gives up on a device that went away and did not come back.
+ */
+CREATE TABLE IF NOT EXISTS os_update_jobs (
+  id              TEXT PRIMARY KEY,
+  device_id       TEXT NOT NULL,
+  kind            TEXT NOT NULL,
+  state           TEXT NOT NULL,
+  phase           TEXT NOT NULL,
+  progress        REAL,
+  current_item    TEXT,
+  step_done       INTEGER,
+  step_total      INTEGER,
+  cancellable     INTEGER NOT NULL DEFAULT 0,
+  reboot_required INTEGER NOT NULL DEFAULT 0,
+  reboot_after    INTEGER NOT NULL DEFAULT 0,
+  requested       TEXT,
+  results         TEXT NOT NULL DEFAULT '[]',
+  error           TEXT,
+  actor           TEXT NOT NULL,
+  started_at      INTEGER NOT NULL,
+  finished_at     INTEGER,
+  updated_at      INTEGER NOT NULL,
+  log             TEXT NOT NULL DEFAULT '',
+  log_lines       INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_os_update_jobs_device ON os_update_jobs(device_id, started_at DESC);
+
+/* What the agent last found, one row per device. */
+CREATE TABLE IF NOT EXISTS os_update_inventory (
+  device_id  TEXT PRIMARY KEY,
+  data       TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS alert_rules (
   id           TEXT PRIMARY KEY,
   name         TEXT NOT NULL,

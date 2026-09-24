@@ -181,7 +181,15 @@ export function updateDevice(
 
 export function deleteDevice(id: string): void {
   const tx = db.transaction((deviceId: string) => {
-    for (const table of ["samples", "gpu_samples", "disk_samples", "core_samples", "net_samples"]) {
+    for (const table of [
+      "samples",
+      "gpu_samples",
+      "disk_samples",
+      "core_samples",
+      "net_samples",
+      "os_update_jobs",
+      "os_update_inventory",
+    ]) {
       db.prepare(`DELETE FROM ${table} WHERE device_id = ?`).run(deviceId);
     }
     db.prepare("DELETE FROM alerts WHERE device_id = ?").run(deviceId);
@@ -199,6 +207,7 @@ export function toDeviceDto(
     activeAlerts: number;
     compatibility: AgentCompatibility;
     updateState: AgentUpdateStateDto;
+    osUpdates?: DeviceDto["osUpdates"];
   }
 ): DeviceDto {
   return {
@@ -223,6 +232,7 @@ export function toDeviceDto(
     updateState: extra.updateState,
     latest: extra.latest,
     activeAlerts: extra.activeAlerts,
+    osUpdates: extra.osUpdates ?? null,
   };
 }
 

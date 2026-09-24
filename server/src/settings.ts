@@ -42,6 +42,9 @@ export function defaultDeviceSettings(): DeviceSettingsDto {
   return {
     sampleIntervalMs: server.defaultSampleIntervalMs,
     allowProcessKill: false,
+    // Admins can already replace the agent itself from the dashboard, so OS
+    // updates are no new level of trust. Each device can still turn it off.
+    allowOsUpdates: true,
     updatePolicy: null,
     offlineAfterSec: server.defaultOfflineAfterSec,
     panels: { panels: [], hiddenDisks: [], hiddenInterfaces: [], hiddenGpus: [], showSystemVolumes: false },

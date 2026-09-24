@@ -122,4 +122,14 @@ bus.on("agent_update", ({ deviceId, state }) => {
   });
 });
 
+bus.on("os_update", ({ deviceId, job, log: lines, inventory }) => {
+  broadcast(deviceId, {
+    type: "os_update",
+    deviceId,
+    job,
+    log: lines,
+    ...(inventory !== undefined ? { inventory } : {}),
+  });
+});
+
 log.debug("live socket module ready");

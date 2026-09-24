@@ -4,6 +4,7 @@ import { purgeExpiredEnrollTokens } from "./devices.js";
 import { purgeOldAudit } from "./audit.js";
 import { sweepOfflineRules, sweepStaleAlerts } from "./alerts/engine.js";
 import { sweepScheduledUpdates } from "./agentUpdates.js";
+import { sweepOsJobs } from "./osUpdates.js";
 import { onlineDeviceIds } from "./hub/agents.js";
 import { pruneSamples, runRollups } from "./metrics/store.js";
 import { getServerSettings } from "./settings.js";
@@ -25,6 +26,9 @@ export function startJobs(): void {
     safely("offline-sweep", () => sweepOfflineRules(onlineDeviceIds()));
     safely("stale-alerts", () => sweepStaleAlerts(onlineDeviceIds()));
   }, 15_000);
+
+  const osJobTimer = setInterval(() => safely("os-update-jobs", sweepOsJobs), 60_000);
+  osJobTimer.unref();
 
   // Scheduled agent updates: checked often enough to catch a window opening,
   // rarely enough to be invisible.

@@ -46,6 +46,13 @@ steps:
     commands:
       - node scripts/test-gpu.mjs
 
+  # Each update tool's output is parsed from samples of the real thing, and the
+  # hub's side of a run is played through with a scripted agent.
+  - name: OS updates
+    image: node:20
+    commands:
+      - node scripts/test-os-updates.mjs
+
   # Verifies the install command the documentation gives people for their own
   # machines: a device must get the agent WITHOUT the dashboard's dependencies.
   - name: Agent install check

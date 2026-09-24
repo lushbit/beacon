@@ -116,6 +116,7 @@ export function configFor(deviceId: string): AgentConfig {
   return {
     sampleIntervalMs: settings.sampleIntervalMs,
     allowProcessKill: settings.allowProcessKill,
+    allowOsUpdates: settings.allowOsUpdates,
   };
 }
 
@@ -173,6 +174,8 @@ agentWss.on("connection", (socket: WebSocket, request: IncomingMessage) => {
         lastSeenAt: row?.last_seen_at ?? null,
       });
       log.info(`agent disconnected: ${connection.deviceName}`);
+      const deviceId = connection.deviceId;
+      void import("../osUpdates.js").then(({ onAgentDisconnected }) => onAgentDisconnected(deviceId));
     }
     connection.close("socket closed");
   });
@@ -227,6 +230,18 @@ function handleMessage(connection: AgentConnection, message: AgentMessage, remot
     case "capabilities":
       updateDeviceCapabilities(connection.deviceId, message.capabilities);
       return;
+    case "os_update_event": {
+      const deviceId = connection.deviceId;
+      void import("../osUpdates.js").then(({ applyAgentEvent }) =>
+        applyAgentEvent(deviceId, message.job, message.log ?? [], message.inventory)
+      );
+      return;
+    }
+    case "os_update_inventory": {
+      const deviceId = connection.deviceId;
+      void import("../osUpdates.js").then(({ noteInventory }) => noteInventory(deviceId, message.inventory));
+      return;
+    }
     case "rpc_result":
       connection.settle(message.id, message.ok, message.result, message.error);
       return;
@@ -346,5 +361,9 @@ function handleHello(connection: AgentConnection, message: AgentMessage, remote:
   void import("../agentUpdates.js").then(({ noteAgentConnected }) => {
     noteAgentConnected(enrolled.id, message.staticInfo.agentVersion);
   });
+  // Settles an OS update that was running or restarting when the device left.
+  void import("../osUpdates.js")
+    .then(({ onAgentConnected }) => onAgentConnected(enrolled.id))
+    .catch((error) => log.warn(`could not settle OS updates for ${enrolled.name}: ${String(error)}`));
 }
 

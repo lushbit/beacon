@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import type { AgentUpdateStateDto, AlertDto, MetricSample } from "@beacon/shared";
+import type { AgentUpdateStateDto, AlertDto, MetricSample, OsUpdateInventory, OsUpdateJobDto } from "@beacon/shared";
 
 /** In-process bus so the hub, the alert engine and the REST layer stay decoupled. */
 export interface BeaconEvents {
@@ -7,6 +7,12 @@ export interface BeaconEvents {
   alert: AlertDto;
   device_status: { deviceId: string; status: "online" | "offline"; lastSeenAt: number | null };
   agent_update: { deviceId: string; state: AgentUpdateStateDto };
+  os_update: {
+    deviceId: string;
+    job: OsUpdateJobDto | null;
+    log: string[];
+    inventory?: OsUpdateInventory | null;
+  };
 }
 
 /** Thin typed wrapper — composition avoids fighting EventEmitter's own overloads. */

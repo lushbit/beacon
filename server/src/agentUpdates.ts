@@ -5,6 +5,7 @@ import type { AgentManifestDto, AgentUpdateStateDto, UpdatePolicy } from "@beaco
 import { isNewer } from "@beacon/shared";
 import { audit } from "./audit.js";
 import { config } from "./config.js";
+import { db } from "./db/index.js";
 import { deviceSettings, getDeviceRow, listDeviceRows } from "./devices.js";
 import { bus } from "./events.js";
 import { agentFor } from "./hub/agents.js";
@@ -109,6 +110,11 @@ export async function requestAgentUpdate(deviceId: string, actor: string): Promi
   if (current.state === "requested" || current.state === "downloading" || current.state === "restarting") {
     return current;
   }
+
+  // Restarting the agent in the middle of an OS update would stop the package
+  // manager part way through.
+  const osJob = db.prepare("SELECT 1 FROM os_update_jobs WHERE device_id = ? AND state = 'running'").get(deviceId);
+  if (osJob) throw new UpdateNotPossible("An OS update is running on this device. Try again once it is done.");
 
   setState(deviceId, {
     state: "requested",

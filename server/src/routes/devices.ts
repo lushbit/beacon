@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Response } from "express";
 import { z } from "zod";
 import { UPDATE_POLICIES } from "@beacon/shared";
 import type { DeviceSettingsDto, DeviceStaticInfo, EnrollStatusDto, ListProcessesResult } from "@beacon/shared";
@@ -32,6 +32,7 @@ import {
   agentNeedsUpdate,
 } from "../agentUpdates.js";
 import { getLatestSample, getLatestSamples, getSpark } from "../metrics/store.js";
+import { cancelOsJob, jobWithLog, osUpdatesFor, OsUpdateNotPossible, startOsJob, summaryFor } from "../osUpdates.js";
 import { mergeDeviceSettings } from "../settings.js";
 import { handler, notFound, parseBody } from "./helpers.js";
 
@@ -83,6 +84,7 @@ devicesRouter.get(
         online: isOnline(row.id),
         latest: getLatestSample(row.id),
         activeAlerts: activeAlertCounts().get(row.id) ?? 0,
+        osUpdates: summaryFor(row.id),
         ...describe(row),
       })
     );
@@ -92,6 +94,7 @@ devicesRouter.get(
 const settingsSchema = z.object({
   sampleIntervalMs: z.number().int().min(1000).max(300_000).optional(),
   allowProcessKill: z.boolean().optional(),
+  allowOsUpdates: z.boolean().optional(),
   updatePolicy: z.enum(UPDATE_POLICIES).nullable().optional(),
   offlineAfterSec: z.number().int().min(15).max(86_400).optional(),
   panels: z
@@ -148,6 +151,7 @@ devicesRouter.patch(
         online: isOnline(updated.id),
         latest: getLatestSample(updated.id),
         activeAlerts: activeAlertCounts().get(updated.id) ?? 0,
+        osUpdates: summaryFor(updated.id),
         ...describe(updated),
       })
     );
@@ -249,6 +253,7 @@ devicesRouter.post(
         online: isOnline(updated.id),
         latest: getLatestSample(updated.id),
         activeAlerts: activeAlertCounts().get(updated.id) ?? 0,
+        osUpdates: summaryFor(updated.id),
         ...describe(updated),
       })
     );
@@ -267,6 +272,88 @@ devicesRouter.post(
       const message = error instanceof Error ? error.message : "Could not start the update.";
       res.status(error instanceof UpdateNotPossible ? 409 : 500).json({ error: message });
     }
+  })
+);
+
+/* ------------------------------------------------------------- OS updates */
+
+devicesRouter.get(
+  "/:id/os-updates",
+  handler((req, res) => {
+    const row = getDeviceRow(req.params.id);
+    if (!row) return notFound(res, "Device not found.");
+    res.json(osUpdatesFor(row.id));
+  })
+);
+
+devicesRouter.get(
+  "/:id/os-updates/jobs/:jobId",
+  handler((req, res) => {
+    const job = jobWithLog(req.params.id, req.params.jobId);
+    if (!job) return notFound(res, "Job not found.");
+    res.json(job);
+  })
+);
+
+/** Runs one of the job starters and turns a refusal into a readable 409. */
+async function respondWithJob(res: Response, start: () => Promise<unknown>) {
+  try {
+    res.status(202).json(await start());
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not start.";
+    res.status(error instanceof OsUpdateNotPossible ? 409 : 500).json({ error: message });
+  }
+}
+
+devicesRouter.post(
+  "/:id/os-updates/check",
+  requireAdmin,
+  handler(async (req, res) => {
+    const row = getDeviceRow(req.params.id);
+    if (!row) return notFound(res, "Device not found.");
+    await respondWithJob(res, () => startOsJob(row.id, "check", actorOf(req)));
+  })
+);
+
+const installSchema = z.object({
+  ids: z.array(z.string().min(1).max(400)).max(2000).nullable().default(null),
+  rebootAfter: z.boolean().default(false),
+});
+
+devicesRouter.post(
+  "/:id/os-updates/install",
+  requireAdmin,
+  handler(async (req, res) => {
+    const row = getDeviceRow(req.params.id);
+    if (!row) return notFound(res, "Device not found.");
+    const body = parseBody(installSchema, req, res);
+    if (!body) return;
+    await respondWithJob(res, () =>
+      startOsJob(row.id, "install", actorOf(req), { ids: body.ids, rebootAfter: body.rebootAfter })
+    );
+  })
+);
+
+devicesRouter.post(
+  "/:id/os-updates/reboot",
+  requireAdmin,
+  handler(async (req, res) => {
+    const row = getDeviceRow(req.params.id);
+    if (!row) return notFound(res, "Device not found.");
+    await respondWithJob(res, () => startOsJob(row.id, "reboot", actorOf(req)));
+  })
+);
+
+devicesRouter.post(
+  "/:id/os-updates/jobs/:jobId/cancel",
+  requireAdmin,
+  handler(async (req, res) => {
+    const row = getDeviceRow(req.params.id);
+    if (!row) return notFound(res, "Device not found.");
+    await respondWithJob(res, async () => {
+      await cancelOsJob(row.id, req.params.jobId, actorOf(req));
+      return { ok: true };
+    });
   })
 );
 
