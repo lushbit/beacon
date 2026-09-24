@@ -109,7 +109,7 @@ interface Vertex {
 }
 
 /** Median gap between samples, used to tell a real outage from normal spacing. */
-function medianStep(points: Point[]): number {
+export function medianStep(points: Point[]): number {
   if (points.length < 3) return 0;
   const steps: number[] = [];
   for (let index = 1; index < points.length; index++) steps.push(points[index].ts - points[index - 1].ts);

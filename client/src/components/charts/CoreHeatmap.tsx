@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { aggregate, bucketFor, linearScale, nearestIndex, timeAxisTicks, type Point } from "./chartUtils";
+import { aggregate, bucketFor, linearScale, medianStep, nearestIndex, timeAxisTicks, type Point } from "./chartUtils";
 import { useChartSize } from "./useChartSize";
 
 interface CoreHeatmapProps {
@@ -41,7 +41,23 @@ export function CoreHeatmap({ points, cores, from, to, className }: CoreHeatmapP
   const drawn = useMemo(() => aggregate(points, keys, bucketMs), [points, keys, bucketMs]);
   const x = useMemo(() => linearScale([from, to], [0, innerWidth]), [from, to, innerWidth]);
   const xTicks = useMemo(() => timeAxisTicks(from, to, innerWidth), [from, to, innerWidth]);
-  const cellWidth = Math.max(1, x(from + bucketMs) - x(from) - 1);
+
+  /*
+   * Each cell spans its whole bucket, from one clock boundary to the next,
+   * snapped to whole pixels. Centring cells on the samples inside a bucket made
+   * the gaps between them change width as samples arrived. A series stored
+   * coarser than the bucket (the minute and hour history) gets cells as wide
+   * as its own step, so it does not come out striped.
+   */
+  const cellMs = Math.max(bucketMs, medianStep(drawn));
+  const columnGap = x(from + cellMs) - x(from) >= 6 ? 2 : 1;
+  const rowGap = rowHeight >= 6 ? 2 : 1;
+  const cellOf = (ts: number) => {
+    const start = Math.floor(ts / cellMs) * cellMs;
+    const left = Math.max(0, Math.round(x(start)));
+    const right = Math.min(Math.round(innerWidth), Math.round(x(start + cellMs)));
+    return { left, width: Math.max(1, right - left - columnGap) };
+  };
 
   // Label every core when the rows have room for it, otherwise only some.
   const labelEvery = Math.max(1, Math.ceil(12 / rowHeight));
@@ -77,33 +93,34 @@ export function CoreHeatmap({ points, cores, from, to, className }: CoreHeatmapP
               ) : null
             )}
 
-            {drawn.map((point) =>
-              keys.map((key, core) => {
+            {drawn.map((point) => {
+              const cell = cellOf(point.ts);
+              return keys.map((key, core) => {
                 const value = point[key];
                 if (typeof value !== "number" || !Number.isFinite(value)) return null;
                 const load = Math.max(0, Math.min(100, value));
                 return (
                   <rect
                     key={`${point.ts}-${key}`}
-                    x={x(point.ts) - cellWidth / 2}
+                    x={cell.left}
                     y={core * rowHeight}
-                    width={cellWidth}
-                    height={Math.max(1, rowHeight - 1)}
-                    rx={rowHeight >= 8 ? 1.5 : 0}
+                    width={cell.width}
+                    height={Math.max(1, rowHeight - rowGap)}
+                    rx={rowHeight >= 8 && cell.width >= 4 ? 2 : 0}
                     fill="hsl(var(--series-ink))"
                     // A floor keeps an idle core visible as a row rather than a gap.
                     fillOpacity={0.06 + (load / 100) * 0.94}
                   />
                 );
-              })
-            )}
+              });
+            })}
 
             {hovered && hover ? (
               <rect
-                x={x(hovered.ts) - cellWidth / 2 - 1}
+                x={cellOf(hovered.ts).left - 1}
                 y={hover.core * rowHeight - 1}
-                width={cellWidth + 2}
-                height={rowHeight + 1}
+                width={cellOf(hovered.ts).width + 2}
+                height={rowHeight - rowGap + 2}
                 fill="none"
                 stroke="hsl(var(--foreground))"
                 strokeWidth={1}
