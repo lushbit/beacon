@@ -10,6 +10,8 @@ export const SERIES = {
   /** Two-series charts (download/upload, read/write) use slots 1 and 2. */
   in: "var(--series-1)",
   out: "var(--series-2)",
+  /** The third line where a chart has three, such as the load averages. */
+  third: "var(--series-3)",
   /** Three-series charts (CPU / memory / disk together) use slots 1–3. */
   cpu: "var(--series-1)",
   memory: "var(--series-2)",

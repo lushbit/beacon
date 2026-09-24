@@ -1,9 +1,21 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { ChevronDown } from "lucide-react";
 import { ChartLegend, TimeChart, type ChartSeries } from "@/components/charts/TimeChart";
 import type { Point } from "@/components/charts/chartUtils";
 import { cn } from "@/lib/utils";
 
-interface ChartPanelProps {
+/**
+ * A chart that sits under the main one and only appears once the panel is
+ * opened. `render` is called only while it is on screen, so its history is not
+ * fetched for a panel nobody opened.
+ */
+export interface MoreChart {
+  id: string;
+  title: string;
+  render: () => ReactNode;
+}
+
+export interface ChartPanelProps {
   title: string;
   value?: string;
   series: ChartSeries[];
@@ -17,7 +29,32 @@ interface ChartPanelProps {
   footer?: ReactNode;
   /** Sits beside the value, for a control that changes what the chart draws. */
   action?: ReactNode;
+  /** Further charts on the same subject, folded away under the main one. */
+  more?: MoreChart[];
+  /**
+   * Remembers whether the extra charts were left open, per kind of panel rather
+   * than per device, so opening the CPU details once opens them everywhere.
+   */
+  moreKey?: string;
   className?: string;
+}
+
+function rememberedOpen(key: string | undefined): boolean {
+  if (!key) return false;
+  try {
+    return window.localStorage.getItem(`beacon:more:${key}`) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function rememberOpen(key: string | undefined, open: boolean): void {
+  if (!key) return;
+  try {
+    window.localStorage.setItem(`beacon:more:${key}`, open ? "1" : "0");
+  } catch {
+    /* no storage in private browsing, and the panel still works without it */
+  }
 }
 
 export function ChartPanel({
@@ -32,10 +69,22 @@ export function ChartPanel({
   height = 210,
   footer,
   action,
+  more = [],
+  moreKey,
   className,
 }: ChartPanelProps) {
+  const [open, setOpen] = useState(() => rememberedOpen(moreKey));
+  const expanded = open && more.length > 0;
+
   return (
-    <section className={cn("rounded-lg border border-border/70 bg-card", className)}>
+    <section
+      className={cn(
+        "rounded-lg border border-border/70 bg-card",
+        // Two or more extra charts get the full row, so they can sit side by side.
+        expanded && more.length > 1 && "xl:col-span-2",
+        className
+      )}
+    >
       <header className="flex items-start justify-between gap-3 px-4 pt-4">
         <div>
           <h3 className="text-sm font-medium text-foreground">{title}</h3>
@@ -57,7 +106,80 @@ export function ChartPanel({
           height={height}
         />
       </div>
+
+      {more.length > 0 ? (
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(!open);
+              rememberOpen(moreKey, !open);
+            }}
+            aria-expanded={expanded}
+            className="flex w-full items-center justify-between gap-3 border-t border-border/60 px-4 py-2.5 text-left text-xs text-muted-foreground transition-colors hover:bg-white/[0.03] hover:text-foreground"
+          >
+            <span className="truncate">
+              {expanded ? "Hide details" : `More: ${more.map((chart) => chart.title).join(", ")}`}
+            </span>
+            <ChevronDown className={cn("h-4 w-4 shrink-0 transition-transform", expanded && "rotate-180")} />
+          </button>
+          {expanded ? (
+            <div
+              className={cn(
+                "grid gap-px border-t border-border/60 bg-border/60",
+                more.length > 1 && "lg:grid-cols-2"
+              )}
+            >
+              {more.map((chart) => (
+                <div key={chart.id} className="bg-card">
+                  {chart.render()}
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </>
+      ) : null}
+
       {footer ? <div className="border-t border-border/60 px-4 py-3">{footer}</div> : null}
     </section>
+  );
+}
+
+interface DetailChartProps {
+  title: string;
+  value?: string;
+  series: ChartSeries[];
+  points: Point[];
+  from: number;
+  to: number;
+  format: (value: number, axisMax?: number) => string;
+  clampMax?: number;
+  note?: ReactNode;
+}
+
+/** One of the extra charts: the same chart, a little shorter, with its own title. */
+export function DetailChart({ title, value, series, points, from, to, format, clampMax, note }: DetailChartProps) {
+  return (
+    <div className="px-2 pb-2 pt-3">
+      <div className="flex items-start justify-between gap-3 px-2">
+        <div>
+          <h4 className="text-xs font-medium text-foreground">{title}</h4>
+          <ChartLegend series={series} className="mt-1" />
+        </div>
+        {value ? <p className="shrink-0 text-sm font-semibold leading-none text-foreground tabular">{value}</p> : null}
+      </div>
+      <div className="pt-2">
+        <TimeChart
+          points={points}
+          series={series}
+          from={from}
+          to={to}
+          format={format}
+          clampMax={clampMax}
+          height={160}
+        />
+      </div>
+      {note ? <div className="px-2 pb-1 text-2xs text-muted-foreground">{note}</div> : null}
+    </div>
   );
 }

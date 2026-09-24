@@ -313,3 +313,25 @@ export function nearestIndex(points: Point[], ts: number): number {
   }
   return Math.abs(points[low].ts - ts) <= Math.abs(points[high].ts - ts) ? low : high;
 }
+
+/**
+ * The area under a rate series: bytes moved over the window when the series is
+ * bytes per second. A silence longer than a few sample intervals counts as
+ * nothing moved rather than as the last rate held across the gap.
+ */
+export function integrate(points: Point[], key: string): number | null {
+  const step = medianStep(points);
+  if (points.length < 2) return null;
+  const longest = step > 0 ? step * 3 : Infinity;
+  let total = 0;
+  let seen = false;
+  for (let index = 1; index < points.length; index++) {
+    const value = points[index][key];
+    if (typeof value !== "number" || !Number.isFinite(value)) continue;
+    const gap = points[index].ts - points[index - 1].ts;
+    if (gap <= 0 || gap > longest) continue;
+    total += (value * gap) / 1000;
+    seen = true;
+  }
+  return seen ? total : null;
+}

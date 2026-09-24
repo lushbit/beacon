@@ -49,6 +49,17 @@ export function formatPercent(value: number | null | undefined, digits = 0): str
   return `${value.toFixed(digits)}%`;
 }
 
+/** A clock speed given in MHz, shown in GHz once it reaches one. */
+export function formatClock(mhz: number | null | undefined): string {
+  if (mhz === null || mhz === undefined || !Number.isFinite(mhz)) return "—";
+  return mhz >= 1000 ? `${(mhz / 1000).toFixed(2)} GHz` : `${Math.round(mhz)} MHz`;
+}
+
+export function formatLoad(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return value.toFixed(2);
+}
+
 export function formatTemperature(celsius: number | null | undefined, unit: "c" | "f" = "c"): string {
   if (celsius === null || celsius === undefined) return "—";
   return unit === "f" ? `${Math.round(celsius * 1.8 + 32)}°F` : `${Math.round(celsius)}°C`;

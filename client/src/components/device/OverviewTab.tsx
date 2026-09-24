@@ -1,11 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, Battery, BatteryCharging, Container, Cpu, HardDrive, MemoryStick } from "lucide-react";
+import {
+  Activity,
+  ArrowDownUp,
+  Battery,
+  BatteryCharging,
+  Container,
+  Cpu,
+  HardDrive,
+  MemoryStick,
+  Thermometer,
+} from "lucide-react";
 import type { DeviceDto, DiskDevice, DiskUsage, MetricSample } from "@beacon/shared";
 import { CoreBars } from "@/components/charts/CoreBars";
 import { Meter } from "@/components/charts/Meter";
 import { StatTile } from "@/components/StatTile";
 import type { ChartSeries } from "@/components/charts/TimeChart";
-import { ChartPanel } from "@/components/device/ChartPanel";
+import { ChartPanel, DetailChart, type MoreChart } from "@/components/device/ChartPanel";
+import { CoreChart, SummaryChart, SummaryPanel } from "@/components/device/DetailCharts";
+import { integrate } from "@/components/charts/chartUtils";
 import { EmptyState } from "@/components/ui/misc";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useSeries } from "@/hooks/useSeries";
@@ -14,7 +26,9 @@ import { gpuName } from "@/lib/gpu";
 import { cn } from "@/lib/utils";
 import {
   formatBytes,
+  formatClock,
   formatDuration,
+  formatLoad,
   formatPercent,
   formatRate,
   formatTemperature,
@@ -43,6 +57,9 @@ function remember(kind: string, deviceId: string, name: string): void {
   }
 }
 
+/** Radix refuses an empty value, so the total gets a name no interface has. */
+const ALL_INTERFACES = "__all__";
+
 /** A drive's line in the dropdown: what it is, and how big. */
 function driveLabel(drive: DiskDevice): string {
   const name = [drive.vendor, drive.name].filter(Boolean).join(" ").trim() || drive.device;
@@ -63,7 +80,6 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
 
   const cpu = useSeries(device.id, rangeSeconds, ["cpuPct"]);
   const memory = useSeries(device.id, rangeSeconds, ["memPct"]);
-  const network = useSeries(device.id, rangeSeconds, ["netRxBps", "netTxBps"]);
   const disk = useSeries(device.id, rangeSeconds, ["diskReadBps", "diskWriteBps"]);
   const thermal = useSeries(device.id, rangeSeconds, ["cpuTempC"]);
 
@@ -110,6 +126,18 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
     () => (detail?.network ?? []).filter((entry) => !device.settings.panels.hiddenInterfaces.includes(entry.iface)),
     [detail, device.settings.panels.hiddenInterfaces]
   );
+
+  /*
+   * The network chart draws every interface added together until one is
+   * picked. A pick is remembered like a drive's, and falls back to the total
+   * when that interface goes away or is hidden in the settings.
+   */
+  const [chosenIface, setChosenIface] = useState<string | null>(() => remembered("iface", device.id));
+  useEffect(() => setChosenIface(remembered("iface", device.id)), [device.id]);
+  const iface = visibleInterfaces.find((entry) => entry.iface === chosenIface) ?? null;
+  const network = useSeries(device.id, rangeSeconds, ["netRxBps", "netTxBps"], { iface: iface?.iface });
+  const received = useMemo(() => integrate(network.points, "netRxBps"), [network.points]);
+  const sent = useMemo(() => integrate(network.points, "netTxBps"), [network.points]);
 
   /*
    * Every adapter the device reports, minus the ones this device's settings
@@ -187,13 +215,206 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
   // `max` is the top of the axis: every label on one axis shares the unit that
   // suits it, rather than each tick picking its own.
   const rate = (value: number, max?: number) => formatRate(value, unitBase, max);
+  const bytes = (value: number, max?: number) => formatBytes(value, unitBase, max);
+  const load = (value: number) => value.toFixed(value < 10 ? 2 : 1);
+
+  const cores = detail?.cpu.perCore.length ?? 0;
+  const hasLoad = summary?.load1 != null;
+
+  /* The main chart of each panel always stays on screen. Anything else about
+   * the same part of the machine folds away under it. */
+  const cpuMore: MoreChart[] = [];
+  if (hasLoad) {
+    cpuMore.push({
+      id: "load",
+      title: "Load average",
+      render: () => (
+        <SummaryChart
+          deviceId={device.id}
+          rangeSeconds={rangeSeconds}
+          title="Load average"
+          value={[summary?.load1, summary?.load5, summary?.load15].map(formatLoad).join(" · ")}
+          series={[
+            { key: "load1", label: "1 min", color: SERIES.in },
+            { key: "load5", label: "5 min", color: SERIES.out },
+            { key: "load15", label: "15 min", color: SERIES.third },
+          ]}
+          format={load}
+          note={
+            cores > 0
+              ? `${cores} logical cores. A load above ${cores} means work was waiting for a free core.`
+              : undefined
+          }
+        />
+      ),
+    });
+  }
+  if (cores > 1) {
+    cpuMore.push({
+      id: "cores",
+      title: "Per core",
+      render: () => <CoreChart deviceId={device.id} rangeSeconds={rangeSeconds} cores={cores} />,
+    });
+  }
+  if (summary?.cpuUserPct != null) {
+    const steal = device.staticInfo?.isVirtual || (summary.cpuStealPct ?? 0) > 0;
+    cpuMore.push({
+      id: "time",
+      title: "User and system",
+      render: () => (
+        <SummaryChart
+          deviceId={device.id}
+          rangeSeconds={rangeSeconds}
+          title="User and system"
+          series={[
+            { key: "cpuUserPct", label: "User", color: SERIES.in },
+            { key: "cpuSystemPct", label: "System", color: SERIES.out },
+            ...(steal ? [{ key: "cpuStealPct" as const, label: "Steal", color: SERIES.third }] : []),
+          ]}
+          format={percent}
+          clampMax={100}
+          note={
+            steal
+              ? "Steal is time this virtual machine spent waiting for its host."
+              : "Programs run as user time. The kernel working for them is system time."
+          }
+        />
+      ),
+    });
+  }
+  if (summary?.cpuMhz != null) {
+    cpuMore.push({
+      id: "clock",
+      title: "Clock speed",
+      render: () => (
+        <SummaryChart
+          deviceId={device.id}
+          rangeSeconds={rangeSeconds}
+          title="Clock speed"
+          value={formatClock(summary?.cpuMhz)}
+          series={[{ key: "cpuMhz", label: "Clock", color: SERIES.ink }]}
+          format={formatClock}
+          note="The average across all cores."
+        />
+      ),
+    });
+  }
+
+  const memoryMore: MoreChart[] = [];
+  if (summary?.memCacheBytes != null) {
+    memoryMore.push({
+      id: "cache",
+      title: "Used and cached",
+      render: () => (
+        <SummaryChart
+          deviceId={device.id}
+          rangeSeconds={rangeSeconds}
+          title="Used and cached"
+          series={[
+            { key: "memUsedBytes", label: "Used", color: SERIES.in },
+            { key: "memCacheBytes", label: "Cache", color: SERIES.out },
+          ]}
+          format={bytes}
+          note="The system hands cache back to programs as soon as they need it."
+        />
+      ),
+    });
+  }
+  if (summary?.swapPct != null) {
+    memoryMore.push({
+      id: "swap",
+      title: "Swap",
+      render: () => (
+        <SummaryChart
+          deviceId={device.id}
+          rangeSeconds={rangeSeconds}
+          title="Swap"
+          value={
+            summary?.swapUsedBytes != null && summary?.swapTotalBytes != null
+              ? `${formatBytes(summary.swapUsedBytes, unitBase)} of ${formatBytes(summary.swapTotalBytes, unitBase)}`
+              : formatPercent(summary?.swapPct)
+          }
+          series={[{ key: "swapPct", label: "Swap", color: SERIES.ink }]}
+          format={percent}
+          clampMax={100}
+        />
+      ),
+    });
+  }
+
+  const diskMore: MoreChart[] = [];
+  if (summary?.diskUsedBytes != null) {
+    diskMore.push({
+      id: "space",
+      title: "Space used",
+      render: () => (
+        <SummaryChart
+          deviceId={device.id}
+          rangeSeconds={rangeSeconds}
+          title="Space used"
+          value={
+            summary?.diskUsedBytes != null && summary?.diskTotalBytes != null
+              ? `${formatBytes(summary.diskUsedBytes, unitBase)} of ${formatBytes(summary.diskTotalBytes, unitBase)}`
+              : undefined
+          }
+          series={[{ key: "diskUsedBytes", label: "Used", color: SERIES.ink }]}
+          format={bytes}
+          note="Every volume added together."
+        />
+      ),
+    });
+  }
+
+  const gpuMore: MoreChart[] = [];
+  if (gpu?.temperatureC != null) {
+    gpuMore.push({
+      id: "temperature",
+      title: "Temperature",
+      render: () => (
+        <DetailChart
+          title="Temperature"
+          value={formatTemperature(gpu?.temperatureC, temperatureUnit)}
+          series={[{ key: "gpuTempC", label: "Temperature", color: SERIES.ink }]}
+          points={gpuHistory.points}
+          from={gpuHistory.from}
+          to={gpuHistory.to}
+          format={(value) => formatTemperature(value, temperatureUnit)}
+        />
+      ),
+    });
+  }
+
+  const containersMore: MoreChart[] = [];
+  if (device.capabilities.docker && summary?.containersTotal != null) {
+    containersMore.push({
+      id: "containers",
+      title: "Running containers",
+      render: () => (
+        <SummaryChart
+          deviceId={device.id}
+          rangeSeconds={rangeSeconds}
+          title="Running containers"
+          value={`${summary?.containersRunning ?? 0} of ${summary?.containersTotal ?? 0}`}
+          series={[{ key: "containersRunning", label: "Running", color: SERIES.ink }]}
+          format={(value) => value.toFixed(0)}
+        />
+      ),
+    });
+  }
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="CPU" value={formatPercent(summary?.cpuPct)} icon={Cpu} sublabel={
-          summary?.load1 !== null && summary?.load1 !== undefined ? `load ${summary.load1.toFixed(2)}` : undefined
-        } />
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] gap-3">
+        <StatTile
+          label="CPU"
+          value={formatPercent(summary?.cpuPct)}
+          icon={Cpu}
+          sublabel={
+            hasLoad
+              ? `load ${[summary?.load1, summary?.load5, summary?.load15].map(formatLoad).join(" · ")}`
+              : undefined
+          }
+        />
         <StatTile
           label="Memory"
           value={formatPercent(summary?.memPct)}
@@ -214,6 +435,22 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
               : undefined
           }
         />
+        <StatTile
+          label="Network"
+          value={`↓ ${formatRate(summary?.netRxBps ?? null, unitBase)}`}
+          icon={ArrowDownUp}
+          sublabel={summary?.netTxBps != null ? `↑ ${formatRate(summary.netTxBps, unitBase)}` : undefined}
+        />
+        {summary?.cpuTempC != null ? (
+          <StatTile
+            label="Temperature"
+            value={formatTemperature(summary.cpuTempC, temperatureUnit)}
+            icon={Thermometer}
+            sublabel={
+              summary.gpuTempC != null ? `GPU ${formatTemperature(summary.gpuTempC, temperatureUnit)}` : "CPU"
+            }
+          />
+        ) : null}
         <StatTile
           label="Uptime"
           value={formatDuration(summary?.uptimeSec ?? null)}
@@ -244,7 +481,7 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
         ) : null}
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid items-start gap-4 xl:grid-cols-2">
         <ChartPanel
           title="CPU usage"
           value={formatPercent(summary?.cpuPct)}
@@ -254,10 +491,15 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
           to={cpu.to}
           format={percent}
           clampMax={100}
+          more={cpuMore}
+          moreKey="cpu"
           footer={
             detail && detail.cpu.perCore.length > 0 ? (
               <div className="space-y-2">
-                <p className="text-2xs text-muted-foreground">Per core</p>
+                <p className="text-2xs text-muted-foreground">
+                  Per core now
+                  {detail.cpu.speedGhz ? ` · ${formatClock(detail.cpu.speedGhz * 1000)}` : ""}
+                </p>
                 <CoreBars cores={detail.cpu.perCore} />
               </div>
             ) : null
@@ -273,6 +515,8 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
           to={memory.to}
           format={percent}
           clampMax={100}
+          more={memoryMore}
+          moreKey="memory"
           footer={
             summary?.swapPct != null ? (
               <Meter label="Swap" value={summary.swapPct} valueLabel={formatPercent(summary.swapPct)} />
@@ -282,6 +526,13 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
 
         <ChartPanel
           title="Network"
+          value={
+            iface
+              ? `↓ ${formatRate(iface.rxBytesPerSec, unitBase)}`
+              : summary?.netRxBps != null
+                ? `↓ ${formatRate(summary.netRxBps, unitBase)}`
+                : undefined
+          }
           series={[
             { key: "netRxBps", label: "Download", color: SERIES.in },
             { key: "netTxBps", label: "Upload", color: SERIES.out },
@@ -290,18 +541,54 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
           from={network.from}
           to={network.to}
           format={rate}
+          action={
+            visibleInterfaces.length > 1 ? (
+              <Select
+                value={iface?.iface ?? ALL_INTERFACES}
+                onValueChange={(value) => {
+                  const next = value === ALL_INTERFACES ? null : value;
+                  setChosenIface(next);
+                  remember("iface", device.id, next ?? "");
+                }}
+              >
+                <SelectTrigger className="h-8 w-40 text-xs [&>span]:truncate" aria-label="Which interface to chart">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="max-w-[22rem]">
+                  <SelectItem value={ALL_INTERFACES}>All interfaces</SelectItem>
+                  {visibleInterfaces.map((entry) => (
+                    <SelectItem key={entry.iface} value={entry.iface} className="truncate">
+                      {entry.iface}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : null
+          }
           footer={
-            visibleInterfaces.length > 0 ? (
-              <ul className="space-y-1.5">
-                {visibleInterfaces.slice(0, 4).map((entry) => (
-                  <li key={entry.iface} className="flex items-center justify-between gap-3 text-xs">
-                    <span className="truncate text-muted-foreground">{entry.iface}</span>
-                    <span className="shrink-0 text-foreground tabular">
-                      ↓ {formatRate(entry.rxBytesPerSec, unitBase)} · ↑ {formatRate(entry.txBytesPerSec, unitBase)}
+            visibleInterfaces.length > 0 || received !== null || sent !== null ? (
+              <div className="space-y-2.5">
+                {received !== null || sent !== null ? (
+                  <p className="flex flex-wrap justify-between gap-x-3 text-xs">
+                    <span className="text-muted-foreground">
+                      Transferred in this range{iface ? ` on ${iface.iface}` : ""}
                     </span>
-                  </li>
-                ))}
-              </ul>
+                    <span className="text-foreground tabular">
+                      ↓ {formatBytes(received, unitBase)} · ↑ {formatBytes(sent, unitBase)}
+                    </span>
+                  </p>
+                ) : null}
+                <ul className="space-y-1.5">
+                  {visibleInterfaces.slice(0, 4).map((entry) => (
+                    <li key={entry.iface} className="flex items-center justify-between gap-3 text-xs">
+                      <span className="truncate text-muted-foreground">{entry.iface}</span>
+                      <span className="shrink-0 text-foreground tabular">
+                        ↓ {formatRate(entry.rxBytesPerSec, unitBase)} · ↑ {formatRate(entry.txBytesPerSec, unitBase)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ) : null
           }
         />
@@ -318,6 +605,8 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
             from={drive ? driveHistory.from : disk.from}
             to={drive ? driveHistory.to : disk.to}
             format={rate}
+            more={diskMore}
+            moreKey="disk"
             action={
               drives.length > 1 ? (
                 <Select
@@ -378,6 +667,8 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
             to={gpuHistory.to}
             format={percent}
             clampMax={100}
+            more={gpuMore}
+            moreKey="gpu"
             action={
               gpus.length > 1 ? (
                 <Select
@@ -424,6 +715,42 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
                 ))}
               </ul>
             }
+          />
+        ) : null}
+
+        {!device.capabilities.diskIo && summary?.diskUsedBytes != null ? (
+          <SummaryPanel
+            deviceId={device.id}
+            rangeSeconds={rangeSeconds}
+            title="Disk space"
+            value={formatBytes(summary.diskUsedBytes, unitBase)}
+            series={[{ key: "diskUsedBytes", label: "Used", color: SERIES.ink }]}
+            format={bytes}
+          />
+        ) : null}
+
+        {summary?.processCount ? (
+          <SummaryPanel
+            deviceId={device.id}
+            rangeSeconds={rangeSeconds}
+            title="Processes"
+            value={String(summary.processCount)}
+            series={[{ key: "processCount", label: "Processes", color: SERIES.ink }]}
+            format={(value) => value.toFixed(0)}
+            more={containersMore}
+            moreKey="processes"
+          />
+        ) : null}
+
+        {detail?.battery ? (
+          <SummaryPanel
+            deviceId={device.id}
+            rangeSeconds={rangeSeconds}
+            title="Battery"
+            value={formatPercent(detail.battery.percent)}
+            series={[{ key: "batteryPct", label: "Battery", color: SERIES.ink }]}
+            format={percent}
+            clampMax={100}
           />
         ) : null}
       </div>
