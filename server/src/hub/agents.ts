@@ -47,6 +47,9 @@ export class AgentConnection {
   deviceId: string | null = null;
   deviceName = "";
   lastMessageAt = Date.now();
+  /** When the unanswered ping went out, so its pong gives the round trip. */
+  pingSentAt: number | null = null;
+  rttMs: number | null = null;
 
   constructor(readonly socket: WebSocket) {}
 
@@ -142,7 +145,8 @@ agentWss.on("connection", (socket: WebSocket, request: IncomingMessage) => {
       connection.close("idle timeout");
       return;
     }
-    connection.send({ type: "ping", ts: Date.now() });
+    connection.pingSentAt = Date.now();
+    connection.send({ type: "ping", ts: connection.pingSentAt });
   }, PING_INTERVAL_MS);
 
   socket.on("message", (raw) => {
@@ -184,6 +188,12 @@ function handleMessage(connection: AgentConnection, message: AgentMessage, remot
       handleHello(connection, message, remote);
       return;
     case "pong":
+      // Timed on the hub's clock alone, so a device whose clock is off still
+      // reads right. Every agent has always answered pings.
+      if (connection.pingSentAt !== null) {
+        connection.rttMs = Date.now() - connection.pingSentAt;
+        connection.pingSentAt = null;
+      }
       return;
     default:
       break;
@@ -198,6 +208,8 @@ function handleMessage(connection: AgentConnection, message: AgentMessage, remot
   switch (message.type) {
     case "sample": {
       const deviceId = connection.deviceId;
+      // Pings go out every 20 seconds, so each sample carries the latest one.
+      message.sample.summary.hubRttMs = connection.rttMs;
       insertSample(deviceId, message.sample);
       touchDevice(deviceId, message.sample.ts);
       bus.emit("sample", { deviceId, sample: message.sample });

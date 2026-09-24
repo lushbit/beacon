@@ -50,6 +50,11 @@ export interface DiskDevice {
   temperatureC: number | null;
   readBps: number | null;
   writeBps: number | null;
+  /** Reads and writes completed per second. Absent from agents before 1.3.0. */
+  readIops?: number | null;
+  writeIops?: number | null;
+  /** Share of the time the drive was working on something, 0 to 100. */
+  busyPct?: number | null;
 }
 
 export interface NetInterfaceUsage {
@@ -74,12 +79,17 @@ export interface GpuUsage {
    */
   memoryShared: boolean;
   temperatureC: number | null;
+  /** Watts drawn by the card, where the driver says. Absent before 1.3.0. */
+  powerW?: number | null;
 }
 
 export interface BatteryUsage {
   percent: number;
   isCharging: boolean;
   minutesRemaining: number | null;
+  /** How much charge a full battery holds now, against when it was new. */
+  healthPct?: number | null;
+  cycleCount?: number | null;
 }
 
 export interface ProcessSummary {
@@ -154,6 +164,19 @@ export interface MetricSummary {
   swapTotalBytes?: number | null;
   /** The main GPU's temperature, the same card `gpuPct` reports. */
   gpuTempC?: number | null;
+  gpuPowerW?: number | null;
+  /** The busiest drive's busy time, which is what a saturated disk shows as. */
+  diskBusyPct?: number | null;
+  diskReadIops?: number | null;
+  diskWriteIops?: number | null;
+  /** All running containers added together. */
+  containersCpuPct?: number | null;
+  containersMemBytes?: number | null;
+  /**
+   * How long a message takes to reach the agent and come back, measured by the
+   * hub rather than the agent, so it works whatever agent version is running.
+   */
+  hubRttMs?: number | null;
   load1: number | null;
   load5: number | null;
   load15: number | null;

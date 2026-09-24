@@ -98,6 +98,13 @@ CREATE TABLE IF NOT EXISTS samples (
   swap_used      REAL,
   swap_total     REAL,
   gpu_temp_c     REAL,
+  gpu_power_w    REAL,
+  disk_busy_pct  REAL,
+  disk_read_iops REAL,
+  disk_write_iops REAL,
+  containers_cpu_pct REAL,
+  containers_mem REAL,
+  hub_rtt_ms     REAL,
   load1          REAL,
   load5          REAL,
   load15         REAL,
@@ -126,6 +133,7 @@ CREATE TABLE IF NOT EXISTS gpu_samples (
   gpu_pct     REAL,
   gpu_mem_pct REAL,
   temp_c      REAL,
+  power_w     REAL,
   PRIMARY KEY (device_id, tier, ts, gpu)
 ) WITHOUT ROWID;
 
@@ -171,6 +179,10 @@ CREATE TABLE IF NOT EXISTS disk_samples (
   disk      TEXT NOT NULL,
   read_bps  REAL,
   write_bps REAL,
+  read_iops  REAL,
+  write_iops REAL,
+  busy_pct   REAL,
+  temp_c     REAL,
   PRIMARY KEY (device_id, tier, ts, disk)
 ) WITHOUT ROWID;
 

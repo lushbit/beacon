@@ -91,6 +91,10 @@ export function useSeries(
       const drive = sample.detail.drives?.find((entry) => entry.device === disk);
       next.diskReadBps = drive?.readBps ?? null;
       next.diskWriteBps = drive?.writeBps ?? null;
+      next.diskReadIops = drive?.readIops ?? null;
+      next.diskWriteIops = drive?.writeIops ?? null;
+      next.diskBusyPct = drive?.busyPct ?? null;
+      next.diskTempC = drive?.temperatureC ?? null;
     } else if (gpu === undefined) {
       for (const field of fieldKey.split(",") as Field[]) {
         const value = sample.summary[field];
@@ -106,6 +110,7 @@ export function useSeries(
           ? Math.round((entry.memoryUsedMb / entry.memoryTotalMb) * 1000) / 10
           : null;
       next.gpuTempC = entry?.temperatureC ?? null;
+      next.gpuPowerW = entry?.powerW ?? null;
     }
 
     const range = shownRange.current;

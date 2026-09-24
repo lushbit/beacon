@@ -55,6 +55,22 @@ export function formatClock(mhz: number | null | undefined): string {
   return mhz >= 1000 ? `${(mhz / 1000).toFixed(2)} GHz` : `${Math.round(mhz)} MHz`;
 }
 
+export function formatWatts(watts: number | null | undefined): string {
+  if (watts === null || watts === undefined || !Number.isFinite(watts)) return "—";
+  return `${watts.toFixed(watts < 10 ? 1 : 0)} W`;
+}
+
+export function formatMs(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined || !Number.isFinite(ms)) return "—";
+  return `${ms < 10 ? ms.toFixed(1) : Math.round(ms)} ms`;
+}
+
+/** Reads or writes a second. */
+export function formatOps(ops: number | null | undefined): string {
+  if (ops === null || ops === undefined || !Number.isFinite(ops)) return "—";
+  return ops >= 10_000 ? `${(ops / 1000).toFixed(0)}k/s` : `${Math.round(ops)}/s`;
+}
+
 export function formatLoad(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
   return value.toFixed(2);

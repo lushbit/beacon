@@ -26,6 +26,13 @@ const SUMMARY_COLUMNS = [
   ["swapUsedBytes", "swap_used"],
   ["swapTotalBytes", "swap_total"],
   ["gpuTempC", "gpu_temp_c"],
+  ["gpuPowerW", "gpu_power_w"],
+  ["diskBusyPct", "disk_busy_pct"],
+  ["diskReadIops", "disk_read_iops"],
+  ["diskWriteIops", "disk_write_iops"],
+  ["containersCpuPct", "containers_cpu_pct"],
+  ["containersMemBytes", "containers_mem"],
+  ["hubRttMs", "hub_rtt_ms"],
   ["load1", "load1"],
   ["load5", "load5"],
   ["load15", "load15"],
@@ -48,8 +55,8 @@ function numberOrNull(value: unknown): number | null {
 }
 
 const insertGpuStmt = db.prepare(
-  `INSERT OR REPLACE INTO gpu_samples (device_id, tier, ts, gpu, gpu_pct, gpu_mem_pct, temp_c)
-   VALUES (?, 'raw', ?, ?, ?, ?, ?)`
+  `INSERT OR REPLACE INTO gpu_samples (device_id, tier, ts, gpu, gpu_pct, gpu_mem_pct, temp_c, power_w)
+   VALUES (?, 'raw', ?, ?, ?, ?, ?, ?)`
 );
 
 /**
@@ -71,27 +78,33 @@ function insertGpuSample(deviceId: string, sample: MetricSample): void {
       index,
       numberOrNull(entry.utilizationPct),
       memPct,
-      numberOrNull(entry.temperatureC)
+      numberOrNull(entry.temperatureC),
+      numberOrNull(entry.powerW)
     );
   });
 }
 
 const insertDiskStmt = db.prepare(
-  `INSERT OR REPLACE INTO disk_samples (device_id, tier, ts, disk, read_bps, write_bps)
-   VALUES (?, 'raw', ?, ?, ?, ?)`
+  `INSERT OR REPLACE INTO disk_samples
+     (device_id, tier, ts, disk, read_bps, write_bps, read_iops, write_iops, busy_pct, temp_c)
+   VALUES (?, 'raw', ?, ?, ?, ?, ?, ?, ?, ?)`
 );
 
 /** A row per drive beside the sample, for the same reason the GPUs get one. */
 function insertDiskSample(deviceId: string, sample: MetricSample): void {
   for (const drive of sample.detail.drives ?? []) {
     if (!drive.device) continue;
-    if (drive.readBps === null && drive.writeBps === null) continue;
+    if (drive.readBps === null && drive.writeBps === null && drive.temperatureC === null) continue;
     insertDiskStmt.run(
       deviceId,
       sample.ts,
       drive.device,
       numberOrNull(drive.readBps),
-      numberOrNull(drive.writeBps)
+      numberOrNull(drive.writeBps),
+      numberOrNull(drive.readIops),
+      numberOrNull(drive.writeIops),
+      numberOrNull(drive.busyPct),
+      numberOrNull(drive.temperatureC)
     );
   }
 }
@@ -283,7 +296,7 @@ export function queryGpuSeries(
 ): MetricSeriesDto {
   const rows = db
     .prepare(
-      `SELECT ts, gpu_pct, gpu_mem_pct, temp_c FROM gpu_samples
+      `SELECT ts, gpu_pct, gpu_mem_pct, temp_c, power_w FROM gpu_samples
         WHERE device_id = ? AND tier = ? AND gpu = ? AND ts >= ? AND ts <= ?
         ORDER BY ts ASC`
     )
@@ -302,6 +315,7 @@ export function queryGpuSeries(
           gpuPct: numberOrNull(row.gpu_pct),
           gpuMemPct: numberOrNull(row.gpu_mem_pct),
           gpuTempC: numberOrNull(row.temp_c),
+          gpuPowerW: numberOrNull(row.power_w),
         }) as unknown as MetricSeriesDto["points"][number]
     ),
   };
@@ -317,7 +331,7 @@ export function queryDiskSeries(
 ): MetricSeriesDto {
   const rows = db
     .prepare(
-      `SELECT ts, read_bps, write_bps FROM disk_samples
+      `SELECT ts, read_bps, write_bps, read_iops, write_iops, busy_pct, temp_c FROM disk_samples
         WHERE device_id = ? AND tier = ? AND disk = ? AND ts >= ? AND ts <= ?
         ORDER BY ts ASC`
     )
@@ -335,6 +349,10 @@ export function queryDiskSeries(
           ts: row.ts,
           diskReadBps: numberOrNull(row.read_bps),
           diskWriteBps: numberOrNull(row.write_bps),
+          diskReadIops: numberOrNull(row.read_iops),
+          diskWriteIops: numberOrNull(row.write_iops),
+          diskBusyPct: numberOrNull(row.busy_pct),
+          diskTempC: numberOrNull(row.temp_c),
         }) as unknown as MetricSeriesDto["points"][number]
     ),
   };
@@ -424,9 +442,9 @@ function rollupSql(target: MetricTier, source: MetricTier, bucketMs: number): st
 
 function gpuRollupSql(target: MetricTier, source: MetricTier, bucketMs: number): string {
   return `
-    INSERT OR REPLACE INTO gpu_samples (device_id, tier, ts, gpu, gpu_pct, gpu_mem_pct, temp_c)
+    INSERT OR REPLACE INTO gpu_samples (device_id, tier, ts, gpu, gpu_pct, gpu_mem_pct, temp_c, power_w)
     SELECT device_id, '${target}', (ts / ${bucketMs}) * ${bucketMs} AS bucket, gpu,
-           AVG(gpu_pct), AVG(gpu_mem_pct), AVG(temp_c)
+           AVG(gpu_pct), AVG(gpu_mem_pct), AVG(temp_c), AVG(power_w)
       FROM gpu_samples
      WHERE tier = '${source}' AND ts >= ? AND ts < ?
      GROUP BY device_id, bucket, gpu`;
@@ -436,9 +454,10 @@ const rollupMinute = db.prepare(rollupSql("minute", "raw", 60_000));
 const rollupHour = db.prepare(rollupSql("hour", "minute", 3_600_000));
 function diskRollupSql(target: MetricTier, source: MetricTier, bucketMs: number): string {
   return `
-    INSERT OR REPLACE INTO disk_samples (device_id, tier, ts, disk, read_bps, write_bps)
+    INSERT OR REPLACE INTO disk_samples
+      (device_id, tier, ts, disk, read_bps, write_bps, read_iops, write_iops, busy_pct, temp_c)
     SELECT device_id, '${target}', (ts / ${bucketMs}) * ${bucketMs} AS bucket, disk,
-           AVG(read_bps), AVG(write_bps)
+           AVG(read_bps), AVG(write_bps), AVG(read_iops), AVG(write_iops), AVG(busy_pct), AVG(temp_c)
       FROM disk_samples
      WHERE tier = '${source}' AND ts >= ? AND ts < ?
      GROUP BY device_id, bucket, disk`;

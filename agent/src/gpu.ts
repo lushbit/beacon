@@ -90,7 +90,7 @@ const NVIDIA_CANDIDATES =
     : ["nvidia-smi", "/usr/bin/nvidia-smi", "/usr/local/bin/nvidia-smi"];
 
 const NVIDIA_QUERY = [
-  "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu",
+  "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw",
   "--format=csv,noheader,nounits",
 ];
 
@@ -128,9 +128,9 @@ async function readNvidia(): Promise<GpuUsage[]> {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      // name, utilization, memory used, memory total, temperature. A field the
-      // card does not report reads "[N/A]" and parses to null.
-      const [name, utilization, used, total, temperature] = line.split(",").map((field) => field.trim());
+      // name, utilization, memory used, memory total, temperature, power. A
+      // field the card does not report reads "[N/A]" and parses to null.
+      const [name, utilization, used, total, temperature, power] = line.split(",").map((field) => field.trim());
       return {
         model: name ?? "",
         vendor: "NVIDIA",
@@ -139,6 +139,7 @@ async function readNvidia(): Promise<GpuUsage[]> {
         memoryTotalMb: numberOrNull(total),
         memoryShared: false,
         temperatureC: numberOrNull(temperature),
+        powerW: roundedWatts(numberOrNull(power)),
       } satisfies GpuUsage;
     });
 }
@@ -169,19 +170,33 @@ async function readNumber(path: string): Promise<number | null> {
   return numberOrNull(await readText(path));
 }
 
-/** amdgpu hangs its temperature off a hwmon directory with a generated name. */
-async function readCardTemperature(device: string): Promise<number | null> {
+function roundedWatts(watts: number | null): number | null {
+  return watts === null ? null : Math.round(watts * 10) / 10;
+}
+
+/**
+ * amdgpu hangs its temperature and power off a hwmon directory with a
+ * generated name. Power is in microwatts, and older kernels call it
+ * `power1_input` where newer ones say `power1_average`.
+ */
+async function readCardSensors(device: string): Promise<{ temperatureC: number | null; powerW: number | null }> {
   let entries: string[];
   try {
     entries = await readdir(`${device}/hwmon`);
   } catch {
-    return null;
+    return { temperatureC: null, powerW: null };
   }
   for (const entry of entries) {
-    const millidegrees = await readNumber(`${device}/hwmon/${entry}/temp1_input`);
-    if (millidegrees !== null) return Math.round(millidegrees / 1000);
+    const base = `${device}/hwmon/${entry}`;
+    const millidegrees = await readNumber(`${base}/temp1_input`);
+    const microwatts = (await readNumber(`${base}/power1_average`)) ?? (await readNumber(`${base}/power1_input`));
+    if (millidegrees === null && microwatts === null) continue;
+    return {
+      temperatureC: millidegrees === null ? null : Math.round(millidegrees / 1000),
+      powerW: roundedWatts(microwatts === null ? null : microwatts / 1_000_000),
+    };
   }
-  return null;
+  return { temperatureC: null, powerW: null };
 }
 
 async function readSysfs(): Promise<GpuUsage[]> {
@@ -202,7 +217,7 @@ async function readSysfs(): Promise<GpuUsage[]> {
     const busy = await readNumber(`${device}/gpu_busy_percent`);
     const used = await readNumber(`${device}/mem_info_vram_used`);
     const total = await readNumber(`${device}/mem_info_vram_total`);
-    const temperature = await readCardTemperature(device);
+    const { temperatureC: temperature, powerW } = await readCardSensors(device);
     // A card that reports none of these adds nothing si has not already said.
     if (busy === null && used === null && total === null && temperature === null) continue;
 
@@ -214,6 +229,7 @@ async function readSysfs(): Promise<GpuUsage[]> {
       memoryTotalMb: total === null ? null : Math.round(total / 1024 / 1024),
       memoryShared: false,
       temperatureC: temperature,
+      powerW,
     });
   }
   return found;
@@ -508,6 +524,7 @@ export function merge(adapters: GpuUsage[], readings: GpuUsage[]): GpuUsage[] {
       memoryTotalMb: reading.memoryTotalMb ?? merged[index].memoryTotalMb,
       memoryShared: reading.memoryShared || merged[index].memoryShared,
       temperatureC: reading.temperatureC ?? merged[index].temperatureC,
+      powerW: reading.powerW ?? merged[index].powerW ?? null,
     };
   }
 

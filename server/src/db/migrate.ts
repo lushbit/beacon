@@ -40,6 +40,18 @@ const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
   { table: "samples", column: "swap_total", definition: "REAL" },
   { table: "samples", column: "gpu_temp_c", definition: "REAL" },
   { table: "gpu_samples", column: "temp_c", definition: "REAL" },
+  { table: "samples", column: "gpu_power_w", definition: "REAL" },
+  { table: "samples", column: "disk_busy_pct", definition: "REAL" },
+  { table: "samples", column: "disk_read_iops", definition: "REAL" },
+  { table: "samples", column: "disk_write_iops", definition: "REAL" },
+  { table: "samples", column: "containers_cpu_pct", definition: "REAL" },
+  { table: "samples", column: "containers_mem", definition: "REAL" },
+  { table: "samples", column: "hub_rtt_ms", definition: "REAL" },
+  { table: "gpu_samples", column: "power_w", definition: "REAL" },
+  { table: "disk_samples", column: "read_iops", definition: "REAL" },
+  { table: "disk_samples", column: "write_iops", definition: "REAL" },
+  { table: "disk_samples", column: "busy_pct", definition: "REAL" },
+  { table: "disk_samples", column: "temp_c", definition: "REAL" },
   // Which side of its limit the alert was raised on, so the dashboard can say
   // "above the limit for 12m" rather than guessing from a reading that has
   // since crossed back.

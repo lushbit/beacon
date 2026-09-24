@@ -8,6 +8,7 @@ import {
   Cpu,
   HardDrive,
   MemoryStick,
+  MonitorCog,
   Thermometer,
 } from "lucide-react";
 import type { DeviceDto, DiskDevice, DiskUsage, MetricSample } from "@beacon/shared";
@@ -29,6 +30,9 @@ import {
   formatClock,
   formatDuration,
   formatLoad,
+  formatMs,
+  formatOps,
+  formatWatts,
   formatPercent,
   formatRate,
   formatTemperature,
@@ -343,6 +347,64 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
   }
 
   const diskMore: MoreChart[] = [];
+  // Busy time, operations and temperature are counted per drive, so they
+  // follow the drive picked for the activity chart.
+  const driveLabelSuffix = drives.length > 1 && drive ? ` · ${drive.device}` : "";
+  if (drive?.busyPct != null) {
+    diskMore.push({
+      id: "busy",
+      title: "Busy time",
+      render: () => (
+        <DetailChart
+          title={`Busy time${driveLabelSuffix}`}
+          value={formatPercent(drive?.busyPct)}
+          series={[{ key: "diskBusyPct", label: "Busy", color: SERIES.ink }]}
+          points={driveHistory.points}
+          from={driveHistory.from}
+          to={driveHistory.to}
+          format={percent}
+          clampMax={100}
+          note="How much of the time the drive was working. Near 100% it is the bottleneck."
+        />
+      ),
+    });
+  }
+  if (drive?.readIops != null || drive?.writeIops != null) {
+    diskMore.push({
+      id: "ops",
+      title: "Operations",
+      render: () => (
+        <DetailChart
+          title={`Operations${driveLabelSuffix}`}
+          series={[
+            { key: "diskReadIops", label: "Reads", color: SERIES.in },
+            { key: "diskWriteIops", label: "Writes", color: SERIES.out },
+          ]}
+          points={driveHistory.points}
+          from={driveHistory.from}
+          to={driveHistory.to}
+          format={formatOps}
+        />
+      ),
+    });
+  }
+  if (drive?.temperatureC != null) {
+    diskMore.push({
+      id: "temperature",
+      title: "Temperature",
+      render: () => (
+        <DetailChart
+          title={`Temperature${driveLabelSuffix}`}
+          value={formatTemperature(drive?.temperatureC, temperatureUnit)}
+          series={[{ key: "diskTempC", label: "Temperature", color: SERIES.ink }]}
+          points={driveHistory.points}
+          from={driveHistory.from}
+          to={driveHistory.to}
+          format={(value) => formatTemperature(value, temperatureUnit)}
+        />
+      ),
+    });
+  }
   if (summary?.diskUsedBytes != null) {
     diskMore.push({
       id: "space",
@@ -384,6 +446,43 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
     });
   }
 
+  if (gpu?.powerW != null) {
+    gpuMore.push({
+      id: "power",
+      title: "Power draw",
+      render: () => (
+        <DetailChart
+          title="Power draw"
+          value={formatWatts(gpu?.powerW)}
+          series={[{ key: "gpuPowerW", label: "Power", color: SERIES.ink }]}
+          points={gpuHistory.points}
+          from={gpuHistory.from}
+          to={gpuHistory.to}
+          format={formatWatts}
+        />
+      ),
+    });
+  }
+
+  const networkMore: MoreChart[] = [];
+  if (summary?.hubRttMs != null) {
+    networkMore.push({
+      id: "latency",
+      title: "Latency to hub",
+      render: () => (
+        <SummaryChart
+          deviceId={device.id}
+          rangeSeconds={rangeSeconds}
+          title="Latency to hub"
+          value={formatMs(summary?.hubRttMs)}
+          series={[{ key: "hubRttMs", label: "Round trip", color: SERIES.ink }]}
+          format={formatMs}
+          note="The time a message takes to reach this device from the hub and come back."
+        />
+      ),
+    });
+  }
+
   const containersMore: MoreChart[] = [];
   if (device.capabilities.docker && summary?.containersTotal != null) {
     containersMore.push({
@@ -397,6 +496,40 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
           value={`${summary?.containersRunning ?? 0} of ${summary?.containersTotal ?? 0}`}
           series={[{ key: "containersRunning", label: "Running", color: SERIES.ink }]}
           format={(value) => value.toFixed(0)}
+        />
+      ),
+    });
+  }
+  if (device.capabilities.docker && summary?.containersCpuPct != null) {
+    containersMore.push({
+      id: "containers-cpu",
+      title: "Container CPU",
+      render: () => (
+        <SummaryChart
+          deviceId={device.id}
+          rangeSeconds={rangeSeconds}
+          title="Container CPU"
+          value={formatPercent(summary?.containersCpuPct)}
+          series={[{ key: "containersCpuPct", label: "CPU", color: SERIES.ink }]}
+          format={percent}
+          note="Every running container added together. A container can use more than one core."
+        />
+      ),
+    });
+  }
+  if (device.capabilities.docker && summary?.containersMemBytes != null) {
+    containersMore.push({
+      id: "containers-memory",
+      title: "Container memory",
+      render: () => (
+        <SummaryChart
+          deviceId={device.id}
+          rangeSeconds={rangeSeconds}
+          title="Container memory"
+          value={formatBytes(summary?.containersMemBytes, unitBase)}
+          series={[{ key: "containersMemBytes", label: "Memory", color: SERIES.ink }]}
+          format={bytes}
+          note="Every running container added together."
         />
       ),
     });
@@ -441,6 +574,21 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
           icon={ArrowDownUp}
           sublabel={summary?.netTxBps != null ? `↑ ${formatRate(summary.netTxBps, unitBase)}` : undefined}
         />
+        {device.capabilities.gpu && gpu ? (
+          <StatTile
+            label="GPU"
+            value={formatPercent(gpu.utilizationPct ?? gpuMemPct)}
+            icon={MonitorCog}
+            sublabel={
+              [
+                gpu.temperatureC != null ? formatTemperature(gpu.temperatureC, temperatureUnit) : null,
+                gpu.powerW != null ? formatWatts(gpu.powerW) : null,
+              ]
+                .filter(Boolean)
+                .join(" · ") || undefined
+            }
+          />
+        ) : null}
         {summary?.cpuTempC != null ? (
           <StatTile
             label="Temperature"
@@ -541,6 +689,8 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
           from={network.from}
           to={network.to}
           format={rate}
+          more={networkMore}
+          moreKey="network"
           action={
             visibleInterfaces.length > 1 ? (
               <Select
@@ -751,6 +901,27 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
             series={[{ key: "batteryPct", label: "Battery", color: SERIES.ink }]}
             format={percent}
             clampMax={100}
+            footer={
+              detail.battery.healthPct != null || detail.battery.cycleCount != null ? (
+                <div className="space-y-2">
+                  {detail.battery.healthPct != null ? (
+                    <Meter
+                      label="Health"
+                      // Wear is the worry, so the meter fills with what has been lost.
+                      value={Math.max(0, 100 - detail.battery.healthPct)}
+                      valueLabel={formatPercent(detail.battery.healthPct)}
+                      sublabel="Charge a full battery holds now, against when it was new."
+                    />
+                  ) : null}
+                  {detail.battery.cycleCount != null ? (
+                    <p className="flex justify-between text-xs">
+                      <span className="text-muted-foreground">Charge cycles</span>
+                      <span className="text-foreground tabular">{detail.battery.cycleCount}</span>
+                    </p>
+                  ) : null}
+                </div>
+              ) : null
+            }
           />
         ) : null}
       </div>

@@ -60,6 +60,10 @@ function isSystemVolume(entry: { type: string; mount: string; sizeBytes: number 
 interface Counters {
   readBytes: number;
   writeBytes: number;
+  reads: number;
+  writes: number;
+  /** Milliseconds the drive spent with at least one request in flight. */
+  busyMs: number;
 }
 
 /** Counters are totals since boot, so a rate needs the previous reading. */
@@ -92,6 +96,9 @@ async function readLinuxCounters(whole: Set<string>): Promise<Map<string, Counte
     out.set(`/dev/${name}`, {
       readBytes: readSectors * LINUX_SECTOR_BYTES,
       writeBytes: writeSectors * LINUX_SECTOR_BYTES,
+      reads: numberOrNull(parts[3]) ?? 0,
+      writes: numberOrNull(parts[7]) ?? 0,
+      busyMs: numberOrNull(parts[12]) ?? 0,
     });
   }
   return out;
@@ -110,7 +117,7 @@ $ErrorActionPreference = 'SilentlyContinue'
 $out = @()
 foreach ($d in @(Get-CimInstance Win32_PerfFormattedData_PerfDisk_PhysicalDisk)) {
   if ($d.Name -eq '_Total') { continue }
-  $out += "$($d.Name)|$($d.DiskReadBytesPerSec)|$($d.DiskWriteBytesPerSec)"
+  $out += "$($d.Name)|$($d.DiskReadBytesPerSec)|$($d.DiskWriteBytesPerSec)|$($d.DiskReadsPerSec)|$($d.DiskWritesPerSec)|$($d.PercentIdleTime)"
 }
 $out -join "\`n"
 `;
@@ -120,6 +127,9 @@ interface WindowsDrive {
   letters: string[];
   readBps: number;
   writeBps: number;
+  readIops: number | null;
+  writeIops: number | null;
+  busyPct: number | null;
 }
 
 /** Cleared once Windows answers nothing, so it stops being asked. */
@@ -140,17 +150,22 @@ async function readWindowsDrives(): Promise<WindowsDrive[]> {
 
   const drives: WindowsDrive[] = [];
   for (const line of output.split("\n")) {
-    const [name, read, write] = line.trim().split("|");
+    const [name, read, write, reads, writes, idle] = line.trim().split("|");
     if (!name) continue;
     // "0 C: D:" or "1" for a drive with no letter on it.
     const [head, ...letters] = name.trim().split(/\s+/);
     const index = numberOrNull(head);
     if (index === null) continue;
+    const idlePct = numberOrNull(idle);
     drives.push({
       index,
       letters: letters.map((letter) => letter.replace(/:$/, "").toUpperCase()),
       readBps: numberOrNull(read) ?? 0,
       writeBps: numberOrNull(write) ?? 0,
+      readIops: numberOrNull(reads),
+      writeIops: numberOrNull(writes),
+      // Windows counts idle time, and can overshoot 100 on a drive with a queue.
+      busyPct: idlePct === null ? null : clampPct(100 - idlePct),
     });
   }
 
@@ -166,6 +181,10 @@ let hardware: Awaited<ReturnType<typeof si.diskLayout>> | null = null;
 async function readHardware() {
   if (!hardware) hardware = await si.diskLayout().catch(() => []);
   return hardware;
+}
+
+function clampPct(value: number): number {
+  return Math.round(Math.max(0, Math.min(100, value)) * 10) / 10;
 }
 
 /** `\\.\PHYSICALDRIVE2` and `/dev/sda` both end in what identifies them. */
@@ -231,18 +250,33 @@ export async function readDisks(): Promise<DiskSnapshot> {
       : new Map<string, Counters>();
   const elapsedSec = previous ? (now - previous.at) / 1000 : 0;
 
-  const rateOf = (device: string): { readBps: number | null; writeBps: number | null } => {
+  type Rates = Pick<DiskDevice, "readBps" | "writeBps" | "readIops" | "writeIops" | "busyPct">;
+  const none: Rates = { readBps: null, writeBps: null, readIops: null, writeIops: null, busyPct: null };
+
+  const rateOf = (device: string): Rates => {
     if (process.platform === "win32") {
       const index = windowsIndexOf(device);
       const drive = windows.find((entry) => entry.index === index);
-      return drive ? { readBps: drive.readBps, writeBps: drive.writeBps } : { readBps: null, writeBps: null };
+      return drive
+        ? {
+            readBps: drive.readBps,
+            writeBps: drive.writeBps,
+            readIops: drive.readIops === null ? null : Math.round(drive.readIops),
+            writeIops: drive.writeIops === null ? null : Math.round(drive.writeIops),
+            busyPct: drive.busyPct,
+          }
+        : none;
     }
     const current = counters.get(device);
     const before = previous?.byDevice.get(device);
-    if (!current || !before || elapsedSec <= 0) return { readBps: null, writeBps: null };
+    if (!current || !before || elapsedSec <= 0) return none;
+    const perSec = (now: number, then: number) => Math.max(0, Math.round((now - then) / elapsedSec));
     return {
-      readBps: Math.max(0, Math.round((current.readBytes - before.readBytes) / elapsedSec)),
-      writeBps: Math.max(0, Math.round((current.writeBytes - before.writeBytes) / elapsedSec)),
+      readBps: perSec(current.readBytes, before.readBytes),
+      writeBps: perSec(current.writeBytes, before.writeBytes),
+      readIops: perSec(current.reads, before.reads),
+      writeIops: perSec(current.writes, before.writes),
+      busyPct: clampPct((current.busyMs - before.busyMs) / (elapsedSec * 10)),
     };
   };
 

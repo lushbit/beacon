@@ -147,10 +147,18 @@ const batteryCache = new Cached<MetricDetail["battery"]>(
   async () => {
     const battery = await si.battery();
     if (!battery.hasBattery) return null;
+    const health =
+      battery.maxCapacity > 0 && battery.designedCapacity > 0
+        ? Math.round((battery.maxCapacity / battery.designedCapacity) * 1000) / 10
+        : null;
     return {
       percent: battery.percent ?? 0,
       isCharging: Boolean(battery.isCharging),
       minutesRemaining: battery.timeRemaining && battery.timeRemaining > 0 ? battery.timeRemaining : null,
+      // Some firmware reports a design capacity from the wrong unit, which reads
+      // as a battery at 3% or 900%. Neither is worth showing.
+      healthPct: health !== null && health >= 20 && health <= 120 ? health : null,
+      cycleCount: battery.cycleCount > 0 ? battery.cycleCount : null,
     };
   },
   30_000,
@@ -294,8 +302,8 @@ export async function collectSample(): Promise<MetricSample> {
   const loadAvg = process.platform === "win32" ? null : os.loadavg();
 
   /** Null rather than zero when no drive reported, so "unknown" stays unknown. */
-  const totalRate = (key: "readBps" | "writeBps"): number | null => {
-    const known = drives.map((drive) => drive[key]).filter((value): value is number => value !== null);
+  const totalRate = (key: "readBps" | "writeBps" | "readIops" | "writeIops"): number | null => {
+    const known = drives.map((drive) => drive[key]).filter((value): value is number => typeof value === "number");
     return known.length > 0 ? known.reduce((sum, value) => sum + value, 0) : null;
   };
 
@@ -307,6 +315,15 @@ export async function collectSample(): Promise<MetricSample> {
   // reports the live clock. Windows and macOS give the rated speed on every
   // call, which would chart as a flat line that means nothing.
   const mhz = process.platform === "linux" && speed && speed.avg > 0 ? Math.round(speed.avg * 1000) : null;
+
+  const busiest = drives
+    .map((drive) => drive.busyPct)
+    .filter((value): value is number => typeof value === "number");
+  const running = containers.filter((entry) => entry.state === "running");
+  const containerSum = (key: "cpuPct" | "memUsedBytes"): number | null => {
+    const known = running.map((entry) => entry[key]).filter((value): value is number => value !== null);
+    return known.length > 0 ? known.reduce((sum, value) => sum + value, 0) : null;
+  };
 
   const summary: MetricSummary = {
     cpuPct: Math.round((load.currentLoad ?? 0) * 10) / 10,
@@ -337,6 +354,12 @@ export async function collectSample(): Promise<MetricSample> {
         : null,
     cpuTempC: temps.main,
     gpuTempC: gpu?.temperatureC ?? null,
+    gpuPowerW: gpu?.powerW ?? null,
+    diskBusyPct: busiest.length > 0 ? Math.max(...busiest) : null,
+    diskReadIops: totalRate("readIops"),
+    diskWriteIops: totalRate("writeIops"),
+    containersCpuPct: dockerAvailable ? tenth(containerSum("cpuPct")) : null,
+    containersMemBytes: dockerAvailable ? containerSum("memUsedBytes") : null,
     load1: loadAvg ? Math.round(loadAvg[0] * 100) / 100 : null,
     load5: loadAvg ? Math.round(loadAvg[1] * 100) / 100 : null,
     load15: loadAvg ? Math.round(loadAvg[2] * 100) / 100 : null,
