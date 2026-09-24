@@ -80,13 +80,27 @@ function isRoot(): boolean {
  */
 function kernelReplaced(): boolean {
   const release = os.release();
+  const bootedAt = Date.now() - os.uptime() * 1000;
   for (const base of ["/usr/lib/modules", "/lib/modules"]) {
+    let entries: string[];
     try {
-      if (fs.readdirSync(base).length === 0) continue;
-      return !fs.existsSync(path.join(base, release));
+      entries = fs.readdirSync(base);
     } catch {
-      /* try the next one */
+      continue;
     }
+    if (entries.length === 0) continue;
+    if (!entries.includes(release)) return true;
+    // Debian and Ubuntu keep the old kernel beside the new one, so the running
+    // kernel's modules are still there. A different kernel that arrived since
+    // boot is the sign there instead.
+    return entries.some((entry) => {
+      if (entry === release) return false;
+      try {
+        return fs.statSync(path.join(base, entry)).mtimeMs > bootedAt;
+      } catch {
+        return false;
+      }
+    });
   }
   return false;
 }
@@ -191,7 +205,16 @@ interface RunOptions {
   ok?: number[];
   /** Keep the output out of the job log, for listings that would flood it. */
   quiet?: boolean;
+  /** Lines worth logging even when the rest of the output is kept out. */
+  keep?: (line: string) => boolean;
   onLine?: (line: string) => void;
+  /**
+   * Said in the log whenever the tool has been silent for a minute, so a slow
+   * step reads as slow rather than stuck.
+   */
+  waiting?: string;
+  /** Stops the tool and fails the job if it has not finished by then. */
+  timeoutMs?: number;
 }
 
 interface RunResult {
@@ -295,8 +318,29 @@ class Job {
       this.child = child;
       let output = "";
       let partial = "";
+      const started = Date.now();
+      let heardAt = started;
+      let timedOut = false;
+
+      const heartbeat = setInterval(() => {
+        if (Date.now() - heardAt < 60_000) return;
+        heardAt = Date.now();
+        const minutes = Math.round((Date.now() - started) / 60_000);
+        this.line(`${options.waiting ?? "Still running"} (${minutes} min so far)`);
+      }, 15_000);
+      const timeout = options.timeoutMs
+        ? setTimeout(() => {
+            timedOut = true;
+            this.killChild();
+          }, options.timeoutMs)
+        : null;
+      const settle = () => {
+        clearInterval(heartbeat);
+        if (timeout) clearTimeout(timeout);
+      };
 
       const take = (chunk: Buffer) => {
+        heardAt = Date.now();
         const text = chunk.toString("utf8");
         if (output.length < MAX_OUTPUT) output += text;
         const lines = (partial + text).split("\n");
@@ -306,14 +350,21 @@ class Job {
       child.stdout?.on("data", take);
       child.stderr?.on("data", take);
       child.on("error", (error) => {
+        settle();
         this.child = null;
         reject(error);
       });
       child.on("close", (code) => {
+        settle();
         this.child = null;
         if (partial) this.handleLine(partial, options);
         if (this.cancelled) {
           reject(new CancelledError());
+          return;
+        }
+        if (timedOut) {
+          const minutes = Math.round((options.timeoutMs ?? 0) / 60_000);
+          reject(new Error(`${path.basename(command)} gave no answer within ${minutes} minutes, so it was stopped.`));
           return;
         }
         const ok = options.ok ?? [0];
@@ -335,11 +386,15 @@ class Job {
     const line = cleanLine(raw);
     if (!line) return;
     options.onLine?.(line);
-    if (!options.quiet) this.line(line);
+    if (!options.quiet || options.keep?.(line)) this.line(line);
   }
 
   stop(): void {
     this.cancelled = true;
+    this.killChild();
+  }
+
+  private killChild(): void {
     const child = this.child;
     if (!child || child.pid === undefined) return;
     if (process.platform === "win32") {
@@ -370,6 +425,7 @@ const quietRun: Run = (command, args, options = {}) =>
         env: { ...process.env, LC_ALL: "C", LANG: "C", ...options.env },
         maxBuffer: MAX_OUTPUT,
         windowsHide: true,
+        timeout: options.timeoutMs ?? 0,
       },
       (error, stdout, stderr) => {
         const code = error ? (typeof error.code === "number" ? error.code : null) : 0;
@@ -782,18 +838,42 @@ const apk: Adapter = {
 
 const POWERSHELL = ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command"];
 
+/*
+ * Output goes through Say, which flushes each line, so the dashboard hears
+ * about a step when it happens rather than when the script ends. The console
+ * encoding can only be set where there is a console, and a scheduled task has
+ * none, so that is allowed to fail.
+ */
 const WINDOWS_PRELUDE = `
 $ErrorActionPreference = 'Stop'
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
+function Say([string]$text) { [Console]::Out.WriteLine($text); [Console]::Out.Flush() }
+function Describe($err) { '{0} (0x{1:X8})' -f $err.Exception.Message, $err.Exception.HResult }
+Say 'Starting the Windows Update client'
 $session = New-Object -ComObject Microsoft.Update.Session
 $session.ClientApplicationID = 'Beacon'
-function Find-Updates { $session.CreateUpdateSearcher().Search("IsInstalled=0 and IsHidden=0").Updates }
+function Find-Updates([bool]$online) {
+  $searcher = $session.CreateUpdateSearcher()
+  $searcher.Online = $online
+  $searcher.Search("IsInstalled=0 and IsHidden=0").Updates
+}
 `;
 
+/**
+ * Lists updates. BEACON_WU_ONLINE=0 reads what Windows found in its own last
+ * scan, which answers at once. 1 asks Windows Update, which is what a person
+ * pressing Check expects and can take many minutes on a PC that has not
+ * looked in a while.
+ */
 export const WINDOWS_LIST = `${WINDOWS_PRELUDE}
 try {
+  $online = $env:BEACON_WU_ONLINE -eq '1'
+  if ($online) { Say 'Asking Windows Update for new updates. This can take several minutes.' }
+  else { Say 'Reading what Windows found in its last scan' }
+  $found = Find-Updates $online
+  Say ('Windows Update listed ' + $found.Count + ' update(s)')
   $items = @()
-  foreach ($u in (Find-Updates)) {
+  foreach ($u in $found) {
     $items += [pscustomobject]@{
       id = $u.Identity.UpdateID
       title = $u.Title
@@ -806,9 +886,9 @@ try {
     }
   }
   $reboot = (New-Object -ComObject Microsoft.Update.SystemInfo).RebootRequired
-  'BEACON-JSON ' + (ConvertTo-Json -Compress -Depth 4 @{ items = @($items); reboot = [bool]$reboot })
+  Say ('BEACON-JSON ' + (ConvertTo-Json -Compress -Depth 4 @{ items = @($items); reboot = [bool]$reboot }))
 } catch {
-  'BEACON-ERROR ' + $_.Exception.Message
+  Say ('BEACON-ERROR ' + (Describe $_))
   exit 1
 }
 `;
@@ -817,22 +897,36 @@ try {
  * Updates are downloaded and then installed one at a time, which is slower than
  * one batch but is the only way PowerShell gets to say where it is. Windows
  * gives no progress events a script can listen to.
+ *
+ * The updates are looked up in what Windows already knows first, which is
+ * what the list on the dashboard came from. Only when something is missing
+ * there does it ask Windows Update again, since that search is the slow part.
  */
 export const WINDOWS_INSTALL = `${WINDOWS_PRELUDE}
 try {
-  'PHASE checking'
+  Say 'PHASE checking'
   $wanted = $env:BEACON_UPDATE_IDS
-  $list = @()
-  foreach ($u in (Find-Updates)) {
-    if ($wanted -eq 'all' -or (($wanted -split ',') -contains $u.Identity.UpdateID)) { $list += $u }
+  $ids = @($wanted -split ',')
+  function Pick($updates) {
+    $out = New-Object System.Collections.ArrayList
+    foreach ($u in $updates) {
+      if ($wanted -eq 'all' -or ($ids -contains $u.Identity.UpdateID)) { [void]$out.Add($u) }
+    }
+    return ,$out
+  }
+  $list = Pick (Find-Updates $false)
+  if ($list.Count -eq 0 -or ($wanted -ne 'all' -and $list.Count -lt $ids.Count)) {
+    Say 'Asking Windows Update, since its last scan did not have everything. This can take several minutes.'
+    $list = Pick (Find-Updates $true)
   }
   $n = $list.Count
-  if ($n -eq 0) { 'NOTHING'; exit 0 }
+  if ($n -eq 0) { Say 'NOTHING'; exit 0 }
+  Say ('Found ' + $n + ' update(s) to install')
   $downloaded = @{}
   for ($i = 0; $i -lt $n; $i++) {
     $u = $list[$i]
     if (-not $u.EulaAccepted) { $u.AcceptEula() }
-    'DOWNLOAD ' + ($i + 1) + ' ' + $n + ' ' + $u.Title
+    Say ('DOWNLOAD ' + ($i + 1) + ' ' + $n + ' ' + $u.Title)
     if ($u.IsDownloaded) { $downloaded[$i] = $true; continue }
     $c = New-Object -ComObject Microsoft.Update.UpdateColl
     [void]$c.Add($u)
@@ -840,25 +934,25 @@ try {
     $d.Updates = $c
     $r = $d.Download()
     $downloaded[$i] = ($r.ResultCode -eq 2 -or $r.ResultCode -eq 3)
-    if (-not $downloaded[$i]) { 'RESULT ' + ($i + 1) + ' ' + $r.ResultCode + ' ' + $u.Title }
+    if (-not $downloaded[$i]) { Say ('RESULT ' + ($i + 1) + ' ' + $r.ResultCode + ' ' + $u.Title) }
   }
-  'COMMIT'
+  Say 'COMMIT'
   $reboot = $false
   for ($i = 0; $i -lt $n; $i++) {
     if (-not $downloaded[$i]) { continue }
     $u = $list[$i]
-    'INSTALL ' + ($i + 1) + ' ' + $n + ' ' + $u.Title
+    Say ('INSTALL ' + ($i + 1) + ' ' + $n + ' ' + $u.Title)
     $c = New-Object -ComObject Microsoft.Update.UpdateColl
     [void]$c.Add($u)
     $inst = $session.CreateUpdateInstaller()
     $inst.Updates = $c
     $r = $inst.Install()
     if ($r.RebootRequired) { $reboot = $true }
-    'RESULT ' + ($i + 1) + ' ' + $r.ResultCode + ' ' + $u.Title
+    Say ('RESULT ' + ($i + 1) + ' ' + $r.ResultCode + ' ' + $u.Title)
   }
-  'REBOOT ' + $reboot
+  Say ('REBOOT ' + $reboot)
 } catch {
-  'BEACON-ERROR ' + $_.Exception.Message
+  Say ('BEACON-ERROR ' + (Describe $_))
   exit 1
 }
 `;
@@ -915,8 +1009,15 @@ export function parseWindowsList(output: string): Listing {
 }
 
 const windows: Adapter = {
-  async list(run) {
-    const { output } = await run("powershell.exe", [...POWERSHELL, WINDOWS_LIST], { quiet: true });
+  async list(run, refresh) {
+    const { output } = await run("powershell.exe", [...POWERSHELL, WINDOWS_LIST], {
+      env: { BEACON_WU_ONLINE: refresh ? "1" : "0" },
+      quiet: true,
+      // Its progress lines, but not the listing itself.
+      keep: (line) => !line.startsWith("BEACON-"),
+      waiting: refresh ? "Still waiting for Windows Update" : "Still reading the last scan",
+      timeoutMs: (refresh ? 30 : 5) * 60_000,
+    });
     return parseWindowsList(output);
   },
 
@@ -926,11 +1027,11 @@ const windows: Adapter = {
     await job.run("powershell.exe", [...POWERSHELL, WINDOWS_INSTALL], {
       env: { BEACON_UPDATE_IDS: ids === null ? "all" : ids.join(",") },
       quiet: true,
+      waiting: "Still working. Large updates can take a while",
       onLine: (line) => {
         const [word, ...rest] = line.split(" ");
         if (word === "PHASE") {
-          job.set({ phase: "checking" });
-          job.line("Searching Windows Update");
+          job.set({ phase: "checking", current: "Looking up the chosen updates" });
         } else if (word === "DOWNLOAD") {
           const [done, total, ...title] = rest;
           job.set({ phase: "downloading" });
@@ -957,7 +1058,7 @@ const windows: Adapter = {
         } else if (word === "NOTHING") {
           job.line("Nothing left to install.");
         } else if (word === "BEACON-ERROR") {
-          job.line(`Error: ${rest.join(" ")}`);
+          job.line(`Windows Update: ${rest.join(" ")}`);
         } else {
           job.line(line);
         }
@@ -1131,11 +1232,25 @@ export function startCheck(jobId: string, emit: OsUpdateEmit): void {
   if (!info.manager) throw new Error(info.reason ?? "Updates are not supported here.");
   const adapter = adapterFor(info.manager);
   const job = begin(jobId, "check", emit);
-  job.set({ phase: "checking" });
+  job.set({ phase: "checking", current: "Looking for updates" });
   job.line(`Checking for updates with ${info.manager}`);
 
   void (async () => {
     try {
+      if (info.manager === "windows") {
+        // What Windows found on its own comes back at once, so the list is
+        // filled in while the slow online search runs.
+        try {
+          const quick = await adapter.list(job.run, false);
+          inventory = inventoryFrom(quick);
+          job.line(`Windows already knew about ${quick.items.length} update${quick.items.length === 1 ? "" : "s"}.`);
+          job.flush(inventory);
+        } catch (error) {
+          if (error instanceof CancelledError) throw error;
+          job.line(`Could not read the last scan: ${describe(error)}`);
+        }
+        job.set({ current: "Asking Windows Update. The first search on a PC can take 10 minutes or more." });
+      }
       const listing = await adapter.list(job.run, true);
       inventory = inventoryFrom(listing);
       job.line(
@@ -1310,7 +1425,9 @@ export async function backgroundCheck(): Promise<OsUpdateInventory | null> {
     return inventory;
   }
   try {
-    inventory = inventoryFrom(await adapterFor(info.manager).list(quietRun, true));
+    // On Windows the background check reads Windows' own last scan, which is
+    // cheap. Searching online every few hours would keep the PC busy.
+    inventory = inventoryFrom(await adapterFor(info.manager).list(quietRun, info.manager !== "windows"));
   } catch (error) {
     inventory = { ...inventoryFrom(null), reason: `The last check failed: ${describe(error)}` };
   }
