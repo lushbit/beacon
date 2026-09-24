@@ -378,7 +378,9 @@ class Job {
           .filter(Boolean)
           .slice(-3)
           .join(" ");
-        reject(new Error(`${path.basename(command)} exited with code ${code ?? "unknown"}${tail ? `: ${tail}` : ""}`));
+        reject(
+          new ExitError(`${path.basename(command)} exited with code ${code ?? "unknown"}${tail ? `: ${tail}` : ""}`, code)
+        );
       });
     });
 
@@ -409,6 +411,16 @@ class Job {
   }
 }
 
+/** A tool that ran and ended with an exit code nobody expected. */
+class ExitError extends Error {
+  constructor(
+    message: string,
+    readonly code: number | null
+  ) {
+    super(message);
+  }
+}
+
 class CancelledError extends Error {
   constructor() {
     super("Cancelled.");
@@ -431,7 +443,7 @@ const quietRun: Run = (command, args, options = {}) =>
         const code = error ? (typeof error.code === "number" ? error.code : null) : 0;
         const output = `${stdout}${stderr}`;
         if (code !== null && (options.ok ?? [0]).includes(code)) resolve({ code, output });
-        else reject(error ?? new Error(`${command} failed`));
+        else reject(new ExitError(error?.message ?? `${command} failed`, code));
       }
     );
     // Nothing to say to it, and a tool that asks a question must not wait.
@@ -839,16 +851,35 @@ const apk: Adapter = {
 const POWERSHELL = ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command"];
 
 /*
+ * The Windows Update client object is built for the threading model PowerShell
+ * does not use by default. Called from the default one, reading even Windows'
+ * own last scan took over two minutes on the first PC this was tried on, so
+ * the scripts that use it run with -MTA.
+ */
+const POWERSHELL_MTA = ["-NoProfile", "-NonInteractive", "-MTA", "-ExecutionPolicy", "Bypass", "-Command"];
+
+/*
  * Output goes through Say, which flushes each line, so the dashboard hears
  * about a step when it happens rather than when the script ends. The console
  * encoding can only be set where there is a console, and a scheduled task has
  * none, so that is allowed to fail.
  */
-const WINDOWS_PRELUDE = `
+const WINDOWS_COMMON = `
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 function Say([string]$text) { [Console]::Out.WriteLine($text); [Console]::Out.Flush() }
 function Describe($err) { '{0} (0x{1:X8})' -f $err.Exception.Message, $err.Exception.HResult }
+function Pending-Reboot {
+  if (Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired') { return $true }
+  if (Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending') { return $true }
+  return $false
+}
+function Emit-List($items, [bool]$reboot) {
+  Say ('BEACON-JSON ' + (ConvertTo-Json -Compress -Depth 4 @{ items = @($items); reboot = $reboot }))
+}
+`;
+
+const WINDOWS_COM = `${WINDOWS_COMMON}
 Say 'Starting the Windows Update client'
 $session = New-Object -ComObject Microsoft.Update.Session
 $session.ClientApplicationID = 'Beacon'
@@ -859,13 +890,34 @@ function Find-Updates([bool]$online) {
 }
 `;
 
-/**
- * Lists updates. BEACON_WU_ONLINE=0 reads what Windows found in its own last
- * scan, which answers at once. 1 asks Windows Update, which is what a person
- * pressing Check expects and can take many minutes on a PC that has not
- * looked in a while.
+/*
+ * The Windows Update service's own management interface, on Windows 10 1709
+ * and later. The service does the work in its own process, so nothing here
+ * depends on how PowerShell was started. Exit code 3 means it is not there.
  */
-export const WINDOWS_LIST = `${WINDOWS_PRELUDE}
+const WINDOWS_CIM = `${WINDOWS_COMMON}
+$ns = 'root/Microsoft/Windows/WindowsUpdate'
+try { Get-CimClass -Namespace $ns -ClassName MSFT_WUOperations | Out-Null } catch { Say 'BEACON-NOCIM'; exit 3 }
+function Scan-Updates {
+  $scan = Invoke-CimMethod -Namespace $ns -ClassName MSFT_WUOperations -MethodName ScanForUpdates -Arguments @{ SearchCriteria = 'IsInstalled=0 and IsHidden=0' }
+  if ($scan.ReturnValue -ne 0) { throw ('Windows Update answered with code 0x{0:X8}' -f $scan.ReturnValue) }
+  return ,@($scan.Updates)
+}
+function Service-Reboot {
+  try {
+    $r = Invoke-CimMethod -Namespace $ns -ClassName MSFT_WUSettings -MethodName IsPendingReboot
+    if ($r.PendingReboot) { return $true }
+  } catch { }
+  return (Pending-Reboot)
+}
+`;
+
+/**
+ * Lists updates through the client object. BEACON_WU_ONLINE=0 reads what
+ * Windows found in its own last scan. 1 asks Windows Update, which is the
+ * fallback for a Windows too old for the service interface.
+ */
+export const WINDOWS_LIST = `${WINDOWS_COM}
 try {
   $online = $env:BEACON_WU_ONLINE -eq '1'
   if ($online) { Say 'Asking Windows Update for new updates. This can take several minutes.' }
@@ -885,8 +937,34 @@ try {
       reboot = [int]$u.InstallationBehavior.RebootBehavior
     }
   }
-  $reboot = (New-Object -ComObject Microsoft.Update.SystemInfo).RebootRequired
-  Say ('BEACON-JSON ' + (ConvertTo-Json -Compress -Depth 4 @{ items = @($items); reboot = [bool]$reboot }))
+  $reboot = [bool](New-Object -ComObject Microsoft.Update.SystemInfo).RebootRequired
+  Emit-List $items ($reboot -or (Pending-Reboot))
+} catch {
+  Say ('BEACON-ERROR ' + (Describe $_))
+  exit 1
+}
+`;
+
+/** Lists updates by asking the Windows Update service to search. */
+export const WINDOWS_CIM_LIST = `${WINDOWS_CIM}
+try {
+  Say 'Asking the Windows Update service for new updates. This can take several minutes.'
+  $found = Scan-Updates
+  Say ('Windows Update listed ' + $found.Count + ' update(s)')
+  $items = @()
+  foreach ($u in $found) {
+    $items += [pscustomobject]@{
+      id = [string]$u.UpdateID
+      title = [string]$u.Title
+      kb = (($u.KBArticleID | Where-Object { $_ } | ForEach-Object { "KB$_" }) -join ', ')
+      size = 0
+      severity = [string]$u.MsrcSeverity
+      categories = ''
+      type = 1
+      reboot = 0
+    }
+  }
+  Emit-List $items (Service-Reboot)
 } catch {
   Say ('BEACON-ERROR ' + (Describe $_))
   exit 1
@@ -895,14 +973,12 @@ try {
 
 /*
  * Updates are downloaded and then installed one at a time, which is slower than
- * one batch but is the only way PowerShell gets to say where it is. Windows
- * gives no progress events a script can listen to.
- *
- * The updates are looked up in what Windows already knows first, which is
- * what the list on the dashboard came from. Only when something is missing
- * there does it ask Windows Update again, since that search is the slow part.
+ * one batch but is the only way a script gets to say where it is. The client
+ * object looks updates up in what Windows already knows first, which is what
+ * the list on the dashboard came from, and only asks Windows Update again when
+ * something is missing there.
  */
-export const WINDOWS_INSTALL = `${WINDOWS_PRELUDE}
+export const WINDOWS_INSTALL = `${WINDOWS_COM}
 try {
   Say 'PHASE checking'
   $wanted = $env:BEACON_UPDATE_IDS
@@ -950,7 +1026,56 @@ try {
     if ($r.RebootRequired) { $reboot = $true }
     Say ('RESULT ' + ($i + 1) + ' ' + $r.ResultCode + ' ' + $u.Title)
   }
-  Say ('REBOOT ' + $reboot)
+  Say ('REBOOT ' + ($reboot -or (Pending-Reboot)))
+} catch {
+  Say ('BEACON-ERROR ' + (Describe $_))
+  exit 1
+}
+`;
+
+/*
+ * The same through the service. It has no separate download a script can
+ * count, where the service offers one it is used so the two phases still show,
+ * and where it does not, installing downloads as it goes.
+ */
+export const WINDOWS_CIM_INSTALL = `${WINDOWS_CIM}
+try {
+  Say 'PHASE checking'
+  $wanted = $env:BEACON_UPDATE_IDS
+  $ids = @($wanted -split ',')
+  Say 'Asking the Windows Update service for the chosen updates'
+  $list = @(Scan-Updates | Where-Object { $wanted -eq 'all' -or ($ids -contains [string]$_.UpdateID) })
+  $n = $list.Count
+  if ($n -eq 0) { Say 'NOTHING'; exit 0 }
+  Say ('Found ' + $n + ' update(s) to install')
+  $downloaded = @{}
+  for ($i = 0; $i -lt $n; $i++) {
+    $u = $list[$i]
+    Say ('DOWNLOAD ' + ($i + 1) + ' ' + $n + ' ' + $u.Title)
+    try {
+      $r = Invoke-CimMethod -Namespace $ns -ClassName MSFT_WUOperations -MethodName DownloadUpdates -Arguments @{ Updates = [ciminstance[]]@($u) }
+      $downloaded[$i] = ($r.ReturnValue -eq 0)
+      if (-not $downloaded[$i]) {
+        Say ('Download failed with code 0x{0:X8}' -f $r.ReturnValue)
+        Say ('RESULT ' + ($i + 1) + ' 4 ' + $u.Title)
+      }
+    } catch {
+      # No separate download on this Windows. Installing fetches it instead.
+      $downloaded[$i] = $true
+    }
+  }
+  Say 'COMMIT'
+  $reboot = $false
+  for ($i = 0; $i -lt $n; $i++) {
+    if (-not $downloaded[$i]) { continue }
+    $u = $list[$i]
+    Say ('INSTALL ' + ($i + 1) + ' ' + $n + ' ' + $u.Title)
+    $r = Invoke-CimMethod -Namespace $ns -ClassName MSFT_WUOperations -MethodName InstallUpdates -Arguments @{ Updates = [ciminstance[]]@($u) }
+    if ($r.RebootRequired) { $reboot = $true }
+    if ($r.ReturnValue -eq 0) { $code = 2 } else { $code = 4; Say ('Install failed with code 0x{0:X8}' -f $r.ReturnValue) }
+    Say ('RESULT ' + ($i + 1) + ' ' + $code + ' ' + $u.Title)
+  }
+  Say ('REBOOT ' + ($reboot -or (Service-Reboot)))
 } catch {
   Say ('BEACON-ERROR ' + (Describe $_))
   exit 1
@@ -987,44 +1112,83 @@ export function parseWindowsList(output: string): Listing {
   const parsed = JSON.parse(json.slice(12)) as { items: WindowsEntry[] | WindowsEntry; reboot: boolean };
   const entries = Array.isArray(parsed.items) ? parsed.items : parsed.items ? [parsed.items] : [];
   const items = entries.map((entry) => {
-    const categories = entry.categories.split("|");
+    // The service interface gives no categories, so the title stands in:
+    // drivers read "Maker - Class - 1.2.3", definitions name themselves.
+    const categories = entry.categories ? entry.categories.split("|") : [];
+    const title = entry.title ?? "";
+    const driver =
+      entry.type === 2 || categories.includes("Drivers") || (categories.length === 0 && /^.+ - .+ - [\d.]+$/.test(title));
+    const definitions =
+      categories.some((name) => /Definition/i.test(name)) || /Security Intelligence Update|Definition Update/i.test(title);
     return item({
       id: entry.id,
-      name: entry.title,
+      name: title,
       title: entry.kb || null,
       sizeBytes: entry.size > 0 ? entry.size : null,
-      security: categories.includes("Security Updates") || entry.severity === "Critical" || entry.severity === "Important",
-      restart: entry.reboot === 1,
-      kind:
-        entry.type === 2 || categories.includes("Drivers")
-          ? "driver"
-          : categories.some((name) => /Upgrades|Feature/i.test(name))
-            ? "system"
-            : categories.some((name) => /Definition/i.test(name))
-              ? "other"
-              : "system",
+      security: categories.includes("Security Updates") || (!definitions && entry.severity !== "" && entry.severity !== null),
+      restart: entry.reboot === 1 || /Cumulative Update/i.test(title),
+      kind: driver ? "driver" : definitions ? "other" : "system",
     });
   });
   return { items, rebootRequired: parsed.reboot === true };
 }
 
+/** Exit code of the service scripts when this Windows does not have the interface. */
+const NO_CIM = 3;
+
+/**
+ * Whether this PC has the Windows Update service interface. Learned on first
+ * use and kept, so an older Windows is not asked again on every check.
+ */
+let windowsService: boolean | null = null;
+
+async function withService<T>(useService: () => Promise<T>, fallback: () => Promise<T>): Promise<T> {
+  if (windowsService === false) return fallback();
+  try {
+    const result = await useService();
+    windowsService = true;
+    return result;
+  } catch (error) {
+    if (!(error instanceof ExitError) || error.code !== NO_CIM) throw error;
+    windowsService = false;
+    return fallback();
+  }
+}
+
 const windows: Adapter = {
   async list(run, refresh) {
-    const { output } = await run("powershell.exe", [...POWERSHELL, WINDOWS_LIST], {
-      env: { BEACON_WU_ONLINE: refresh ? "1" : "0" },
-      quiet: true,
-      // Its progress lines, but not the listing itself.
-      keep: (line) => !line.startsWith("BEACON-"),
-      waiting: refresh ? "Still waiting for Windows Update" : "Still reading the last scan",
-      timeoutMs: (refresh ? 30 : 5) * 60_000,
-    });
-    return parseWindowsList(output);
+    const listWith = async (script: string, args: string[], online: boolean) => {
+      const { output } = await run("powershell.exe", [...args, script], {
+        env: { BEACON_WU_ONLINE: online ? "1" : "0" },
+        quiet: true,
+        // Its progress lines, but not the listing itself.
+        keep: (line) => !line.startsWith("BEACON-"),
+        waiting: online ? "Still waiting for Windows Update" : "Still reading the last scan",
+        timeoutMs: (online ? 30 : 3) * 60_000,
+      });
+      return parseWindowsList(output);
+    };
+    // Windows' own last scan is only reachable through the client object.
+    if (!refresh) return listWith(WINDOWS_LIST, POWERSHELL_MTA, false);
+    return withService(
+      () => listWith(WINDOWS_CIM_LIST, POWERSHELL, true),
+      () => listWith(WINDOWS_LIST, POWERSHELL_MTA, true)
+    );
   },
 
-  async install({ job, ids, committing }) {
+  async install(context) {
+    await withService(
+      () => windowsInstall(context, WINDOWS_CIM_INSTALL, POWERSHELL),
+      () => windowsInstall(context, WINDOWS_INSTALL, POWERSHELL_MTA)
+    );
+  },
+};
+
+async function windowsInstall({ job, ids, committing }: InstallContext, script: string, args: string[]) {
+  {
     let reboot = false;
     job.set({ phase: "checking" });
-    await job.run("powershell.exe", [...POWERSHELL, WINDOWS_INSTALL], {
+    await job.run("powershell.exe", [...args, script], {
       env: { BEACON_UPDATE_IDS: ids === null ? "all" : ids.join(",") },
       quiet: true,
       waiting: "Still working. Large updates can take a while",
@@ -1055,6 +1219,8 @@ const windows: Adapter = {
           job.line(`${WINDOWS_RESULT[code] ?? `Result ${code}`}: ${title.join(" ")}`);
         } else if (word === "REBOOT") {
           reboot = rest[0] === "True";
+        } else if (word === "BEACON-NOCIM") {
+          // Handled by the caller, which falls back to the client object.
         } else if (word === "NOTHING") {
           job.line("Nothing left to install.");
         } else if (word === "BEACON-ERROR") {
@@ -1065,8 +1231,8 @@ const windows: Adapter = {
       },
     });
     if (reboot) job.set({ rebootRequired: true });
-  },
-};
+  }
+}
 
 /* ---- macOS */
 

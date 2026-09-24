@@ -35,6 +35,8 @@ const {
   parseWindowsList,
   WINDOWS_LIST,
   WINDOWS_INSTALL,
+  WINDOWS_CIM_LIST,
+  WINDOWS_CIM_INSTALL,
 } = await import(pathToFileURL(join(root, "agent", "dist", "osUpdates.js")).href);
 
 const PORT = 4898;
@@ -160,6 +162,12 @@ console.log("Windows Update…");
   check(listed.items[0].security && listed.items[0].restart && listed.items[0].title === "KB5043076", "a cumulative update is security and needs a restart");
   check(listed.items[1].kind === "driver" && listed.items[1].sizeBytes === null, "a driver is a driver");
   check(listed.rebootRequired, "reads the pending restart");
+  const service = parseWindowsList(
+    `BEACON-JSON {"items":[{"id":"a","title":"2024-09 Cumulative Update for Windows 11 Version 23H2 for x64-based Systems (KB5043076)","kb":"KB5043076","size":0,"severity":"Critical","categories":"","type":1,"reboot":0},{"id":"b","title":"Intel Corporation - Display - 31.0.101.5590","kb":"","size":0,"severity":"","categories":"","type":1,"reboot":0},{"id":"c","title":"Security Intelligence Update for Microsoft Defender Antivirus - KB2267602 (Version 1.419.1)","kb":"KB2267602","size":0,"severity":"","categories":"","type":1,"reboot":0}],"reboot":false}`
+  );
+  check(service.items[0].security && service.items[0].restart, "from the service, a cumulative update still reads as security and restart");
+  check(service.items[1].kind === "driver", "a driver is recognised by its title when there are no categories");
+  check(service.items[2].kind === "other" && !service.items[2].security, "a definitions update is neither a driver nor a security fix");
   const single = parseWindowsList(
     `BEACON-JSON {"items":{"id":"x","title":"One","kb":"","size":1,"severity":"","categories":"Updates","type":1,"reboot":0},"reboot":false}`
   );
@@ -180,6 +188,8 @@ console.log("Windows Update…");
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "os-updates-list.ps1"), WINDOWS_LIST);
   writeFileSync(join(dir, "os-updates-install.ps1"), WINDOWS_INSTALL);
+  writeFileSync(join(dir, "os-updates-service-list.ps1"), WINDOWS_CIM_LIST);
+  writeFileSync(join(dir, "os-updates-service-install.ps1"), WINDOWS_CIM_INSTALL);
   check(existsSync(join(dir, "os-updates-install.ps1")), "the Windows Update scripts are written out for the PowerShell check");
 }
 
