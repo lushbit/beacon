@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChartLine, ChevronDown } from "lucide-react";
 import { ChartLegend, TimeChart, type ChartSeries } from "@/components/charts/TimeChart";
 import type { Point } from "@/components/charts/chartUtils";
 import { cn } from "@/lib/utils";
@@ -109,20 +109,30 @@ export function ChartPanel({
 
       {more.length > 0 ? (
         <>
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(!open);
-              rememberOpen(moreKey, !open);
-            }}
-            aria-expanded={expanded}
-            className="flex w-full items-center justify-between gap-3 border-t border-border/60 px-4 py-2.5 text-left text-xs text-muted-foreground transition-colors hover:bg-white/[0.03] hover:text-foreground"
-          >
-            <span className="truncate">
-              {expanded ? "Hide details" : `More: ${more.map((chart) => chart.title).join(", ")}`}
-            </span>
-            <ChevronDown className={cn("h-4 w-4 shrink-0 transition-transform", expanded && "rotate-180")} />
-          </button>
+          <div className="border-t border-border/60 px-4 py-3">
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(!open);
+                rememberOpen(moreKey, !open);
+              }}
+              aria-expanded={expanded}
+              className="flex w-full items-center gap-3 rounded-md border border-border bg-surface-2/60 px-3 py-2 text-left transition-colors hover:border-foreground/25 hover:bg-surface-2"
+            >
+              <ChartLine className="h-4 w-4 shrink-0 text-foreground/80" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-xs font-medium text-foreground">
+                  {expanded ? "Hide" : "Show"} {more.length} more {more.length === 1 ? "chart" : "charts"}
+                </span>
+                <span className="block truncate text-2xs text-muted-foreground">
+                  {more.map((chart) => chart.title).join(" · ")}
+                </span>
+              </span>
+              <ChevronDown
+                className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-180")}
+              />
+            </button>
+          </div>
           {expanded ? (
             <div
               className={cn(
@@ -130,8 +140,15 @@ export function ChartPanel({
                 more.length > 1 && "lg:grid-cols-2"
               )}
             >
-              {more.map((chart) => (
-                <div key={chart.id} className="bg-card">
+              {more.map((chart, index) => (
+                <div
+                  key={chart.id}
+                  className={cn(
+                    "bg-card",
+                    // An odd one out takes the whole row rather than leaving a hole.
+                    more.length % 2 === 1 && index === more.length - 1 && "lg:col-span-2"
+                  )}
+                >
                   {chart.render()}
                 </div>
               ))}
