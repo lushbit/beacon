@@ -37,7 +37,6 @@ const {
   WINDOWS_INSTALL,
   WINDOWS_CIM_LIST,
   WINDOWS_CIM_INSTALL,
-  WINDOWS_USO_SCAN,
 } = await import(pathToFileURL(join(root, "agent", "dist", "osUpdates.js")).href);
 
 const PORT = 4898;
@@ -173,6 +172,13 @@ console.log("Windows Update…");
     `BEACON-JSON {"items":[{"id":"d","title":"Dell Inc. Firmware Driver Update (0.1.35.0)","kb":"","size":41615360,"severity":"","categories":"Drivers","type":2,"reboot":0,"browseOnly":true},{"id":"e","title":"2026-09 Cumulative Update","kb":"KB5099999","size":1,"severity":"Critical","categories":"Security Updates","type":1,"reboot":1,"browseOnly":false}],"reboot":false}`
   );
   check(browse.items[0].optional === true && browse.items[1].optional === false, "Windows' own optional flag is used where it gives one");
+  const picked = parseWindowsList(
+    `BEACON-JSON {"items":[{"id":"f","title":"Intel Corporation Display Driver Update (32.0.101.7088)","kb":"","size":576716800,"severity":"","categories":"Drivers","type":2,"reboot":0,"browseOnly":false,"autoSelect":false},{"id":"g","title":"2026-09 Cumulative Update","kb":"KB5099999","size":1,"severity":"Critical","categories":"Security Updates","type":1,"reboot":1,"browseOnly":false,"autoSelect":true}],"reboot":false}`
+  );
+  check(
+    picked.items[0].optional === true && picked.items[1].optional === false,
+    "an update Windows would not pick by itself is optional, as Settings shows it"
+  );
   check(service.items[2].kind === "other" && !service.items[2].security, "a definitions update is neither a driver nor a security fix");
   const single = parseWindowsList(
     `BEACON-JSON {"items":{"id":"x","title":"One","kb":"","size":1,"severity":"","categories":"Updates","type":1,"reboot":0},"reboot":false}`
@@ -196,8 +202,17 @@ console.log("Windows Update…");
   writeFileSync(join(dir, "os-updates-install.ps1"), WINDOWS_INSTALL);
   writeFileSync(join(dir, "os-updates-service-list.ps1"), WINDOWS_CIM_LIST);
   writeFileSync(join(dir, "os-updates-service-install.ps1"), WINDOWS_CIM_INSTALL);
-  writeFileSync(join(dir, "os-updates-scan.ps1"), WINDOWS_USO_SCAN);
   check(existsSync(join(dir, "os-updates-install.ps1")), "the Windows Update scripts are written out for the PowerShell check");
+}
+
+console.log("Log lines…");
+{
+  const { formatLogLine, parseLogLine } = await import(pathToFileURL(join(root, "shared", "dist", "index.js")).href);
+  const line = formatLogLine("WARN", "Search via Windows Update failed", Date.UTC(2026, 8, 24, 10, 21, 3));
+  check(line === "2026-09-24T10:21:03.000Z WARN Search via Windows Update failed", "a log line is a time, a level and a message");
+  const back = parseLogLine(line);
+  check(back.level === "WARN" && back.text === "Search via Windows Update failed" && back.at === Date.UTC(2026, 8, 24, 10, 21, 3), "and reads back");
+  check(parseLogLine("Checking for updates with windows").level === null, "a line from an older agent still reads as plain text");
 }
 
 /* ------------------------------------------------------------ hub pipeline */

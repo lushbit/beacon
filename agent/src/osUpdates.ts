@@ -22,7 +22,9 @@ import type {
   OsUpdateJobSnapshot,
   OsUpdateManager,
   OsUpdateStatusResult,
+  OsUpdateLogLevel,
 } from "@beacon/shared";
+import { formatLogLine, OS_UPDATE_MANAGER_LABELS } from "@beacon/shared";
 
 export type OsUpdateEmit = (job: OsUpdateJobSnapshot, log: string[], inventory?: OsUpdateInventory) => void;
 
@@ -260,8 +262,9 @@ class Job {
     };
   }
 
-  line(text: string): void {
-    const line = text.length > 2000 ? `${text.slice(0, 2000)}…` : text;
+  /** Adds a log line: a time, a level and a message. */
+  line(text: string, level: OsUpdateLogLevel = "INFO"): void {
+    const line = formatLogLine(level, text.length > 2000 ? `${text.slice(0, 2000)}…` : text);
     this.log.push(line);
     if (this.log.length > MAX_LOG_LINES) this.log.splice(0, this.log.length - MAX_LOG_LINES);
     this.pending.push(line);
@@ -307,7 +310,7 @@ class Job {
         reject(new CancelledError());
         return;
       }
-      if (!options.quiet) this.line(`$ ${command} ${args.join(" ")}`.trim());
+      if (!options.quiet) this.line(`${command} ${args.join(" ")}`.trim(), "CMD");
       const child = spawn(command, args, {
         env: { ...process.env, LC_ALL: "C", LANG: "C", ...options.env },
         stdio: ["ignore", "pipe", "pipe"],
@@ -326,7 +329,7 @@ class Job {
         if (Date.now() - heardAt < 60_000) return;
         heardAt = Date.now();
         const minutes = Math.round((Date.now() - started) / 60_000);
-        this.line(`${options.waiting ?? "Still running"} (${minutes} min so far)`);
+        this.line(`${options.waiting ?? "Still running"}, ${minutes}m elapsed`, "WARN");
       }, 15_000);
       const timeout = options.timeoutMs
         ? setTimeout(() => {
@@ -391,8 +394,14 @@ class Job {
   private handleLine(raw: string, options: RunOptions): void {
     const line = cleanLine(raw);
     if (!line) return;
+    // Scripts that speak in log lines already say their level.
+    const logged = /^LOG (INFO|WARN|ERROR) (.*)$/.exec(line);
+    if (logged) {
+      this.line(logged[2], logged[1] as OsUpdateLogLevel);
+      return;
+    }
     options.onLine?.(line);
-    if (!options.quiet || options.keep?.(line)) this.line(line);
+    if (!options.quiet || options.keep?.(line)) this.line(line, "OUT");
   }
 
   stop(): void {
@@ -890,16 +899,20 @@ const POWERSHELL = ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass
 const POWERSHELL_MTA = ["-NoProfile", "-NonInteractive", "-MTA", "-ExecutionPolicy", "Bypass", "-Command"];
 
 /*
- * Output goes through Say, which flushes each line, so the dashboard hears
- * about a step when it happens rather than when the script ends. The console
- * encoding can only be set where there is a console, and a scheduled task has
- * none, so that is allowed to fail.
+ * Scripts write two kinds of line. "LOG <level> <text>" goes into the job log
+ * as it is. Everything else is a control word for the agent (DOWNLOAD, RESULT
+ * and so on) or the BEACON-JSON listing. Say flushes each line, so the
+ * dashboard hears about a step when it happens rather than when the script
+ * ends. The console encoding can only be set where there is a console, and a
+ * scheduled task has none, so that is allowed to fail.
  */
 const WINDOWS_COMMON = `
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 function Say([string]$text) { [Console]::Out.WriteLine($text); [Console]::Out.Flush() }
+function Log([string]$level, [string]$text) { Say ('LOG ' + $level + ' ' + $text) }
 function Describe($err) { '{0} (0x{1:X8})' -f $err.Exception.Message, $err.Exception.HResult }
+function Seconds($since) { [int]((Get-Date) - $since).TotalSeconds }
 function Pending-Reboot {
   if (Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired') { return $true }
   if (Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending') { return $true }
@@ -911,38 +924,105 @@ function Emit-List($items, [bool]$reboot) {
 `;
 
 const WINDOWS_COM = `${WINDOWS_COMMON}
-Say 'Starting the Windows Update client'
 $session = New-Object -ComObject Microsoft.Update.Session
 $session.ClientApplicationID = 'Beacon'
-function Search-With($searcher) { $searcher.Search("IsInstalled=0 and IsHidden=0").Updates }
-function Find-Updates([bool]$online) {
+
+function Read-LastScan {
+  $started = Get-Date
   $searcher = $session.CreateUpdateSearcher()
-  $searcher.Online = $online
-  if (-not $online) { return Search-With $searcher }
-  try { return Search-With $searcher }
-  catch {
-    # The default server can be one the system account cannot reach, which
-    # Windows reports as 0x80240438. Windows Update itself is worth a try.
-    Say ('The default update server did not answer: ' + (Describe $_))
-    Say 'Trying Windows Update directly'
-    $searcher = $session.CreateUpdateSearcher()
-    $searcher.Online = $true
-    $searcher.ServerSelection = 2
-    return Search-With $searcher
+  $searcher.Online = $false
+  $found = $searcher.Search("IsInstalled=0 and IsHidden=0").Updates
+  Log INFO ('Read the last scan in ' + (Seconds $started) + 's: ' + $found.Count + ' update(s)')
+  return ,$found
+}
+
+# What decides whether an online search can work, written to the log first so
+# a failure can be explained from the log alone.
+function Log-Setup {
+  try {
+    $os = Get-CimInstance Win32_OperatingSystem
+    Log INFO ('System: ' + $os.Caption + ', build ' + $os.BuildNumber)
+  } catch { }
+  $policy = 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate'
+  $server = (Get-ItemProperty -Path $policy -ErrorAction SilentlyContinue).WUServer
+  $useServer = (Get-ItemProperty -Path ($policy + '\\AU') -ErrorAction SilentlyContinue).UseWUServer
+  if ($server -and $useServer -eq 1) { Log INFO ('Update server set by policy: ' + $server) }
+  else { Log INFO 'Update server: Microsoft (no policy)' }
+  if ((Get-ItemProperty -Path $policy -ErrorAction SilentlyContinue).DoNotConnectToWindowsUpdateInternetLocations -eq 1) {
+    Log WARN 'A policy blocks Windows Update on the internet'
+  }
+  try {
+    $proxy = ((netsh winhttp show proxy) -join ' ') -replace '\\s+', ' '
+    Log INFO ('System proxy: ' + $proxy.Trim())
+  } catch { }
+}
+
+# Tries the update sources one after the other: the one Windows itself uses
+# for automatic updates (which is what Settings asks), Windows Update, then
+# whatever the client picks by default.
+function Search-Online {
+  Log-Setup
+  $attempts = @()
+  try {
+    $manager = New-Object -ComObject Microsoft.Update.ServiceManager
+    foreach ($service in $manager.Services) {
+      if ($service.IsDefaultAUService) {
+        Log INFO ('Default update source: ' + $service.Name)
+        $attempts += @{ name = $service.Name; selection = 3; id = $service.ServiceID }
+      }
+    }
+  } catch { Log WARN ('Could not read the update sources: ' + (Describe $_)) }
+  if (-not ($attempts | Where-Object { $_.id -eq '9482f4b4-e343-43b6-b170-9a65bc822c77' })) {
+    $attempts += @{ name = 'Windows Update'; selection = 2; id = $null }
+  }
+  $attempts += @{ name = 'the client default'; selection = 0; id = $null }
+
+  $lastError = $null
+  foreach ($attempt in $attempts) {
+    $started = Get-Date
+    Log INFO ('Searching online via ' + $attempt.name)
+    try {
+      $searcher = $session.CreateUpdateSearcher()
+      $searcher.Online = $true
+      $searcher.ServerSelection = $attempt.selection
+      if ($attempt.id) { $searcher.ServiceID = $attempt.id }
+      $found = $searcher.Search("IsInstalled=0 and IsHidden=0").Updates
+      Log INFO ('Search via ' + $attempt.name + ' finished in ' + (Seconds $started) + 's: ' + $found.Count + ' update(s)')
+      return ,$found
+    } catch {
+      $lastError = Describe $_
+      Log WARN ('Search via ' + $attempt.name + ' failed after ' + (Seconds $started) + 's: ' + $lastError)
+    }
+  }
+  throw ('No update source answered. Last error: ' + $lastError)
+}
+
+function Describe-Update($u) {
+  [pscustomobject]@{
+    id = $u.Identity.UpdateID
+    title = $u.Title
+    kb = (($u.KBArticleIDs | ForEach-Object { "KB$_" }) -join ', ')
+    size = [double]$u.MaxDownloadSize
+    severity = [string]$u.MsrcSeverity
+    categories = (($u.Categories | ForEach-Object { $_.Name }) -join '|')
+    type = [int]$u.Type
+    reboot = [int]$u.InstallationBehavior.RebootBehavior
+    browseOnly = [bool]$u.BrowseOnly
+    autoSelect = [bool]$u.AutoSelectOnWebSites
   }
 }
 `;
 
 /*
  * The Windows Update service's own management interface, on Windows 10 1709
- * and later. The service does the work in its own process, so nothing here
- * depends on how PowerShell was started. Exit code 3 means it is not there.
+ * and later where Microsoft ships it. The service does the work in its own
+ * process. Exit code 3 means this Windows does not have it.
  */
 const WINDOWS_CIM = `${WINDOWS_COMMON}
 $ns = 'root/Microsoft/Windows/WindowsUpdate'
 try { Get-CimClass -Namespace $ns -ClassName MSFT_WUOperations | Out-Null }
 catch {
-  Say 'This Windows has no Windows Update service interface, so the Windows Update client is used instead.'
+  Log INFO 'No Windows Update service interface on this system, using the Windows Update client'
   Say 'BEACON-NOCIM'
   exit 3
 }
@@ -962,30 +1042,13 @@ function Service-Reboot {
 
 /**
  * Lists updates through the client object. BEACON_WU_ONLINE=0 reads what
- * Windows found in its own last scan. 1 asks Windows Update, which is the
- * fallback for a Windows too old for the service interface.
+ * Windows found in its own last scan, which is quick. 1 searches online.
  */
 export const WINDOWS_LIST = `${WINDOWS_COM}
 try {
-  $online = $env:BEACON_WU_ONLINE -eq '1'
-  if ($online) { Say 'Asking Windows Update for new updates. This can take several minutes.' }
-  else { Say 'Reading what Windows found in its last scan' }
-  $found = Find-Updates $online
-  Say ('Windows Update listed ' + $found.Count + ' update(s)')
+  if ($env:BEACON_WU_ONLINE -eq '1') { $found = Search-Online } else { $found = Read-LastScan }
   $items = @()
-  foreach ($u in $found) {
-    $items += [pscustomobject]@{
-      id = $u.Identity.UpdateID
-      title = $u.Title
-      kb = (($u.KBArticleIDs | ForEach-Object { "KB$_" }) -join ', ')
-      size = [double]$u.MaxDownloadSize
-      severity = [string]$u.MsrcSeverity
-      categories = (($u.Categories | ForEach-Object { $_.Name }) -join '|')
-      type = [int]$u.Type
-      reboot = [int]$u.InstallationBehavior.RebootBehavior
-      browseOnly = [bool]$u.BrowseOnly
-    }
-  }
+  foreach ($u in $found) { $items += Describe-Update $u }
   $reboot = [bool](New-Object -ComObject Microsoft.Update.SystemInfo).RebootRequired
   Emit-List $items ($reboot -or (Pending-Reboot))
 } catch {
@@ -997,9 +1060,10 @@ try {
 /** Lists updates by asking the Windows Update service to search. */
 export const WINDOWS_CIM_LIST = `${WINDOWS_CIM}
 try {
-  Say 'Asking the Windows Update service for new updates. This can take several minutes.'
+  $started = Get-Date
+  Log INFO 'Searching online via the Windows Update service'
   $found = Scan-Updates
-  Say ('Windows Update listed ' + $found.Count + ' update(s)')
+  Log INFO ('Search finished in ' + (Seconds $started) + 's: ' + $found.Count + ' update(s)')
   $items = @()
   foreach ($u in $found) {
     $items += [pscustomobject]@{
@@ -1021,38 +1085,12 @@ try {
 `;
 
 /*
- * What the Check for updates button in Settings does: the update orchestrator
- * runs the scan inside the Windows Update service, and the result lands in the
- * last-scan list, which is quick to read afterwards. The scan is finished when
- * Windows moves its last successful search time.
- */
-export const WINDOWS_USO_SCAN = `${WINDOWS_COMMON}
-try {
-  $uso = Join-Path $env:SystemRoot 'System32\\UsoClient.exe'
-  if (-not (Test-Path $uso)) { Say 'This Windows has no update orchestrator.'; Say 'BEACON-NOUSO'; exit 4 }
-  $before = (New-Object -ComObject Microsoft.Update.AutoUpdate).Results.LastSearchSuccessDate
-  Say 'Asking Windows to check for updates, the same way Settings does'
-  Start-Process -FilePath $uso -ArgumentList 'StartScan' -WindowStyle Hidden -Wait
-  $deadline = (Get-Date).AddMinutes(10)
-  while ((Get-Date) -lt $deadline) {
-    Start-Sleep -Seconds 10
-    $after = (New-Object -ComObject Microsoft.Update.AutoUpdate).Results.LastSearchSuccessDate
-    if ($after -and (-not $before -or $after -gt $before)) { Say 'Windows finished checking'; exit 0 }
-  }
-  Say 'Windows did not finish its own check within 10 minutes, so Windows Update is asked directly instead.'
-  exit 5
-} catch {
-  Say ('BEACON-ERROR ' + (Describe $_))
-  exit 1
-}
-`;
-
-/*
  * Updates are downloaded and then installed one at a time, which is slower than
- * one batch but is the only way a script gets to say where it is. The client
- * object looks updates up in what Windows already knows first, which is what
- * the list on the dashboard came from, and only asks Windows Update again when
- * something is missing there.
+ * one batch but is the only way a script gets to say where it is. The updates
+ * are looked up in Windows' last scan, which is what the list on the dashboard
+ * came from, and only searched for online when something is missing there.
+ * "All" means what Windows would install by itself, as in Settings, so
+ * optional updates are left out of it.
  */
 export const WINDOWS_INSTALL = `${WINDOWS_COM}
 try {
@@ -1062,32 +1100,37 @@ try {
   function Pick($updates) {
     $out = New-Object System.Collections.ArrayList
     foreach ($u in $updates) {
-      # "All" means what Windows would install by itself, as in Settings.
-      if (($wanted -eq 'all' -and -not $u.BrowseOnly) -or ($ids -contains $u.Identity.UpdateID)) { [void]$out.Add($u) }
+      $recommended = (-not $u.BrowseOnly) -and $u.AutoSelectOnWebSites
+      if (($wanted -eq 'all' -and $recommended) -or ($ids -contains $u.Identity.UpdateID)) { [void]$out.Add($u) }
     }
     return ,$out
   }
-  $list = Pick (Find-Updates $false)
+  $list = Pick (Read-LastScan)
   if ($list.Count -eq 0 -or ($wanted -ne 'all' -and $list.Count -lt $ids.Count)) {
-    Say 'Asking Windows Update, since its last scan did not have everything. This can take several minutes.'
-    $list = Pick (Find-Updates $true)
+    Log INFO 'The last scan does not have every chosen update'
+    $list = Pick (Search-Online)
   }
   $n = $list.Count
   if ($n -eq 0) { Say 'NOTHING'; exit 0 }
-  Say ('Found ' + $n + ' update(s) to install')
+  Log INFO ('Installing ' + $n + ' update(s)')
   $downloaded = @{}
   for ($i = 0; $i -lt $n; $i++) {
     $u = $list[$i]
     if (-not $u.EulaAccepted) { $u.AcceptEula() }
     Say ('DOWNLOAD ' + ($i + 1) + ' ' + $n + ' ' + $u.Title)
     if ($u.IsDownloaded) { $downloaded[$i] = $true; continue }
+    $started = Get-Date
     $c = New-Object -ComObject Microsoft.Update.UpdateColl
     [void]$c.Add($u)
     $d = $session.CreateUpdateDownloader()
     $d.Updates = $c
     $r = $d.Download()
     $downloaded[$i] = ($r.ResultCode -eq 2 -or $r.ResultCode -eq 3)
-    if (-not $downloaded[$i]) { Say ('RESULT ' + ($i + 1) + ' ' + $r.ResultCode + ' ' + $u.Title) }
+    if ($downloaded[$i]) { Log INFO ('Downloaded in ' + (Seconds $started) + 's') }
+    else {
+      Log ERROR ('Download failed with result ' + $r.ResultCode + ' (0x{0:X8})' -f $r.HResult)
+      Say ('RESULT ' + ($i + 1) + ' ' + $r.ResultCode + ' ' + $u.Title)
+    }
   }
   Say 'COMMIT'
   $reboot = $false
@@ -1101,6 +1144,7 @@ try {
     $inst.Updates = $c
     $r = $inst.Install()
     if ($r.RebootRequired) { $reboot = $true }
+    if ($r.ResultCode -ne 2 -and $r.ResultCode -ne 3) { Log ERROR ('Install failed (0x{0:X8})' -f $r.HResult) }
     Say ('RESULT ' + ($i + 1) + ' ' + $r.ResultCode + ' ' + $u.Title)
   }
   Say ('REBOOT ' + ($reboot -or (Pending-Reboot)))
@@ -1111,21 +1155,21 @@ try {
 `;
 
 /*
- * The same through the service. It has no separate download a script can
- * count, where the service offers one it is used so the two phases still show,
- * and where it does not, installing downloads as it goes.
+ * The same through the service. Where it offers a separate download, that is
+ * used so the two phases still show. Where it does not, installing downloads
+ * as it goes.
  */
 export const WINDOWS_CIM_INSTALL = `${WINDOWS_CIM}
 try {
   Say 'PHASE checking'
   $wanted = $env:BEACON_UPDATE_IDS
   $ids = @($wanted -split ',')
-  Say 'Asking the Windows Update service for the chosen updates'
-  if ($wanted -eq 'all') { $list = @(Scan-Updates 'IsInstalled=0 and IsHidden=0 and BrowseOnly=0') }
+  Log INFO 'Looking up the chosen updates via the Windows Update service'
+  if ($wanted -eq 'all') { $list = @(Scan-Updates 'IsInstalled=0 and IsHidden=0 and BrowseOnly=0 and AutoSelectOnWebSites=1') }
   else { $list = @(Scan-Updates | Where-Object { $ids -contains [string]$_.UpdateID }) }
   $n = $list.Count
   if ($n -eq 0) { Say 'NOTHING'; exit 0 }
-  Say ('Found ' + $n + ' update(s) to install')
+  Log INFO ('Installing ' + $n + ' update(s)')
   $downloaded = @{}
   for ($i = 0; $i -lt $n; $i++) {
     $u = $list[$i]
@@ -1134,7 +1178,7 @@ try {
       $r = Invoke-CimMethod -Namespace $ns -ClassName MSFT_WUOperations -MethodName DownloadUpdates -Arguments @{ Updates = [ciminstance[]]@($u) }
       $downloaded[$i] = ($r.ReturnValue -eq 0)
       if (-not $downloaded[$i]) {
-        Say ('Download failed with code 0x{0:X8}' -f $r.ReturnValue)
+        Log ERROR ('Download failed (0x{0:X8})' -f $r.ReturnValue)
         Say ('RESULT ' + ($i + 1) + ' 4 ' + $u.Title)
       }
     } catch {
@@ -1150,7 +1194,7 @@ try {
     Say ('INSTALL ' + ($i + 1) + ' ' + $n + ' ' + $u.Title)
     $r = Invoke-CimMethod -Namespace $ns -ClassName MSFT_WUOperations -MethodName InstallUpdates -Arguments @{ Updates = [ciminstance[]]@($u) }
     if ($r.RebootRequired) { $reboot = $true }
-    if ($r.ReturnValue -eq 0) { $code = 2 } else { $code = 4; Say ('Install failed with code 0x{0:X8}' -f $r.ReturnValue) }
+    if ($r.ReturnValue -eq 0) { $code = 2 } else { $code = 4; Log ERROR ('Install failed (0x{0:X8})' -f $r.ReturnValue) }
     Say ('RESULT ' + ($i + 1) + ' ' + $code + ' ' + $u.Title)
   }
   Say ('REBOOT ' + ($reboot -or (Service-Reboot)))
@@ -1179,6 +1223,8 @@ interface WindowsEntry {
   type: number;
   reboot: number;
   browseOnly?: boolean;
+  /** Windows would pick it by itself. Settings shows the rest as optional. */
+  autoSelect?: boolean;
 }
 
 /** The JSON line the listing script prints, or its error. */
@@ -1209,7 +1255,10 @@ export function parseWindowsList(output: string): Listing {
       kind: driver ? "driver" : definitions ? "other" : "system",
       // Windows says so where it can. The service interface does not, and the
       // drivers it lists are the ones Settings keeps under Optional updates.
-      optional: entry.browseOnly === true || (entry.browseOnly === undefined && categories.length === 0 && driver),
+      optional:
+        entry.browseOnly === true ||
+        entry.autoSelect === false ||
+        (entry.autoSelect === undefined && categories.length === 0 && driver),
     });
   });
   return { items, rebootRequired: parsed.reboot === true };
@@ -1243,9 +1292,7 @@ const windows: Adapter = {
       const { output } = await run("powershell.exe", [...args, script], {
         env: { BEACON_WU_ONLINE: online ? "1" : "0" },
         quiet: true,
-        // Its progress lines, but not the listing itself.
-        keep: (line) => !line.startsWith("BEACON-"),
-        waiting: online ? "Still waiting for Windows Update" : "Still reading the last scan",
+        waiting: online ? "Still searching online" : "Still reading the last scan",
         timeoutMs: (online ? 30 : 3) * 60_000,
       });
       return parseWindowsList(output);
@@ -1254,22 +1301,7 @@ const windows: Adapter = {
     if (!refresh) return listWith(WINDOWS_LIST, POWERSHELL_MTA, false);
     return withService(
       () => listWith(WINDOWS_CIM_LIST, POWERSHELL, true),
-      async () => {
-        // Without the service interface, the scan Settings runs is next best,
-        // and asking Windows Update from here is the last resort.
-        try {
-          await run("powershell.exe", [...POWERSHELL_MTA, WINDOWS_USO_SCAN], {
-            quiet: true,
-            keep: (line) => !line.startsWith("BEACON-"),
-            waiting: "Still waiting for Windows to finish checking",
-            timeoutMs: 12 * 60_000,
-          });
-          return await listWith(WINDOWS_LIST, POWERSHELL_MTA, false);
-        } catch (error) {
-          if (error instanceof CancelledError) throw error;
-          return listWith(WINDOWS_LIST, POWERSHELL_MTA, true);
-        }
-      }
+      () => listWith(WINDOWS_LIST, POWERSHELL_MTA, true)
     );
   },
 
@@ -1297,7 +1329,7 @@ async function windowsInstall({ job, ids, committing }: InstallContext, script: 
           const [done, total, ...title] = rest;
           job.set({ phase: "downloading" });
           setStep(job, { done: Number(done) - 1, total: Number(total) }, title.join(" "));
-          job.line(`Downloading ${title.join(" ")}`);
+          job.line(`Downloading ${done}/${total}: ${title.join(" ")}`);
         } else if (word === "COMMIT") {
           committing();
         } else if (word === "INSTALL") {
@@ -1305,7 +1337,7 @@ async function windowsInstall({ job, ids, committing }: InstallContext, script: 
           committing();
           job.set({ phase: "installing" });
           setStep(job, { done: Number(done) - 1, total: Number(total) }, title.join(" "));
-          job.line(`Installing ${title.join(" ")}`);
+          job.line(`Installing ${done}/${total}: ${title.join(" ")}`);
         } else if (word === "RESULT") {
           const [done, code, ...title] = rest;
           const ok = code === "2" || code === "3";
@@ -1313,17 +1345,17 @@ async function windowsInstall({ job, ids, committing }: InstallContext, script: 
           if (job.snapshot.stepTotal) {
             setStep(job, { done: Number(done), total: job.snapshot.stepTotal }, null);
           }
-          job.line(`${WINDOWS_RESULT[code] ?? `Result ${code}`}: ${title.join(" ")}`);
+          job.line(`${WINDOWS_RESULT[code] ?? `Result ${code}`}: ${title.join(" ")}`, ok ? "INFO" : "ERROR");
         } else if (word === "REBOOT") {
           reboot = rest[0] === "True";
         } else if (word === "BEACON-NOCIM") {
           // Handled by the caller, which falls back to the client object.
         } else if (word === "NOTHING") {
-          job.line("Nothing left to install.");
+          job.line("Nothing left to install");
         } else if (word === "BEACON-ERROR") {
-          job.line(`Windows Update: ${rest.join(" ")}`);
+          job.line(`Windows Update: ${rest.join(" ")}`, "ERROR");
         } else {
-          job.line(line);
+          job.line(line, "OUT");
         }
       },
     });
@@ -1496,7 +1528,7 @@ export function startCheck(jobId: string, emit: OsUpdateEmit): void {
   const adapter = adapterFor(info.manager);
   const job = begin(jobId, "check", emit);
   job.set({ phase: "checking", current: "Looking for updates" });
-  job.line(`Checking for updates with ${info.manager}`);
+  job.line(`Check started, using ${OS_UPDATE_MANAGER_LABELS[info.manager]}`);
 
   void (async () => {
     try {
@@ -1506,20 +1538,23 @@ export function startCheck(jobId: string, emit: OsUpdateEmit): void {
         try {
           const quick = await adapter.list(job.run, false);
           inventory = inventoryFrom(quick);
-          job.line(`Windows already knew about ${quick.items.length} update${quick.items.length === 1 ? "" : "s"}.`);
+          job.line(`Last scan lists ${quick.items.length} update${quick.items.length === 1 ? "" : "s"}, searching online for newer ones`);
           job.flush(inventory);
         } catch (error) {
           if (error instanceof CancelledError) throw error;
-          job.line(`Could not read the last scan: ${describe(error)}`);
+          job.line(`Could not read the last scan: ${describe(error)}`, "WARN");
         }
         job.set({ current: "Asking Windows Update. The first search on a PC can take 10 minutes or more." });
       }
       const listing = await adapter.list(job.run, true);
       inventory = inventoryFrom(listing);
+      const optional = listing.items.filter((entry) => entry.optional).length;
+      const needed = listing.items.length - optional;
       job.line(
-        listing.items.length === 0
-          ? "Everything is up to date."
-          : `${listing.items.length} update${listing.items.length === 1 ? "" : "s"} available.`
+        `Check finished in ${Math.round((Date.now() - job.snapshot.startedAt) / 1000)}s: ` +
+          (needed === 0 ? "up to date" : `${needed} update${needed === 1 ? "" : "s"} available`) +
+          (optional > 0 ? `, ${optional} optional` : "") +
+          (listing.rebootRequired ? ", restart pending" : "")
       );
       job.set({ rebootRequired: listing.rebootRequired });
       end(job);
@@ -1528,7 +1563,7 @@ export function startCheck(jobId: string, emit: OsUpdateEmit): void {
       end(job);
       if (error instanceof CancelledError) job.finish("cancelled", null);
       else {
-        job.line(`Error: ${describe(error)}`);
+        job.line(`Check failed: ${describe(error)}`, "ERROR");
         job.finish("failed", describe(error));
       }
     }
@@ -1548,8 +1583,8 @@ export function startInstall(params: OsUpdateInstallParams, emit: OsUpdateEmit):
   const wanted = ids === null ? before : before.filter((entry) => ids.includes(entry.id));
   job.line(
     ids === null
-      ? `Installing all available updates with ${info.manager}`
-      : `Installing ${ids.length} selected update${ids.length === 1 ? "" : "s"} with ${info.manager}`
+      ? `Install started for all recommended updates, using ${OS_UPDATE_MANAGER_LABELS[info.manager]}`
+      : `Install started for ${ids.length} selected update${ids.length === 1 ? "" : "s"}, using ${OS_UPDATE_MANAGER_LABELS[info.manager]}`
   );
 
   void (async () => {
@@ -1569,7 +1604,7 @@ export function startInstall(params: OsUpdateInstallParams, emit: OsUpdateEmit):
       try {
         listing = await adapter.list(job.run, false);
       } catch (error) {
-        job.line(`Could not list updates afterwards: ${describe(error)}`);
+        job.line(`Could not list updates afterwards: ${describe(error)}`, "WARN");
       }
       inventory = inventoryFrom(listing);
 
@@ -1586,13 +1621,14 @@ export function startInstall(params: OsUpdateInstallParams, emit: OsUpdateEmit):
       job.set({ rebootRequired });
       job.line(
         failed > 0
-          ? `Finished. ${failed} of ${job.snapshot.results.length} could not be installed.`
-          : "Finished."
+          ? `Install finished: ${failed} of ${job.snapshot.results.length} not installed`
+          : `Install finished: ${job.snapshot.results.length || "all"} installed`,
+        failed > 0 ? "WARN" : "INFO"
       );
 
       if (rebootRequired && job.rebootAfter) {
         job.set({ phase: "rebooting", current: "Restarting to finish the updates", progress: null });
-        job.line("Restarting the device to finish installing.");
+        job.line("Restarting the device to finish installing");
         job.flush(inventory);
         // The job stays running on purpose. The hub closes it once the device
         // is back, which is the only way to know the restart worked.
@@ -1604,11 +1640,11 @@ export function startInstall(params: OsUpdateInstallParams, emit: OsUpdateEmit):
     } catch (error) {
       end(job);
       if (error instanceof CancelledError) {
-        job.line("Cancelled before anything was installed.");
+        job.line("Cancelled before anything was installed", "WARN");
         job.finish("cancelled", null);
         return;
       }
-      job.line(`Error: ${describe(error)}`);
+      job.line(`Install failed: ${describe(error)}`, "ERROR");
       // What did get installed is still worth knowing.
       try {
         inventory = inventoryFrom(await adapter.list(quietRun, false));
@@ -1623,7 +1659,7 @@ export function startInstall(params: OsUpdateInstallParams, emit: OsUpdateEmit):
 export function startReboot(jobId: string, emit: OsUpdateEmit): void {
   const job = begin(jobId, "reboot", emit);
   job.set({ phase: "rebooting", current: "Restarting", cancellable: false });
-  job.line("Restart requested from the dashboard.");
+  job.line("Restart requested from the dashboard");
   job.flush();
   void restartMachine(job);
 }
@@ -1645,14 +1681,14 @@ async function restartMachine(job: Job): Promise<void> {
   for (const [command, args] of attempts) {
     try {
       await quietRun(command, args);
-      job.line(`${command} accepted the restart.`);
+      job.line(`${command} accepted the restart`);
       job.flush();
       // Still here ten minutes later means the restart was called off, perhaps
       // by someone at the machine. Say so rather than stay busy forever.
       setTimeout(() => {
         if (current !== job) return;
         end(job);
-        job.line("The device did not restart.");
+        job.line("The device did not restart within 10 minutes", "ERROR");
         job.finish("failed", "The device accepted the restart but did not go down.");
       }, 10 * 60_000).unref();
       return;
@@ -1661,7 +1697,7 @@ async function restartMachine(job: Job): Promise<void> {
     }
   }
   end(job);
-  job.line(`Could not restart: ${lastError}`);
+  job.line(`Could not restart: ${lastError}`, "ERROR");
   job.finish("failed", `The device refused to restart: ${lastError}`);
 }
 
@@ -1671,7 +1707,7 @@ export function cancelJob(jobId: string): void {
   if (!current.snapshot.cancellable) {
     throw new Error("Updates are being installed now. Stopping part way could leave the system broken.");
   }
-  current.line("Cancel requested.");
+  current.line("Cancel requested", "WARN");
   current.stop();
 }
 

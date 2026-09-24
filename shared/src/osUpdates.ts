@@ -156,3 +156,30 @@ export interface OsUpdateStatusResult {
   log: string[];
   inventory: OsUpdateInventory | null;
 }
+
+/* --------------------------------------------------------------------- logs */
+
+/**
+ * How a log line was produced. CMD is a command being run and OUT is what that
+ * command printed. The rest are Beacon's own words about the job.
+ */
+export const OS_UPDATE_LOG_LEVELS = ["INFO", "WARN", "ERROR", "CMD", "OUT"] as const;
+export type OsUpdateLogLevel = (typeof OS_UPDATE_LOG_LEVELS)[number];
+
+/** `2026-09-24T10:21:03.412Z INFO Read the last scan: 7 updates` */
+export function formatLogLine(level: OsUpdateLogLevel, text: string, at = Date.now()): string {
+  return `${new Date(at).toISOString()} ${level} ${text.replace(/\s*\n\s*/g, " ")}`;
+}
+
+export interface ParsedLogLine {
+  at: number | null;
+  level: OsUpdateLogLevel | null;
+  text: string;
+}
+
+/** Reads a line back. A line from an agent before this format comes back as plain text. */
+export function parseLogLine(line: string): ParsedLogLine {
+  const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z) (INFO|WARN|ERROR|CMD|OUT) (.*)$/.exec(line);
+  if (!match) return { at: null, level: null, text: line };
+  return { at: Date.parse(match[1]), level: match[2] as OsUpdateLogLevel, text: match[3] };
+}
