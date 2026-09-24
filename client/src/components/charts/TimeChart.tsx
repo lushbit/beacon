@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { aggregate, bucketFor, linePaths, linearScale, nearestIndex, peakOf, timeAxisTicks, valueTicks, type Point } from "./chartUtils";
@@ -36,6 +36,9 @@ interface TimeChartProps {
 
 const MARGIN = { top: 12, right: 18, bottom: 22, left: 48 };
 
+/** Short enough to keep up with the pointer, long enough to hide the steps. */
+const GLIDE = "transform 90ms ease-out";
+
 export function TimeChart({
   points,
   series,
@@ -50,6 +53,9 @@ export function TimeChart({
 }: TimeChartProps) {
   const [ref, width] = useChartSize<HTMLDivElement>();
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  // The popup fades out rather than vanishing, so it keeps its last reading
+  // on screen while it does.
+  const [hovering, setHovering] = useState(false);
 
   const innerWidth = Math.max(0, width - MARGIN.left - MARGIN.right);
   const innerHeight = Math.max(0, height - MARGIN.top - MARGIN.bottom);
@@ -104,6 +110,10 @@ export function TimeChart({
    * the crosshair as a last resort. "The line" is every point the popup would
    * sit over, not only the hovered one, so it does not cover a peak next door.
    */
+  // The side the popup was last on. It stays there while it still fits, so the
+  // popup does not hop above and below the line as the pointer crosses a peak.
+  const lastSide = useRef<"above" | "below" | "beside">("above");
+
   const tipPosition = useMemo(() => {
     if (!hovered) return null;
     const gap = 12;
@@ -126,17 +136,41 @@ export function TimeChart({
     }
     if (!Number.isFinite(highest)) return { left, top: MARGIN.top };
 
-    if (highest - gap - tipHeight >= 0) return { left, top: highest - gap - tipHeight };
-    if (lowest + gap + tipHeight <= MARGIN.top + innerHeight) return { left, top: lowest + gap };
+    const fitsAbove = highest - gap - tipHeight >= 0;
+    const fitsBelow = lowest + gap + tipHeight <= MARGIN.top + innerHeight;
+    const side =
+      (lastSide.current === "above" && fitsAbove) || (lastSide.current === "below" && fitsBelow)
+        ? lastSide.current
+        : fitsAbove
+          ? "above"
+          : fitsBelow
+            ? "below"
+            : "beside";
+    lastSide.current = side;
 
+    if (side === "above") return { left, top: highest - gap - tipHeight };
+    if (side === "below") return { left, top: lowest + gap };
     const beside = crossX + gap + tipWidth <= width - 4 ? crossX + gap : Math.max(4, crossX - gap - tipWidth);
     return { left: beside, top: Math.max(0, Math.min(highest - tipHeight / 2, height - tipHeight)) };
   }, [hovered, tipSize, drawn, series, x, y, width, height, innerHeight]);
 
+  // A popup that just appeared goes straight to its spot. Gliding in from
+  // wherever the last hover left it would look like it flew across the chart.
+  const [glide, setGlide] = useState(false);
+  useEffect(() => {
+    if (!hovering) {
+      setGlide(false);
+      return;
+    }
+    const frame = requestAnimationFrame(() => setGlide(true));
+    return () => cancelAnimationFrame(frame);
+  }, [hovering]);
+
   const inBand = hovered && band ? band.spans.some((span) => hovered.ts >= span.from && hovered.ts <= span.to) : false;
   const hasData = drawn.length > 0 && width > 0;
 
-  const handleMove = (event: React.MouseEvent<SVGRectElement>) => {
+  const handleMove = (event: React.PointerEvent<SVGRectElement>) => {
+    setHovering(true);
     if (drawn.length === 0) return;
     const bounds = event.currentTarget.getBoundingClientRect();
     const offset = event.clientX - bounds.left;
@@ -230,14 +264,20 @@ export function TimeChart({
             ))}
 
             {hovered ? (
-              <g>
+              // Moved with transforms so the browser can glide them between
+              // points instead of jumping from one to the next.
+              <g
+                className="pointer-events-none transition-opacity duration-150"
+                style={{ opacity: hovering ? 1 : 0 }}
+              >
                 <line
-                  x1={x(hovered.ts)}
-                  x2={x(hovered.ts)}
+                  x1={0}
+                  x2={0}
                   y1={0}
                   y2={innerHeight}
                   stroke="hsl(var(--foreground) / 0.25)"
                   strokeWidth={1}
+                  style={{ transform: `translateX(${x(hovered.ts)}px)`, transition: GLIDE }}
                 />
                 {series.map((item) => {
                   const value = hovered[item.key];
@@ -245,12 +285,13 @@ export function TimeChart({
                   return (
                     <circle
                       key={item.key}
-                      cx={x(hovered.ts)}
-                      cy={y(value)}
+                      cx={0}
+                      cy={0}
                       r={4}
                       fill={item.color}
                       stroke="hsl(var(--card))"
                       strokeWidth={2}
+                      style={{ transform: `translate(${x(hovered.ts)}px, ${y(value)}px)`, transition: GLIDE }}
                     />
                   );
                 })}
@@ -263,8 +304,9 @@ export function TimeChart({
               width={innerWidth}
               height={innerHeight}
               fill="transparent"
-              onMouseMove={handleMove}
-              onMouseLeave={() => setHoverIndex(null)}
+              onPointerMove={handleMove}
+              onPointerDown={handleMove}
+              onPointerLeave={() => setHovering(false)}
             />
           </g>
         </svg>
@@ -273,8 +315,15 @@ export function TimeChart({
       {hovered && tipPosition ? (
         <div
           ref={tipRef}
-          className="pointer-events-none absolute z-10 min-w-[9rem] rounded-md border border-border bg-popover/95 px-3 py-2 text-xs shadow-xl shadow-black/40 backdrop-blur"
-          style={{ left: tipPosition.left, top: tipPosition.top }}
+          className="pointer-events-none absolute left-0 top-0 z-10 min-w-[9rem] rounded-md border border-border bg-popover/95 px-3 py-2 text-xs shadow-xl shadow-black/40 backdrop-blur"
+          style={{
+            transform: `translate3d(${Math.round(tipPosition.left)}px, ${Math.round(tipPosition.top)}px, 0)`,
+            opacity: hovering ? 1 : 0,
+            transition: `transform ${glide ? "160ms cubic-bezier(0.2, 0.7, 0.3, 1)" : "0s"}, opacity 150ms ease-out`,
+          }}
+          onTransitionEnd={(event) => {
+            if (event.propertyName === "opacity" && !hovering) setHoverIndex(null);
+          }}
         >
           <p className="mb-1 text-2xs text-muted-foreground tabular">
             {new Date(hovered.ts).toLocaleString(undefined, {

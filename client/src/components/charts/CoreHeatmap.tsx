@@ -65,7 +65,7 @@ export function CoreHeatmap({ points, cores, from, to, className }: CoreHeatmapP
   const hovered = hover ? drawn[hover.index] : undefined;
   const hoveredValue = hovered && hover ? hovered[`c${hover.core}`] : undefined;
 
-  const handleMove = (event: React.MouseEvent<SVGRectElement>) => {
+  const handleMove = (event: React.PointerEvent<SVGRectElement>) => {
     if (drawn.length === 0) return;
     const bounds = event.currentTarget.getBoundingClientRect();
     const ts = from + ((event.clientX - bounds.left) / Math.max(1, bounds.width)) * (to - from);
@@ -145,8 +145,8 @@ export function CoreHeatmap({ points, cores, from, to, className }: CoreHeatmapP
               width={innerWidth}
               height={innerHeight}
               fill="transparent"
-              onMouseMove={handleMove}
-              onMouseLeave={() => setHover(null)}
+              onPointerMove={handleMove}
+              onPointerLeave={() => setHover(null)}
             />
           </g>
         </svg>
@@ -161,7 +161,11 @@ export function CoreHeatmap({ points, cores, from, to, className }: CoreHeatmapP
             const right = MARGIN.left + cell.left + cell.width + 10;
             const left = right + 140 <= width ? right : Math.max(4, MARGIN.left + cell.left - 150);
             const middle = MARGIN.top + hover.core * rowHeight + rowHeight / 2;
-            return { left, top: Math.max(0, Math.min(middle - 26, height - 56)) };
+            return {
+              left,
+              top: Math.max(0, Math.min(middle - 26, height - 56)),
+              transition: "left 140ms cubic-bezier(0.2, 0.7, 0.3, 1), top 140ms cubic-bezier(0.2, 0.7, 0.3, 1)",
+            };
           })()}
         >
           <p className="mb-1 text-2xs text-muted-foreground tabular">
