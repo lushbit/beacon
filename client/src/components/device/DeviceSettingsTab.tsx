@@ -354,6 +354,21 @@ export function DeviceSettingsTab({ device, onSaved }: Props) {
 
         <div className="flex items-start justify-between gap-4 rounded-md border border-border/60 bg-surface-2 p-3">
           <div className="min-w-0">
+            <p className="text-sm text-foreground">Allow OS updates and restarts</p>
+            <p className="mt-0.5 text-2xs text-muted-foreground">
+              Lets administrators install operating system updates and restart this device from the Updates tab.
+              Checking for updates keeps working either way. Saved with the button at the bottom of this page.
+            </p>
+          </div>
+          <Switch
+            checked={settings.allowOsUpdates}
+            onCheckedChange={(checked) => patch("allowOsUpdates", checked)}
+            aria-label="Allow OS updates and restarts"
+          />
+        </div>
+
+        <div className="flex items-start justify-between gap-4 rounded-md border border-border/60 bg-surface-2 p-3">
+          <div className="min-w-0">
             <p className="text-sm text-foreground">Rotate the device token</p>
             <p className="mt-0.5 text-2xs text-muted-foreground">
               Cuts this agent off until the installer is run again with the new token, which is shown once.

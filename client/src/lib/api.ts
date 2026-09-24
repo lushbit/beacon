@@ -12,6 +12,8 @@ import type {
   EnrollTokenDto,
   ListProcessesResult,
   MetricSeriesDto,
+  OsUpdateJobDto,
+  OsUpdatesDto,
   ServerSettingsDto,
   SessionDto,
   SetupStateDto,
@@ -123,6 +125,15 @@ export const api = {
     }
   ) =>
     request<MetricSeriesDto>(`/devices/${id}/series${query(options)}`),
+
+  osUpdates: (id: string) => request<OsUpdatesDto>(`/devices/${id}/os-updates`),
+  osUpdateJob: (id: string, jobId: string) =>
+    request<OsUpdateJobDto & { log: string[] }>(`/devices/${id}/os-updates/jobs/${jobId}`),
+  checkOsUpdates: (id: string) => post<OsUpdateJobDto>(`/devices/${id}/os-updates/check`),
+  installOsUpdates: (id: string, body: { ids: string[] | null; rebootAfter: boolean }) =>
+    post<OsUpdateJobDto>(`/devices/${id}/os-updates/install`, body),
+  rebootDevice: (id: string) => post<OsUpdateJobDto>(`/devices/${id}/os-updates/reboot`),
+  cancelOsUpdate: (id: string, jobId: string) => post<{ ok: true }>(`/devices/${id}/os-updates/jobs/${jobId}/cancel`),
 
   enrollTokens: () => request<EnrollTokenDto[]>("/enroll-tokens"),
   createEnrollToken: (body: { label: string; expiresInHours: number | null; maxUses: number }) =>

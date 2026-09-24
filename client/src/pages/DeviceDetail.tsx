@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, ArrowUpCircle, Bell, Container, Cpu, ListTree, Settings2 } from "lucide-react";
+import { ArrowLeft, ArrowUpCircle, Bell, Container, Cpu, Download, ListTree, Settings2 } from "lucide-react";
 import type { DeviceDto } from "@beacon/shared";
 import { PageHeader } from "@/components/DashboardLayout";
 import { DeviceSettingsTab } from "@/components/device/DeviceSettingsTab";
 import { AgentVersionPanel } from "@/components/device/AgentVersionPanel";
 import { ContainersTab } from "@/components/device/ContainersTab";
+import { OsUpdatesTab } from "@/components/device/OsUpdatesTab";
 import { OverviewTab } from "@/components/device/OverviewTab";
 import { ProcessesTab } from "@/components/device/ProcessesTab";
 import { RangePicker } from "@/components/device/RangePicker";
@@ -24,7 +25,7 @@ export function DeviceDetailPage() {
   const { id = "" } = useParams();
   const { preferences } = useAuth();
   const isAdmin = useIsAdmin();
-  const { samples, statuses } = useLive();
+  const { samples, statuses, onOsUpdate } = useLive();
   const { isAgentOutdated } = useVersion();
 
   const [device, setDevice] = useState<DeviceDto | null>(null);
@@ -43,6 +44,25 @@ export function DeviceDetailPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // The count beside the Updates tab follows every check, wherever it ran from.
+  const [pendingUpdates, setPendingUpdates] = useState<{ count: number; running: boolean } | null>(null);
+  useEffect(() => {
+    setPendingUpdates(
+      device?.osUpdates ? { count: device.osUpdates.pending, running: device.osUpdates.running } : null
+    );
+  }, [device?.osUpdates]);
+  useEffect(
+    () =>
+      onOsUpdate((message) => {
+        if (message.deviceId !== id) return;
+        setPendingUpdates((current) => ({
+          count: message.inventory ? message.inventory.items.length : (current?.count ?? 0),
+          running: message.job ? message.job.state === "running" : (current?.running ?? false),
+        }));
+      }),
+    [onOsUpdate, id]
+  );
 
   const live = samples[id] ?? null;
   const online = useMemo(() => {
@@ -147,6 +167,17 @@ export function DeviceDetailPage() {
               <ListTree className="mr-1.5 inline h-3.5 w-3.5" />
               Processes
             </TabsTrigger>
+            <TabsTrigger value="updates">
+              <Download className="mr-1.5 inline h-3.5 w-3.5" />
+              Updates
+              {pendingUpdates?.running ? (
+                <span className="ml-1.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-foreground align-middle" />
+              ) : pendingUpdates && pendingUpdates.count > 0 ? (
+                <span className="ml-1.5 rounded-full bg-surface-3 px-1.5 text-2xs tabular text-foreground">
+                  {pendingUpdates.count}
+                </span>
+              ) : null}
+            </TabsTrigger>
             {device.capabilities.docker ? (
               <TabsTrigger value="containers">
                 <Container className="mr-1.5 inline h-3.5 w-3.5" />
@@ -173,6 +204,10 @@ export function DeviceDetailPage() {
 
           <TabsContent value="processes" className="focus-visible:outline-none">
             <ProcessesTab device={device} online={online} unitBase={preferences.unitBase} />
+          </TabsContent>
+
+          <TabsContent value="updates" className="focus-visible:outline-none">
+            <OsUpdatesTab device={device} online={online} unitBase={preferences.unitBase} />
           </TabsContent>
 
           {device.capabilities.docker ? (

@@ -1,5 +1,5 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { LiveServerMessage, MetricSample } from "@beacon/shared";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { LiveOsUpdateMessage, LiveServerMessage, MetricSample } from "@beacon/shared";
 import { api } from "@/lib/api";
 import { useAuth } from "./AuthContext";
 
@@ -31,6 +31,12 @@ interface LiveValue {
   statuses: Record<string, { status: "online" | "offline"; lastSeenAt: number | null }>;
   lastAlert: LiveAlert | null;
   updates: Record<string, { state: string; targetVersion: string | null; error: string | null }>;
+  /**
+   * OS update events go to whoever is listening rather than into shared
+   * state, since they carry log lines that only the open Updates tab wants.
+   * Returns the function that stops listening.
+   */
+  onOsUpdate: (listener: (message: LiveOsUpdateMessage) => void) => () => void;
 }
 
 const LiveContext = createContext<LiveValue | null>(null);
@@ -50,6 +56,13 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const [updates, setUpdates] = useState<LiveValue["updates"]>({});
 
   const socketRef = useRef<WebSocket | null>(null);
+  const osListeners = useRef(new Set<(message: LiveOsUpdateMessage) => void>());
+  const onOsUpdate = useCallback((listener: (message: LiveOsUpdateMessage) => void) => {
+    osListeners.current.add(listener);
+    return () => {
+      osListeners.current.delete(listener);
+    };
+  }, []);
   const retryRef = useRef(1000);
 
   useEffect(() => {
@@ -97,6 +110,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
             return;
           case "agent_update":
             setUpdates((current) => ({ ...current, [message.deviceId]: message.state }));
+            return;
+          case "os_update":
+            for (const listener of osListeners.current) listener(message);
             return;
           default:
             return;
@@ -167,8 +183,8 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const mode: LiveMode = connected ? "live" : socketFailed ? "polling" : "connecting";
 
   const value = useMemo<LiveValue>(
-    () => ({ connected, mode, samples, statuses, lastAlert, updates }),
-    [connected, mode, samples, statuses, lastAlert, updates]
+    () => ({ connected, mode, samples, statuses, lastAlert, updates, onOsUpdate }),
+    [connected, mode, samples, statuses, lastAlert, updates, onOsUpdate]
   );
 
   return <LiveContext.Provider value={value}>{children}</LiveContext.Provider>;

@@ -80,6 +80,11 @@ export default {
           from: { opacity: "0", transform: "translate(-50%, calc(-50% + 4px))" },
           to: { opacity: "1", transform: "translate(-50%, -50%)" },
         },
+        // A bar for work that says it is busy but not how far along it is.
+        indeterminate: {
+          "0%": { transform: "translateX(-100%)" },
+          "100%": { transform: "translateX(300%)" },
+        },
         "pulse-ring": {
           "0%": { opacity: "0.6", transform: "scale(1)" },
           "70%": { opacity: "0", transform: "scale(2.2)" },
@@ -90,6 +95,7 @@ export default {
         "fade-in": "fade-in 200ms ease-out",
         "dialog-in": "dialog-in 200ms ease-out",
         "pulse-ring": "pulse-ring 2.4s ease-out infinite",
+        indeterminate: "indeterminate 1.6s ease-in-out infinite",
       },
     },
   },
