@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS samples (
   containers_cpu_pct REAL,
   containers_mem REAL,
   hub_rtt_ms     REAL,
+  battery_charging REAL,
   load1          REAL,
   load5          REAL,
   load15         REAL,

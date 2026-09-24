@@ -335,3 +335,24 @@ export function integrate(points: Point[], key: string): number | null {
   }
   return seen ? total : null;
 }
+
+/**
+ * The stretches of time where `key` was at least half, joined into spans. A
+ * sample is taken to hold until the next one, unless the next one is missing,
+ * in which case it holds for one normal sample step.
+ */
+export function spansWhere(points: Point[], key: string): { from: number; to: number }[] {
+  const step = medianStep(points) || 5000;
+  const spans: { from: number; to: number }[] = [];
+  for (let index = 0; index < points.length; index++) {
+    const value = points[index][key];
+    if (typeof value !== "number" || value < 0.5) continue;
+    const from = points[index].ts;
+    const next = points[index + 1];
+    const to = next && next.ts - from <= step * 3 ? next.ts : from + step;
+    const last = spans[spans.length - 1];
+    if (last && from <= last.to) last.to = Math.max(last.to, to);
+    else spans.push({ from, to });
+  }
+  return spans;
+}

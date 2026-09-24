@@ -177,6 +177,12 @@ export interface MetricSummary {
    * hub rather than the agent, so it works whatever agent version is running.
    */
   hubRttMs?: number | null;
+  /**
+   * 1 while plugged in and charging, 0 on battery. The hub fills it in from
+   * the battery detail, so older agents have it too. Rolled-up history holds
+   * the share of the bucket spent charging.
+   */
+  batteryCharging?: number | null;
   load1: number | null;
   load5: number | null;
   load15: number | null;

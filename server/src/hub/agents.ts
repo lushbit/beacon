@@ -210,6 +210,10 @@ function handleMessage(connection: AgentConnection, message: AgentMessage, remot
       const deviceId = connection.deviceId;
       // Pings go out every 20 seconds, so each sample carries the latest one.
       message.sample.summary.hubRttMs = connection.rttMs;
+      // Agents before 1.3.0 only say it in the detail.
+      if (message.sample.summary.batteryCharging == null && message.sample.detail?.battery) {
+        message.sample.summary.batteryCharging = message.sample.detail.battery.isCharging ? 1 : 0;
+      }
       insertSample(deviceId, message.sample);
       touchDevice(deviceId, message.sample.ts);
       bus.emit("sample", { deviceId, sample: message.sample });

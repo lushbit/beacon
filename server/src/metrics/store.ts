@@ -33,6 +33,7 @@ const SUMMARY_COLUMNS = [
   ["containersCpuPct", "containers_cpu_pct"],
   ["containersMemBytes", "containers_mem"],
   ["hubRttMs", "hub_rtt_ms"],
+  ["batteryCharging", "battery_charging"],
   ["load1", "load1"],
   ["load5", "load5"],
   ["load15", "load15"],

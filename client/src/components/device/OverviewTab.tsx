@@ -215,7 +215,7 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
 
   // The axis now stops at the tallest sample, so a chart that never leaves
   // single digits needs a decimal to keep its labels apart.
-  const percent = (value: number) => formatPercent(value, value < 10 ? 1 : 0);
+  const percent = (value: number) => (value === 0 ? "0%" : formatPercent(value, value < 10 ? 1 : 0));
   // `max` is the top of the axis: every label on one axis shares the unit that
   // suits it, rather than each tick picking its own.
   const rate = (value: number, max?: number) => formatRate(value, unitBase, max);
@@ -899,6 +899,7 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
             title="Battery"
             value={formatPercent(detail.battery.percent)}
             series={[{ key: "batteryPct", label: "Battery", color: SERIES.ink }]}
+            band={{ key: "batteryCharging", inside: "Charging", outside: "On battery" }}
             format={percent}
             clampMax={100}
             footer={

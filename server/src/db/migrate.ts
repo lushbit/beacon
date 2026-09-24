@@ -47,6 +47,7 @@ const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
   { table: "samples", column: "containers_cpu_pct", definition: "REAL" },
   { table: "samples", column: "containers_mem", definition: "REAL" },
   { table: "samples", column: "hub_rtt_ms", definition: "REAL" },
+  { table: "samples", column: "battery_charging", definition: "REAL" },
   { table: "gpu_samples", column: "power_w", definition: "REAL" },
   { table: "disk_samples", column: "read_iops", definition: "REAL" },
   { table: "disk_samples", column: "write_iops", definition: "REAL" },

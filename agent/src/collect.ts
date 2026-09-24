@@ -366,6 +366,7 @@ export async function collectSample(): Promise<MetricSample> {
     uptimeSec: os.uptime(),
     processCount: processes.total || null,
     batteryPct: battery ? battery.percent : null,
+    batteryCharging: battery ? (battery.isCharging ? 1 : 0) : null,
     containersRunning: dockerAvailable ? containers.filter((entry) => entry.state === "running").length : null,
     containersTotal: dockerAvailable ? containers.length : null,
   };

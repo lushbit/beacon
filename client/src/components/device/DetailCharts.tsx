@@ -1,4 +1,6 @@
+import { useMemo } from "react";
 import type { MetricSummary } from "@beacon/shared";
+import { spansWhere } from "@/components/charts/chartUtils";
 import { CoreHeatmap, CoreHeatmapScale } from "@/components/charts/CoreHeatmap";
 import type { ChartSeries } from "@/components/charts/TimeChart";
 import { ChartPanel, DetailChart, type ChartPanelProps } from "@/components/device/ChartPanel";
@@ -50,18 +52,33 @@ export function CoreChart({ deviceId, rangeSeconds, cores }: CoreChartProps) {
   );
 }
 
-type SummaryPanelProps = Omit<ChartPanelProps, "points" | "from" | "to" | "series"> & {
+type SummaryPanelProps = Omit<ChartPanelProps, "points" | "from" | "to" | "series" | "band"> & {
   deviceId: string;
   rangeSeconds: number;
   series: (ChartSeries & { key: keyof MetricSummary })[];
+  /** A 0 or 1 field whose stretches of 1 are shaded behind the line. */
+  band?: { key: keyof MetricSummary; inside: string; outside: string };
 };
 
 /** A whole panel drawn from summary fields, for panels only some devices show. */
-export function SummaryPanel({ deviceId, rangeSeconds, series, ...rest }: SummaryPanelProps) {
-  const history = useSeries(
-    deviceId,
-    rangeSeconds,
-    series.map((item) => item.key)
+export function SummaryPanel({ deviceId, rangeSeconds, series, band, ...rest }: SummaryPanelProps) {
+  const history = useSeries(deviceId, rangeSeconds, [
+    ...series.map((item) => item.key),
+    ...(band ? [band.key] : []),
+  ]);
+  const bandKey = band?.key;
+  const spans = useMemo(
+    () => (bandKey ? spansWhere(history.points, bandKey) : []),
+    [history.points, bandKey]
   );
-  return <ChartPanel {...rest} series={series} points={history.points} from={history.from} to={history.to} />;
+  return (
+    <ChartPanel
+      {...rest}
+      series={series}
+      points={history.points}
+      from={history.from}
+      to={history.to}
+      band={band ? { spans, inside: band.inside, outside: band.outside } : undefined}
+    />
+  );
 }
