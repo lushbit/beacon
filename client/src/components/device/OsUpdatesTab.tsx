@@ -76,10 +76,32 @@ function resultSummary(job: OsUpdateJobDto): string | null {
   return failed > 0 ? `${ok} installed, ${failed} not installed` : `${ok} installed`;
 }
 
-/** Who started it, in words. The hub's own jobs are named by why they ran. */
+/**
+ * Who started it, in words. The hub records a person as their name followed by
+ * their account id, which is for the audit log rather than for reading.
+ */
 function actorLabel(actor: string): string {
   if (actor === "device") return "the device";
-  return actor;
+  return actor.replace(/\s*\([0-9a-f-]{36}\)$/i, "");
+}
+
+/** Updates the last install left behind, by name, with the reason it gave. */
+function leftBehind(history: OsUpdateJobDto[]): Map<string, string> {
+  const last = history.find((job) => job.kind === "install" && job.state !== "running");
+  const out = new Map<string, string>();
+  for (const result of last?.results ?? []) {
+    if (!result.ok) out.set(result.name, result.message ?? "Not installed");
+  }
+  return out;
+}
+
+/** Dismissed result cards are remembered per job, so each finished run is shown once. */
+function dismissed(jobId: string): boolean {
+  try {
+    return window.localStorage.getItem(`beacon:os-result:${jobId}`) === "1";
+  } catch {
+    return false;
+  }
 }
 
 /* ---------------------------------------------------------------- the tab */
@@ -93,6 +115,7 @@ export function OsUpdatesTab({ device, online, unitBase }: OsUpdatesTabProps) {
   const [error, setError] = useState<string | null>(null);
   const [logs, setLogs] = useState<Record<string, string[]>>({});
   const [busy, setBusy] = useState(false);
+  const [resultHidden, setResultHidden] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<{ kind: "install"; ids: string[] | null } | { kind: "reboot" } | null>(null);
 
   const load = useCallback(async () => {
@@ -218,6 +241,9 @@ export function OsUpdatesTab({ device, online, unitBase }: OsUpdatesTabProps) {
   }
 
   const active = data.active;
+  const lastInstall =
+    data.history.find((job) => job.kind === "install" && job.state !== "running" && job.id !== resultHidden) ?? null;
+  const notInstalled = leftBehind(data.history);
   const canAct = isAdmin && data.allowed && online && !active && !busy;
   const whyNot = !isAdmin
     ? "Only administrators can install updates."
@@ -231,6 +257,7 @@ export function OsUpdatesTab({ device, online, unitBase }: OsUpdatesTabProps) {
     <div className="space-y-4">
       <StatusCard
         data={data}
+        activeTitle={active ? runningTitle(active) : null}
         online={online}
         canAct={canAct}
         canCheck={isAdmin && online && !active && !busy}
@@ -240,6 +267,23 @@ export function OsUpdatesTab({ device, online, unitBase }: OsUpdatesTabProps) {
         onInstallAll={() => setConfirm({ kind: "install", ids: null })}
         onRestart={() => setConfirm({ kind: "reboot" })}
       />
+
+      {!active && lastInstall && !dismissed(lastInstall.id) && Date.now() - (lastInstall.finishedAt ?? 0) < 86_400_000 ? (
+        <InstallResult
+          job={lastInstall}
+          inventory={inventory}
+          canRestart={canAct}
+          onRestart={() => setConfirm({ kind: "reboot" })}
+          onDismiss={() => {
+            try {
+              window.localStorage.setItem(`beacon:os-result:${lastInstall.id}`, "1");
+            } catch {
+              /* private browsing */
+            }
+            setResultHidden(lastInstall.id);
+          }}
+        />
+      ) : null}
 
       {active ? (
         <ActiveJob
@@ -255,6 +299,7 @@ export function OsUpdatesTab({ device, online, unitBase }: OsUpdatesTabProps) {
       {inventory ? (
         <UpdateList
           inventory={inventory}
+          notInstalled={notInstalled}
           canAct={canAct}
           unitBase={unitBase}
           onInstall={(ids) => setConfirm({ kind: "install", ids })}
@@ -296,6 +341,7 @@ export function OsUpdatesTab({ device, online, unitBase }: OsUpdatesTabProps) {
 
 function StatusCard({
   data,
+  activeTitle,
   online,
   canAct,
   canCheck,
@@ -306,6 +352,7 @@ function StatusCard({
   onRestart,
 }: {
   data: OsUpdatesDto;
+  activeTitle: string | null;
   online: boolean;
   canAct: boolean;
   canCheck: boolean;
@@ -340,6 +387,7 @@ function StatusCard({
   if (running) {
     icon = Loader2;
     tone = "text-foreground";
+    if (!inventory || activeTitle === "Checking for updates") headline = `${activeTitle}…`;
   }
   const Icon = icon;
 
@@ -379,7 +427,7 @@ function StatusCard({
             Check now
           </Button>
           <Button
-            variant={inventory?.rebootRequired ? "secondary" : "ghost"}
+            variant={inventory?.rebootRequired ? "secondary" : "outline"}
             size="sm"
             disabled={!canAct}
             onClick={onRestart}
@@ -536,7 +584,7 @@ function ActiveJob({
                 ? online
                   ? `Asking ${deviceName} to restart`
                   : `${deviceName} is restarting. Waiting for it to come back online.`
-                : (job.current ?? "Working")}
+                : (job.current ?? (job.kind === "check" ? "Looking for updates" : "Getting ready"))}
           </span>
           <span className="shrink-0 font-medium text-foreground tabular">
             {step ? `${step} · ` : ""}
@@ -664,11 +712,13 @@ function LogView({
 
 function UpdateList({
   inventory,
+  notInstalled,
   canAct,
   unitBase,
   onInstall,
 }: {
   inventory: NonNullable<OsUpdatesDto["inventory"]>;
+  notInstalled: Map<string, string>;
   canAct: boolean;
   unitBase: UnitBase;
   onInstall: (ids: string[]) => void;
@@ -784,6 +834,7 @@ function UpdateList({
               <UpdateRow
                 key={entry.id}
                 entry={entry}
+                leftBehind={notInstalled.get(entry.name) ?? null}
                 selectable={selectable}
                 selected={selected.has(entry.id)}
                 unitBase={unitBase}
@@ -829,12 +880,15 @@ function UpdateList({
 
 function UpdateRow({
   entry,
+  leftBehind: reason,
   selectable,
   selected,
   unitBase,
   onToggle,
 }: {
   entry: OsUpdateItem;
+  /** Why the last install did not get to this one, if it tried. */
+  leftBehind: string | null;
   selectable: boolean;
   selected: boolean;
   unitBase: UnitBase;
@@ -867,6 +921,12 @@ function UpdateRow({
         </p>
       </div>
       <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+        {reason ? (
+          <Badge tone="danger" title={reason}>
+            <X className="h-3 w-3" />
+            Not installed last time
+          </Badge>
+        ) : null}
         {entry.security ? (
           <Badge tone="warning">
             <ShieldAlert className="h-3 w-3" />
@@ -974,19 +1034,7 @@ function History({
                     <p className="px-4 pt-3 text-2xs text-muted-foreground">
                       Started by {actorLabel(job.actor)} on {new Date(job.startedAt).toLocaleString()}
                     </p>
-                    {failures.length > 0 ? (
-                      <ul className="space-y-1 px-4 pt-3">
-                        {failures.map((result) => (
-                          <li key={result.name} className="flex gap-2 text-xs">
-                            <X className="mt-0.5 h-3.5 w-3.5 shrink-0 text-danger" />
-                            <span className="min-w-0">
-                              <span className="text-foreground">{result.name}</span>
-                              {result.message ? <span className="text-muted-foreground"> · {result.message}</span> : null}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
+                    {job.results.length > 0 ? <ResultList results={job.results} failures={failures} /> : null}
                     <div className="pt-2">
                       <LogView
                         lines={logs[job.id] ?? []}
@@ -1001,6 +1049,182 @@ function History({
           })}
         </ul>
       )}
+    </section>
+  );
+}
+
+/** Everything a run touched: what did not go in first, the rest folded away. */
+function ResultList({
+  results,
+  failures,
+}: {
+  results: OsUpdateJobDto["results"];
+  failures: OsUpdateJobDto["results"];
+}) {
+  const [showInstalled, setShowInstalled] = useState(failures.length === 0 && results.length <= 8);
+  const installed = results.filter((result) => result.ok);
+  return (
+    <div className="space-y-2 px-4 pt-3">
+      {failures.length > 0 ? (
+        <ul className="space-y-1">
+          {failures.map((result) => (
+            <li key={result.name} className="flex gap-2 text-xs">
+              <X className="mt-0.5 h-3.5 w-3.5 shrink-0 text-danger" />
+              <span className="min-w-0">
+                <span className="text-foreground">{result.name}</span>
+                {result.message ? <span className="text-muted-foreground"> · {result.message}</span> : null}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {installed.length > 0 ? (
+        <div>
+          <button
+            type="button"
+            onClick={() => setShowInstalled(!showInstalled)}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", showInstalled && "rotate-180")} />
+            {installed.length} installed
+          </button>
+          {showInstalled ? (
+            <ul className="scroll-slim mt-1.5 max-h-60 space-y-1 overflow-y-auto">
+              {installed.map((result) => (
+                <li key={result.name} className="flex gap-2 text-xs">
+                  <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
+                  <span className="min-w-0">
+                    <span className="text-foreground">{result.name}</span>
+                    {result.message ? <span className="text-muted-foreground"> · {result.message}</span> : null}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------ the outcome */
+
+/**
+ * What the last install did, said plainly, until someone closes it. It names
+ * what did not go in, and offers the restart right there when one is needed.
+ */
+function InstallResult({
+  job,
+  inventory,
+  canRestart,
+  onRestart,
+  onDismiss,
+}: {
+  job: OsUpdateJobDto;
+  inventory: OsUpdatesDto["inventory"];
+  canRestart: boolean;
+  onRestart: () => void;
+  onDismiss: () => void;
+}) {
+  const failures = job.results.filter((result) => !result.ok);
+  const installed = job.results.length - failures.length;
+  const restartNeeded = inventory?.rebootRequired === true || (job.rebootRequired && job.phase !== "rebooting");
+  const restarted = job.rebootAfter && job.state === "succeeded" && !inventory?.rebootRequired && job.rebootRequired;
+
+  let tone: "success" | "warning" | "danger" = "success";
+  let Icon = ShieldCheck;
+  let headline: string;
+  let detail: string | null = null;
+
+  if (job.state === "cancelled") {
+    tone = "warning";
+    Icon = CircleSlash;
+    headline = "The install was cancelled before anything changed.";
+  } else if (job.state === "interrupted") {
+    tone = "warning";
+    Icon = AlertTriangle;
+    headline = "The install was interrupted.";
+    detail = "Contact with the device was lost part way through. Check for updates to see where it got to.";
+  } else if (job.state === "failed" && installed === 0) {
+    tone = "danger";
+    Icon = AlertTriangle;
+    headline = "The install failed. Nothing was installed.";
+    detail = job.error;
+  } else if (failures.length > 0) {
+    tone = "warning";
+    Icon = AlertTriangle;
+    headline = `${installed} of ${job.results.length} updates were installed.`;
+    detail = `${failures.length} could not be installed and ${failures.length === 1 ? "is" : "are"} still listed below, marked "Not installed last time".`;
+  } else if (job.results.length > 0) {
+    headline = `All ${job.results.length} update${job.results.length === 1 ? " was" : "s were"} installed successfully.`;
+  } else {
+    headline = "The install finished.";
+  }
+
+  return (
+    <section
+      className={cn(
+        "rounded-lg border bg-card",
+        tone === "success" && "border-success/30",
+        tone === "warning" && "border-warning/30",
+        tone === "danger" && "border-danger/30"
+      )}
+    >
+      <div className="flex items-start gap-3 p-4">
+        <Icon
+          className={cn(
+            "mt-0.5 h-5 w-5 shrink-0",
+            tone === "success" && "text-success",
+            tone === "warning" && "text-warning",
+            tone === "danger" && "text-danger"
+          )}
+        />
+        <div className="min-w-0 flex-1 space-y-1">
+          <p className="text-sm font-medium text-foreground">{headline}</p>
+          {detail ? <p className="text-xs text-muted-foreground">{detail}</p> : null}
+          <p className="text-2xs text-muted-foreground">
+            Finished <RelativeTime value={job.finishedAt} />
+            {job.finishedAt ? (
+              <>
+                {" · took "}
+                <Duration from={job.startedAt} to={job.finishedAt} />
+              </>
+            ) : null}
+            {restarted ? " · restarted to finish" : ""}
+          </p>
+        </div>
+        <Button variant="ghost" size="icon" aria-label="Close" onClick={onDismiss}>
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+      {failures.length > 0 ? (
+        <ul className="space-y-1 border-t border-border/60 px-4 py-3">
+          {failures.slice(0, 10).map((result) => (
+            <li key={result.name} className="flex gap-2 text-xs">
+              <X className="mt-0.5 h-3.5 w-3.5 shrink-0 text-danger" />
+              <span className="min-w-0">
+                <span className="text-foreground">{result.name}</span>
+                {result.message ? <span className="text-muted-foreground"> · {result.message}</span> : null}
+              </span>
+            </li>
+          ))}
+          {failures.length > 10 ? (
+            <li className="text-2xs text-muted-foreground">and {failures.length - 10} more in the history below</li>
+          ) : null}
+        </ul>
+      ) : null}
+      {restartNeeded ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/60 bg-warning/5 px-4 py-3">
+          <p className="flex items-center gap-2 text-xs text-warning">
+            <RotateCcw className="h-3.5 w-3.5 shrink-0" />
+            A restart is needed to finish installing.
+          </p>
+          <Button variant="primary" size="sm" disabled={!canRestart} onClick={onRestart}>
+            <RotateCcw className="h-3.5 w-3.5" />
+            Restart now
+          </Button>
+        </div>
+      ) : null}
     </section>
   );
 }
