@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { aggregate, bucketFor, linePaths, linearScale, nearestIndex, peakOf, timeAxisTicks, valueTicks, type Point } from "./chartUtils";
@@ -27,6 +27,11 @@ interface TimeChartProps {
   height?: number;
   className?: string;
   emptyLabel?: string;
+  /**
+   * Stretches of time to shade behind the line, such as a battery charging.
+   * The hover names the state with `band.inside` or `band.outside`.
+   */
+  band?: { spans: { from: number; to: number }[]; inside: string; outside: string };
 }
 
 const MARGIN = { top: 12, right: 18, bottom: 22, left: 48 };
@@ -41,6 +46,7 @@ export function TimeChart({
   height = 200,
   className,
   emptyLabel = "No data for this range yet.",
+  band,
 }: TimeChartProps) {
   const [ref, width] = useChartSize<HTMLDivElement>();
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
@@ -80,6 +86,54 @@ export function TimeChart({
   const bucketSec = drawn.length < points.length ? Math.round(bucketMs / 1000) : 0;
 
   const hovered = hoverIndex !== null ? drawn[hoverIndex] : undefined;
+
+  // The popup is measured once shown, so it can be placed clear of the line.
+  const tipRef = useRef<HTMLDivElement>(null);
+  const [tipSize, setTipSize] = useState({ width: 150, height: 64 });
+  useLayoutEffect(() => {
+    const element = tipRef.current;
+    if (!element) return;
+    const { offsetWidth, offsetHeight } = element;
+    if (offsetWidth !== tipSize.width || offsetHeight !== tipSize.height) {
+      setTipSize({ width: offsetWidth, height: offsetHeight });
+    }
+  });
+
+  /*
+   * Above the line where there is room, below it where there is not, and beside
+   * the crosshair as a last resort. "The line" is every point the popup would
+   * sit over, not only the hovered one, so it does not cover a peak next door.
+   */
+  const tipPosition = useMemo(() => {
+    if (!hovered) return null;
+    const gap = 12;
+    const { width: tipWidth, height: tipHeight } = tipSize;
+    const crossX = MARGIN.left + x(hovered.ts);
+    const left = Math.min(Math.max(crossX - tipWidth / 2, 4), Math.max(4, width - tipWidth - 4));
+
+    let highest = Infinity;
+    let lowest = -Infinity;
+    for (const point of drawn) {
+      const px = MARGIN.left + x(point.ts);
+      if (px < left - 4 || px > left + tipWidth + 4) continue;
+      for (const item of series) {
+        const value = point[item.key];
+        if (typeof value !== "number" || !Number.isFinite(value)) continue;
+        const py = MARGIN.top + y(value);
+        highest = Math.min(highest, py);
+        lowest = Math.max(lowest, py);
+      }
+    }
+    if (!Number.isFinite(highest)) return { left, top: MARGIN.top };
+
+    if (highest - gap - tipHeight >= 0) return { left, top: highest - gap - tipHeight };
+    if (lowest + gap + tipHeight <= MARGIN.top + innerHeight) return { left, top: lowest + gap };
+
+    const beside = crossX + gap + tipWidth <= width - 4 ? crossX + gap : Math.max(4, crossX - gap - tipWidth);
+    return { left: beside, top: Math.max(0, Math.min(highest - tipHeight / 2, height - tipHeight)) };
+  }, [hovered, tipSize, drawn, series, x, y, width, height, innerHeight]);
+
+  const inBand = hovered && band ? band.spans.some((span) => hovered.ts >= span.from && hovered.ts <= span.to) : false;
   const hasData = drawn.length > 0 && width > 0;
 
   const handleMove = (event: React.MouseEvent<SVGRectElement>) => {
@@ -139,6 +193,22 @@ export function TimeChart({
                 {tick.label}
               </text>
             ))}
+
+            {band?.spans.map((span) => {
+              const left = Math.max(0, x(span.from));
+              const right = Math.min(innerWidth, x(span.to));
+              if (right <= left) return null;
+              return (
+                <rect
+                  key={span.from}
+                  x={left}
+                  y={0}
+                  width={right - left}
+                  height={innerHeight}
+                  fill="hsl(var(--foreground) / 0.07)"
+                />
+              );
+            })}
 
             {paths.map(({ item, segments }) => (
               <g key={item.key}>
@@ -200,12 +270,11 @@ export function TimeChart({
         </svg>
       ) : null}
 
-      {hovered ? (
+      {hovered && tipPosition ? (
         <div
-          className="pointer-events-none absolute top-1 z-10 min-w-[9rem] rounded-md border border-border bg-popover/95 px-3 py-2 text-xs shadow-xl shadow-black/40 backdrop-blur"
-          style={{
-            left: Math.min(Math.max(MARGIN.left + x(hovered.ts) - 70, 4), Math.max(4, width - 150)),
-          }}
+          ref={tipRef}
+          className="pointer-events-none absolute z-10 min-w-[9rem] rounded-md border border-border bg-popover/95 px-3 py-2 text-xs shadow-xl shadow-black/40 backdrop-blur"
+          style={{ left: tipPosition.left, top: tipPosition.top }}
         >
           <p className="mb-1 text-2xs text-muted-foreground tabular">
             {new Date(hovered.ts).toLocaleString(undefined, {
@@ -231,6 +300,16 @@ export function TimeChart({
               </p>
             );
           })}
+          {band ? (
+            <p className="mt-1 flex items-center gap-1.5 border-t border-border/60 pt-1 text-muted-foreground">
+              <span
+                className="h-2 w-2 rounded-sm border border-border"
+                style={{ background: inBand ? "hsl(var(--foreground) / 0.35)" : "transparent" }}
+                aria-hidden
+              />
+              {inBand ? band.inside : band.outside}
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -244,16 +323,33 @@ export function TimeChart({
 }
 
 /** Identity never rests on colour alone — every multi-series chart gets this. */
-export function ChartLegend({ series, className }: { series: ChartSeries[]; className?: string }) {
-  if (series.length < 2) return null;
+export function ChartLegend({
+  series,
+  band,
+  className,
+}: {
+  series: ChartSeries[];
+  /** Names the shading, when the chart has any. */
+  band?: string;
+  className?: string;
+}) {
+  if (series.length < 2 && !band) return null;
   return (
     <div className={cn("flex flex-wrap items-center gap-x-4 gap-y-1", className)}>
-      {series.map((item) => (
-        <span key={item.key} className="flex items-center gap-1.5 text-2xs text-muted-foreground">
-          <span className="h-2 w-2 rounded-full" style={{ background: item.color }} aria-hidden />
-          {item.label}
+      {series.length > 1
+        ? series.map((item) => (
+            <span key={item.key} className="flex items-center gap-1.5 text-2xs text-muted-foreground">
+              <span className="h-2 w-2 rounded-full" style={{ background: item.color }} aria-hidden />
+              {item.label}
+            </span>
+          ))
+        : null}
+      {band ? (
+        <span className="flex items-center gap-1.5 text-2xs text-muted-foreground">
+          <span className="h-2.5 w-3 rounded-sm" style={{ background: "hsl(var(--foreground) / 0.18)" }} aria-hidden />
+          {band}
         </span>
-      ))}
+      ) : null}
     </div>
   );
 }

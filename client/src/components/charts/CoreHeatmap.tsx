@@ -155,10 +155,14 @@ export function CoreHeatmap({ points, cores, from, to, className }: CoreHeatmapP
       {hovered && hover ? (
         <div
           className="pointer-events-none absolute z-10 min-w-[8rem] rounded-md border border-border bg-popover/95 px-3 py-2 text-xs shadow-xl shadow-black/40 backdrop-blur"
-          style={{
-            left: Math.min(Math.max(MARGIN.left + x(hovered.ts) - 64, 4), Math.max(4, width - 140)),
-            top: Math.min(MARGIN.top + (hover.core + 1) * rowHeight + 6, Math.max(0, height - 56)),
-          }}
+          // Beside the hovered cell rather than over the rows around it.
+          style={(() => {
+            const cell = cellOf(hovered.ts);
+            const right = MARGIN.left + cell.left + cell.width + 10;
+            const left = right + 140 <= width ? right : Math.max(4, MARGIN.left + cell.left - 150);
+            const middle = MARGIN.top + hover.core * rowHeight + rowHeight / 2;
+            return { left, top: Math.max(0, Math.min(middle - 26, height - 56)) };
+          })()}
         >
           <p className="mb-1 text-2xs text-muted-foreground tabular">
             {new Date(hovered.ts).toLocaleString(undefined, {
