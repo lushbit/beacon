@@ -57,7 +57,9 @@ export function DeviceDetailPage() {
       onOsUpdate((message) => {
         if (message.deviceId !== id) return;
         setPendingUpdates((current) => ({
-          count: message.inventory ? message.inventory.items.length : (current?.count ?? 0),
+          count: message.inventory
+            ? message.inventory.items.filter((entry) => !entry.optional).length
+            : (current?.count ?? 0),
           running: message.job ? message.job.state === "running" : (current?.running ?? false),
         }));
       }),

@@ -107,8 +107,9 @@ export function summaryFor(deviceId: string): OsUpdateSummaryDto | null {
   const running = activeJob(deviceId) !== null;
   if (!inventory?.supported && !running) return null;
   return {
-    pending: inventory?.items.length ?? 0,
-    security: inventory?.items.filter((entry) => entry.security).length ?? 0,
+    // Optional updates are not waiting on anyone, the same as in Settings.
+    pending: inventory?.items.filter((entry) => !entry.optional).length ?? 0,
+    security: inventory?.items.filter((entry) => entry.security && !entry.optional).length ?? 0,
     rebootRequired: inventory?.rebootRequired ?? false,
     checkedAt: inventory?.checkedAt ?? null,
     running,

@@ -318,6 +318,7 @@ export function OsUpdatesTab({ device, online, unitBase }: OsUpdatesTabProps) {
         confirm={confirm}
         deviceName={device.name}
         items={inventory?.items ?? []}
+        recommended={(inventory?.items ?? []).filter((entry) => !entry.optional)}
         platform={device.platform}
         onClose={() => setConfirm(null)}
         onInstall={(ids, rebootAfter) =>
@@ -363,7 +364,8 @@ function StatusCard({
   onRestart: () => void;
 }) {
   const inventory = data.inventory;
-  const items = inventory?.items ?? [];
+  const items = (inventory?.items ?? []).filter((entry) => !entry.optional);
+  const optional = (inventory?.items.length ?? 0) - items.length;
   const security = items.filter((entry) => entry.security).length;
   const size = items.reduce((sum, entry) => sum + (entry.sizeBytes ?? 0), 0);
   const running = data.active !== null;
@@ -393,6 +395,7 @@ function StatusCard({
 
   const details = [
     security > 0 ? `${security} security` : null,
+    optional > 0 ? `${optional} optional` : null,
     size > 0 ? formatBytes(size, unitBase) : null,
     inventory?.manager ? `via ${OS_UPDATE_MANAGER_LABELS[inventory.manager]}` : null,
   ].filter(Boolean);
@@ -728,6 +731,7 @@ function UpdateList({
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const items = inventory.items;
+  const [showOptional, setShowOptional] = useState(false);
   // A selection outlives a refresh only for updates that are still there.
   useEffect(() => {
     setSelected((current) => new Set([...current].filter((id) => items.some((entry) => entry.id === id))));
@@ -746,7 +750,9 @@ function UpdateList({
 
   const security = items.filter((entry) => entry.security).length;
   const selectable = canAct && inventory.canSelect;
-  const allShownSelected = shown.length > 0 && shown.every((entry) => selected.has(entry.id));
+  // Select all covers what is on screen, so a closed optional section is left alone.
+  const visible = shown.filter((entry) => showOptional || !entry.optional);
+  const allShownSelected = visible.length > 0 && visible.every((entry) => selected.has(entry.id));
   const selectedSize = items
     .filter((entry) => selected.has(entry.id))
     .reduce((sum, entry) => sum + (entry.sizeBytes ?? 0), 0);
@@ -765,7 +771,9 @@ function UpdateList({
         <div className="flex items-center gap-2">
           <PackageCheck className="h-4 w-4 text-muted-foreground" />
           <h3 className="text-sm font-medium text-foreground">Available updates</h3>
-          <span className="text-xs text-muted-foreground tabular">{items.length}</span>
+          <span className="text-xs text-muted-foreground tabular">
+            {items.filter((entry) => !entry.optional).length}
+          </span>
         </div>
         {items.length > 0 ? (
           <div className="flex flex-wrap items-center gap-2">
@@ -802,12 +810,13 @@ function UpdateList({
         ) : null}
       </header>
 
-      {items.length === 0 ? (
-        <div className="flex items-center gap-3 px-4 py-6 text-sm text-muted-foreground">
+      {items.filter((entry) => !entry.optional).length === 0 && !query && filter === "all" ? (
+        <div className="flex items-center gap-3 border-b border-border/40 px-4 py-4 text-sm text-muted-foreground">
           <ShieldCheck className="h-5 w-5 text-success" />
           Everything is up to date.
         </div>
-      ) : (
+      ) : null}
+      {items.length > 0 ? (
         <>
           {selectable ? (
             <label className="flex cursor-pointer items-center gap-3 border-b border-border/40 px-4 py-2 text-2xs text-muted-foreground">
@@ -818,7 +827,7 @@ function UpdateList({
                 onChange={() =>
                   setSelected((current) => {
                     const next = new Set(current);
-                    for (const entry of shown) {
+                    for (const entry of visible) {
                       if (allShownSelected) next.delete(entry.id);
                       else next.add(entry.id);
                     }
@@ -830,7 +839,7 @@ function UpdateList({
             </label>
           ) : null}
           <ul className="scroll-slim max-h-[28rem] divide-y divide-border/40 overflow-y-auto">
-            {shown.map((entry) => (
+            {shown.filter((entry) => !entry.optional).map((entry) => (
               <UpdateRow
                 key={entry.id}
                 entry={entry}
@@ -845,6 +854,45 @@ function UpdateList({
               <li className="px-4 py-4 text-xs text-muted-foreground">Nothing matches.</li>
             ) : null}
           </ul>
+          {shown.some((entry) => entry.optional) ? (
+            <div className="border-t border-border/60">
+              <button
+                type="button"
+                onClick={() => setShowOptional(!showOptional)}
+                aria-expanded={showOptional}
+                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.02]"
+              >
+                <span>
+                  <span className="block text-sm text-foreground">
+                    Optional updates ({shown.filter((entry) => entry.optional).length})
+                  </span>
+                  <span className="block text-2xs text-muted-foreground">
+                    Offered but not needed, such as newer drivers. Install all leaves these out, the same as Windows does.
+                  </span>
+                </span>
+                <ChevronDown
+                  className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", showOptional && "rotate-180")}
+                />
+              </button>
+              {showOptional ? (
+                <ul className="scroll-slim max-h-[28rem] divide-y divide-border/40 overflow-y-auto border-t border-border/40">
+                  {shown
+                    .filter((entry) => entry.optional)
+                    .map((entry) => (
+                      <UpdateRow
+                        key={entry.id}
+                        entry={entry}
+                        leftBehind={notInstalled.get(entry.name) ?? null}
+                        selectable={selectable}
+                        selected={selected.has(entry.id)}
+                        unitBase={unitBase}
+                        onToggle={() => toggle(entry.id)}
+                      />
+                    ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
           {selectable && selected.size > 0 ? (
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/60 bg-surface-2/40 px-4 py-3">
               <p className="text-xs text-muted-foreground">
@@ -862,7 +910,7 @@ function UpdateList({
             </div>
           ) : null}
         </>
-      )}
+      ) : null}
 
       {inventory.notes.length > 0 ? (
         <ul className="space-y-1 border-t border-border/60 px-4 py-3">
@@ -1235,6 +1283,7 @@ function ConfirmDialog({
   confirm,
   deviceName,
   items,
+  recommended,
   platform,
   onClose,
   onInstall,
@@ -1243,12 +1292,19 @@ function ConfirmDialog({
   confirm: { kind: "install"; ids: string[] | null } | { kind: "reboot" } | null;
   deviceName: string;
   items: OsUpdateItem[];
+  /** What "install all" means: everything that is not optional. */
+  recommended: OsUpdateItem[];
   platform: string;
   onClose: () => void;
   onInstall: (ids: string[] | null, rebootAfter: boolean) => void;
   onRestart: () => void;
 }) {
-  const chosen = confirm?.kind === "install" ? (confirm.ids ? items.filter((entry) => confirm.ids!.includes(entry.id)) : items) : [];
+  const chosen =
+    confirm?.kind === "install"
+      ? confirm.ids
+        ? items.filter((entry) => confirm.ids!.includes(entry.id))
+        : recommended
+      : [];
   const needsRestart = chosen.some((entry) => entry.restart);
   const [rebootAfter, setRebootAfter] = useState(false);
   useEffect(() => setRebootAfter(false), [confirm]);
@@ -1277,7 +1333,7 @@ function ConfirmDialog({
             <DialogHeader
               title={
                 confirm.ids === null
-                  ? `Install all ${items.length} updates?`
+                  ? `Install all ${recommended.length} updates?`
                   : `Install ${chosen.length} update${chosen.length === 1 ? "" : "s"}?`
               }
               description={`On ${deviceName}. You can follow every step here while it runs.`}
