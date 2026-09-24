@@ -181,7 +181,9 @@ export function updateDevice(
 
 export function deleteDevice(id: string): void {
   const tx = db.transaction((deviceId: string) => {
-    db.prepare("DELETE FROM samples WHERE device_id = ?").run(deviceId);
+    for (const table of ["samples", "gpu_samples", "disk_samples", "core_samples", "net_samples"]) {
+      db.prepare(`DELETE FROM ${table} WHERE device_id = ?`).run(deviceId);
+    }
     db.prepare("DELETE FROM alerts WHERE device_id = ?").run(deviceId);
     db.prepare("DELETE FROM rule_runtime WHERE device_id = ?").run(deviceId);
     db.prepare("DELETE FROM devices WHERE id = ?").run(deviceId);

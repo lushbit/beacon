@@ -238,11 +238,12 @@ export async function collectStaticInfo(): Promise<DeviceStaticInfo> {
 /* --------------------------------------------------------------------- sample */
 
 export async function collectSample(): Promise<MetricSample> {
-  const [load, mem, net, fsStats] = await Promise.all([
+  const [load, mem, net, fsStats, speed] = await Promise.all([
     si.currentLoad(),
     si.mem(),
     si.networkStats().catch(() => []),
     si.fsStats().catch(() => null),
+    si.cpuCurrentSpeed().catch(() => null),
   ]);
 
   const { disks, drives } = disksCache.get();
@@ -298,8 +299,24 @@ export async function collectSample(): Promise<MetricSample> {
     return known.length > 0 ? known.reduce((sum, value) => sum + value, 0) : null;
   };
 
+  const tenth = (value: unknown): number | null => {
+    const known = numberOrNull(value);
+    return known === null ? null : Math.round(known * 10) / 10;
+  };
+  // systeminformation reports GHz, and zero when it could not tell. Only Linux
+  // reports the live clock. Windows and macOS give the rated speed on every
+  // call, which would chart as a flat line that means nothing.
+  const mhz = process.platform === "linux" && speed && speed.avg > 0 ? Math.round(speed.avg * 1000) : null;
+
   const summary: MetricSummary = {
     cpuPct: Math.round((load.currentLoad ?? 0) * 10) / 10,
+    cpuUserPct: tenth(load.currentLoadUser),
+    cpuSystemPct: tenth(load.currentLoadSystem),
+    cpuStealPct: tenth(load.currentLoadSteal),
+    cpuMhz: mhz,
+    memCacheBytes: numberOrNull(mem.buffcache),
+    swapUsedBytes: mem.swaptotal > 0 ? numberOrNull(mem.swapused) : null,
+    swapTotalBytes: mem.swaptotal > 0 ? mem.swaptotal : null,
     memPct: mem.total > 0 ? Math.round((mem.active / mem.total) * 1000) / 10 : 0,
     memUsedBytes: mem.active,
     memTotalBytes: mem.total,
@@ -319,6 +336,7 @@ export async function collectSample(): Promise<MetricSample> {
         ? Math.round((gpu.memoryUsedMb / gpu.memoryTotalMb) * 1000) / 10
         : null,
     cpuTempC: temps.main,
+    gpuTempC: gpu?.temperatureC ?? null,
     load1: loadAvg ? Math.round(loadAvg[0] * 100) / 100 : null,
     load5: loadAvg ? Math.round(loadAvg[1] * 100) / 100 : null,
     load15: loadAvg ? Math.round(loadAvg[2] * 100) / 100 : null,
@@ -333,7 +351,7 @@ export async function collectSample(): Promise<MetricSample> {
     drives,
     cpu: {
       perCore: (load.cpus ?? []).map((core) => Math.round((core.load ?? 0) * 10) / 10),
-      speedGhz: null,
+      speedGhz: speed && speed.avg > 0 ? speed.avg : null,
       temperatures: temps.cores,
     },
     disks,

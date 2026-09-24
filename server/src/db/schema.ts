@@ -90,6 +90,14 @@ CREATE TABLE IF NOT EXISTS samples (
   gpu_pct        REAL,
   gpu_mem_pct    REAL,
   cpu_temp_c     REAL,
+  cpu_user_pct   REAL,
+  cpu_system_pct REAL,
+  cpu_steal_pct  REAL,
+  cpu_mhz        REAL,
+  mem_cache      REAL,
+  swap_used      REAL,
+  swap_total     REAL,
+  gpu_temp_c     REAL,
   load1          REAL,
   load5          REAL,
   load15         REAL,
@@ -117,7 +125,35 @@ CREATE TABLE IF NOT EXISTS gpu_samples (
   gpu       INTEGER NOT NULL,
   gpu_pct     REAL,
   gpu_mem_pct REAL,
+  temp_c      REAL,
   PRIMARY KEY (device_id, tier, ts, gpu)
+) WITHOUT ROWID;
+
+/*
+ * One row per CPU core per sample, for the per-core chart on the device page.
+ * The core column is the core's position in the list the agent reports.
+ */
+CREATE TABLE IF NOT EXISTS core_samples (
+  device_id TEXT NOT NULL,
+  tier      TEXT NOT NULL,
+  ts        INTEGER NOT NULL,
+  core      INTEGER NOT NULL,
+  pct       REAL,
+  PRIMARY KEY (device_id, tier, ts, core)
+) WITHOUT ROWID;
+
+/*
+ * One row per network interface per sample, so the network chart can draw one
+ * interface on its own. The summary columns carry the sum across all of them.
+ */
+CREATE TABLE IF NOT EXISTS net_samples (
+  device_id TEXT NOT NULL,
+  tier      TEXT NOT NULL,
+  ts        INTEGER NOT NULL,
+  iface     TEXT NOT NULL,
+  rx_bps    REAL,
+  tx_bps    REAL,
+  PRIMARY KEY (device_id, tier, ts, iface)
 ) WITHOUT ROWID;
 
 /*

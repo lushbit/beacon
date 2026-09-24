@@ -30,6 +30,16 @@ function tableExists(db: Database, table: string): boolean {
 const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
   { table: "samples", column: "containers_running", definition: "REAL" },
   { table: "samples", column: "containers_total", definition: "REAL" },
+  // The detail charts added to the device page in 1.3.0.
+  { table: "samples", column: "cpu_user_pct", definition: "REAL" },
+  { table: "samples", column: "cpu_system_pct", definition: "REAL" },
+  { table: "samples", column: "cpu_steal_pct", definition: "REAL" },
+  { table: "samples", column: "cpu_mhz", definition: "REAL" },
+  { table: "samples", column: "mem_cache", definition: "REAL" },
+  { table: "samples", column: "swap_used", definition: "REAL" },
+  { table: "samples", column: "swap_total", definition: "REAL" },
+  { table: "samples", column: "gpu_temp_c", definition: "REAL" },
+  { table: "gpu_samples", column: "temp_c", definition: "REAL" },
   // Which side of its limit the alert was raised on, so the dashboard can say
   // "above the limit for 12m" rather than guessing from a reading that has
   // since crossed back.

@@ -138,6 +138,22 @@ export interface MetricSummary {
   gpuPct: number | null;
   gpuMemPct: number | null;
   cpuTempC: number | null;
+  /**
+   * Where the CPU time went. Idle, nice and interrupts are left out, so these
+   * do not add up to `cpuPct`. Null from an agent older than 1.3.0.
+   */
+  cpuUserPct?: number | null;
+  cpuSystemPct?: number | null;
+  /** Time a virtual machine waited for its host. Zero on bare metal. */
+  cpuStealPct?: number | null;
+  /** Average clock across the cores, in MHz. */
+  cpuMhz?: number | null;
+  /** Buffers and page cache, which the system hands back when it needs to. */
+  memCacheBytes?: number | null;
+  swapUsedBytes?: number | null;
+  swapTotalBytes?: number | null;
+  /** The main GPU's temperature, the same card `gpuPct` reports. */
+  gpuTempC?: number | null;
   load1: number | null;
   load5: number | null;
   load15: number | null;

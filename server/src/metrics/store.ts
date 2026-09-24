@@ -18,6 +18,14 @@ const SUMMARY_COLUMNS = [
   ["gpuPct", "gpu_pct"],
   ["gpuMemPct", "gpu_mem_pct"],
   ["cpuTempC", "cpu_temp_c"],
+  ["cpuUserPct", "cpu_user_pct"],
+  ["cpuSystemPct", "cpu_system_pct"],
+  ["cpuStealPct", "cpu_steal_pct"],
+  ["cpuMhz", "cpu_mhz"],
+  ["memCacheBytes", "mem_cache"],
+  ["swapUsedBytes", "swap_used"],
+  ["swapTotalBytes", "swap_total"],
+  ["gpuTempC", "gpu_temp_c"],
   ["load1", "load1"],
   ["load5", "load5"],
   ["load15", "load15"],
@@ -40,13 +48,13 @@ function numberOrNull(value: unknown): number | null {
 }
 
 const insertGpuStmt = db.prepare(
-  `INSERT OR REPLACE INTO gpu_samples (device_id, tier, ts, gpu, gpu_pct, gpu_mem_pct)
-   VALUES (?, 'raw', ?, ?, ?, ?)`
+  `INSERT OR REPLACE INTO gpu_samples (device_id, tier, ts, gpu, gpu_pct, gpu_mem_pct, temp_c)
+   VALUES (?, 'raw', ?, ?, ?, ?, ?)`
 );
 
 /**
  * A row per GPU beside the sample, so the device page can chart a card the
- * summary does not carry. Only the two charted numbers are kept: everything
+ * summary does not carry. Only the charted numbers are kept: everything
  * else about an adapter is in the detail blob of the newest sample, which is
  * where the page reads its name and its size from.
  */
@@ -56,8 +64,15 @@ function insertGpuSample(deviceId: string, sample: MetricSample): void {
       entry.memoryTotalMb && entry.memoryUsedMb !== null
         ? Math.round((entry.memoryUsedMb / entry.memoryTotalMb) * 1000) / 10
         : null;
-    if (entry.utilizationPct === null && memPct === null) return;
-    insertGpuStmt.run(deviceId, sample.ts, index, numberOrNull(entry.utilizationPct), memPct);
+    if (entry.utilizationPct === null && memPct === null && entry.temperatureC === null) return;
+    insertGpuStmt.run(
+      deviceId,
+      sample.ts,
+      index,
+      numberOrNull(entry.utilizationPct),
+      memPct,
+      numberOrNull(entry.temperatureC)
+    );
   });
 }
 
@@ -81,6 +96,41 @@ function insertDiskSample(deviceId: string, sample: MetricSample): void {
   }
 }
 
+const insertCoreStmt = db.prepare(
+  `INSERT OR REPLACE INTO core_samples (device_id, tier, ts, core, pct) VALUES (?, 'raw', ?, ?, ?)`
+);
+
+/** A row per core, for the per-core chart. Every agent has always sent these. */
+function insertCoreSample(deviceId: string, sample: MetricSample): void {
+  (sample.detail.cpu?.perCore ?? []).slice(0, MAX_CORES).forEach((pct, index) => {
+    insertCoreStmt.run(deviceId, sample.ts, index, numberOrNull(pct));
+  });
+}
+
+const insertNetStmt = db.prepare(
+  `INSERT OR REPLACE INTO net_samples (device_id, tier, ts, iface, rx_bps, tx_bps) VALUES (?, 'raw', ?, ?, ?, ?)`
+);
+
+/** A row per interface, for the same reason the drives get one. */
+function insertNetSample(deviceId: string, sample: MetricSample): void {
+  for (const entry of sample.detail.network ?? []) {
+    if (!entry.iface) continue;
+    insertNetStmt.run(
+      deviceId,
+      sample.ts,
+      entry.iface.slice(0, 200),
+      numberOrNull(entry.rxBytesPerSec),
+      numberOrNull(entry.txBytesPerSec)
+    );
+  }
+}
+
+/**
+ * The most cores the history keeps. A 256-thread server would otherwise write
+ * 256 rows every five seconds for a chart that cannot draw that many anyway.
+ */
+export const MAX_CORES = 128;
+
 export function insertSample(deviceId: string, sample: MetricSample): void {
   const params: Record<string, unknown> = {
     device_id: deviceId,
@@ -93,6 +143,8 @@ export function insertSample(deviceId: string, sample: MetricSample): void {
   insertStmt.run(params);
   insertGpuSample(deviceId, sample);
   insertDiskSample(deviceId, sample);
+  insertCoreSample(deviceId, sample);
+  insertNetSample(deviceId, sample);
 }
 
 interface SampleRow {
@@ -231,7 +283,7 @@ export function queryGpuSeries(
 ): MetricSeriesDto {
   const rows = db
     .prepare(
-      `SELECT ts, gpu_pct, gpu_mem_pct FROM gpu_samples
+      `SELECT ts, gpu_pct, gpu_mem_pct, temp_c FROM gpu_samples
         WHERE device_id = ? AND tier = ? AND gpu = ? AND ts >= ? AND ts <= ?
         ORDER BY ts ASC`
     )
@@ -249,6 +301,7 @@ export function queryGpuSeries(
           ts: row.ts,
           gpuPct: numberOrNull(row.gpu_pct),
           gpuMemPct: numberOrNull(row.gpu_mem_pct),
+          gpuTempC: numberOrNull(row.temp_c),
         }) as unknown as MetricSeriesDto["points"][number]
     ),
   };
@@ -287,6 +340,72 @@ export function queryDiskSeries(
   };
 }
 
+/**
+ * Every core's load, one point per timestamp with a key per core (`c0`, `c1`
+ * and so on), so the chart gets the whole machine in one request.
+ */
+export function queryCoreSeries(deviceId: string, fromMs: number, toMs: number, tier: MetricTier): MetricSeriesDto {
+  const rows = db
+    .prepare(
+      `SELECT ts, core, pct FROM core_samples
+        WHERE device_id = ? AND tier = ? AND ts >= ? AND ts <= ?
+        ORDER BY ts ASC, core ASC`
+    )
+    .all(deviceId, tier, fromMs, toMs) as { ts: number; core: number; pct: number | null }[];
+
+  const points: Record<string, number | null>[] = [];
+  let current: Record<string, number | null> | null = null;
+  for (const row of rows) {
+    if (!current || current.ts !== row.ts) {
+      current = { ts: row.ts };
+      points.push(current);
+    }
+    current[`c${row.core}`] = numberOrNull(row.pct);
+  }
+
+  return {
+    deviceId,
+    tier,
+    from: fromMs,
+    to: toMs,
+    stepSec: TIER_STEP_SEC[tier],
+    points: points as unknown as MetricSeriesDto["points"],
+  };
+}
+
+/** One interface's traffic, under the keys the summary uses for the total. */
+export function queryNetSeries(
+  deviceId: string,
+  fromMs: number,
+  toMs: number,
+  tier: MetricTier,
+  iface: string
+): MetricSeriesDto {
+  const rows = db
+    .prepare(
+      `SELECT ts, rx_bps, tx_bps FROM net_samples
+        WHERE device_id = ? AND tier = ? AND iface = ? AND ts >= ? AND ts <= ?
+        ORDER BY ts ASC`
+    )
+    .all(deviceId, tier, iface, fromMs, toMs) as SampleRow[];
+
+  return {
+    deviceId,
+    tier,
+    from: fromMs,
+    to: toMs,
+    stepSec: TIER_STEP_SEC[tier],
+    points: rows.map(
+      (row) =>
+        ({
+          ts: row.ts,
+          netRxBps: numberOrNull(row.rx_bps),
+          netTxBps: numberOrNull(row.tx_bps),
+        }) as unknown as MetricSeriesDto["points"][number]
+    ),
+  };
+}
+
 /* ------------------------------------------------------------------- rollups */
 
 const AGG_COLUMNS = SUMMARY_COLUMNS.map(([, col]) => col);
@@ -305,9 +424,9 @@ function rollupSql(target: MetricTier, source: MetricTier, bucketMs: number): st
 
 function gpuRollupSql(target: MetricTier, source: MetricTier, bucketMs: number): string {
   return `
-    INSERT OR REPLACE INTO gpu_samples (device_id, tier, ts, gpu, gpu_pct, gpu_mem_pct)
+    INSERT OR REPLACE INTO gpu_samples (device_id, tier, ts, gpu, gpu_pct, gpu_mem_pct, temp_c)
     SELECT device_id, '${target}', (ts / ${bucketMs}) * ${bucketMs} AS bucket, gpu,
-           AVG(gpu_pct), AVG(gpu_mem_pct)
+           AVG(gpu_pct), AVG(gpu_mem_pct), AVG(temp_c)
       FROM gpu_samples
      WHERE tier = '${source}' AND ts >= ? AND ts < ?
      GROUP BY device_id, bucket, gpu`;
@@ -325,10 +444,33 @@ function diskRollupSql(target: MetricTier, source: MetricTier, bucketMs: number)
      GROUP BY device_id, bucket, disk`;
 }
 
+function coreRollupSql(target: MetricTier, source: MetricTier, bucketMs: number): string {
+  return `
+    INSERT OR REPLACE INTO core_samples (device_id, tier, ts, core, pct)
+    SELECT device_id, '${target}', (ts / ${bucketMs}) * ${bucketMs} AS bucket, core, AVG(pct)
+      FROM core_samples
+     WHERE tier = '${source}' AND ts >= ? AND ts < ?
+     GROUP BY device_id, bucket, core`;
+}
+
+function netRollupSql(target: MetricTier, source: MetricTier, bucketMs: number): string {
+  return `
+    INSERT OR REPLACE INTO net_samples (device_id, tier, ts, iface, rx_bps, tx_bps)
+    SELECT device_id, '${target}', (ts / ${bucketMs}) * ${bucketMs} AS bucket, iface,
+           AVG(rx_bps), AVG(tx_bps)
+      FROM net_samples
+     WHERE tier = '${source}' AND ts >= ? AND ts < ?
+     GROUP BY device_id, bucket, iface`;
+}
+
 const rollupGpuMinute = db.prepare(gpuRollupSql("minute", "raw", 60_000));
 const rollupGpuHour = db.prepare(gpuRollupSql("hour", "minute", 3_600_000));
 const rollupDiskMinute = db.prepare(diskRollupSql("minute", "raw", 60_000));
 const rollupDiskHour = db.prepare(diskRollupSql("hour", "minute", 3_600_000));
+const rollupCoreMinute = db.prepare(coreRollupSql("minute", "raw", 60_000));
+const rollupCoreHour = db.prepare(coreRollupSql("hour", "minute", 3_600_000));
+const rollupNetMinute = db.prepare(netRollupSql("minute", "raw", 60_000));
+const rollupNetHour = db.prepare(netRollupSql("hour", "minute", 3_600_000));
 
 /** Roll up everything that has finished since the last run. */
 export function runRollups(now = Date.now()): void {
@@ -336,10 +478,14 @@ export function runRollups(now = Date.now()): void {
   rollupMinute.run(minuteEnd - 10 * 60_000, minuteEnd);
   rollupGpuMinute.run(minuteEnd - 10 * 60_000, minuteEnd);
   rollupDiskMinute.run(minuteEnd - 10 * 60_000, minuteEnd);
+  rollupCoreMinute.run(minuteEnd - 10 * 60_000, minuteEnd);
+  rollupNetMinute.run(minuteEnd - 10 * 60_000, minuteEnd);
   const hourEnd = Math.floor(now / 3_600_000) * 3_600_000;
   rollupHour.run(hourEnd - 3 * 3_600_000, hourEnd);
   rollupGpuHour.run(hourEnd - 3 * 3_600_000, hourEnd);
   rollupDiskHour.run(hourEnd - 3 * 3_600_000, hourEnd);
+  rollupCoreHour.run(hourEnd - 3 * 3_600_000, hourEnd);
+  rollupNetHour.run(hourEnd - 3 * 3_600_000, hourEnd);
 }
 
 export function pruneSamples(retention: { rawHours: number; minuteDays: number; hourDays: number }): void {
@@ -352,10 +498,14 @@ export function pruneSamples(retention: { rawHours: number; minuteDays: number; 
   const samples = db.prepare("DELETE FROM samples WHERE tier = ? AND ts < ?");
   const gpus = db.prepare("DELETE FROM gpu_samples WHERE tier = ? AND ts < ?");
   const disks = db.prepare("DELETE FROM disk_samples WHERE tier = ? AND ts < ?");
+  const cores = db.prepare("DELETE FROM core_samples WHERE tier = ? AND ts < ?");
+  const nets = db.prepare("DELETE FROM net_samples WHERE tier = ? AND ts < ?");
   for (const [tier, cutoff] of cutoffs) {
     samples.run(tier, cutoff);
     gpus.run(tier, cutoff);
     disks.run(tier, cutoff);
+    cores.run(tier, cutoff);
+    nets.run(tier, cutoff);
   }
 }
 

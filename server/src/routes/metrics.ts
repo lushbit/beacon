@@ -2,7 +2,7 @@ import { Router } from "express";
 import { METRIC_TIERS } from "@beacon/shared";
 import type { MetricSummary, MetricTier } from "@beacon/shared";
 import { getDeviceRow } from "../devices.js";
-import { pickTier, queryDiskSeries, queryGpuSeries, querySeries } from "../metrics/store.js";
+import { pickTier, queryCoreSeries, queryDiskSeries, queryGpuSeries, queryNetSeries, querySeries } from "../metrics/store.js";
 import { getServerSettings } from "../settings.js";
 import { handler, notFound } from "./helpers.js";
 
@@ -54,6 +54,19 @@ metricsRouter.get(
     const disk = typeof req.query.disk === "string" ? req.query.disk.slice(0, 200) : "";
     if (disk) {
       res.json(queryDiskSeries(row.id, from, to, tier, disk));
+      return;
+    }
+
+    // Every core at once, for the per-core chart.
+    if (req.query.cores === "1") {
+      res.json(queryCoreSeries(row.id, from, to, tier));
+      return;
+    }
+
+    // And one network interface on its own.
+    const iface = typeof req.query.iface === "string" ? req.query.iface.slice(0, 200) : "";
+    if (iface) {
+      res.json(queryNetSeries(row.id, from, to, tier, iface));
       return;
     }
 
