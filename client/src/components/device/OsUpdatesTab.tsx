@@ -920,7 +920,7 @@ function UpdateList({
                     Optional updates ({shown.filter((entry) => entry.optional).length})
                   </span>
                   <span className="block text-2xs text-muted-foreground">
-                    Offered but not needed, such as newer drivers. Install all leaves these out, the same as Windows does.
+                    Offered but not needed, such as newer drivers, preview updates and virus definitions. Install all leaves these out, the same as Windows does.
                   </span>
                 </span>
                 <ChevronDown
