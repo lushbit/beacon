@@ -395,7 +395,7 @@ class Job {
     const line = cleanLine(raw);
     if (!line) return;
     // Scripts that speak in log lines already say their level.
-    const logged = /^LOG (INFO|WARN|ERROR) (.*)$/.exec(line);
+    const logged = /^LOG (INFO|WARN|ERROR|OUT) (.*)$/.exec(line);
     if (logged) {
       this.line(logged[2], logged[1] as OsUpdateLogLevel);
       return;
@@ -927,11 +927,25 @@ const WINDOWS_COM = `${WINDOWS_COMMON}
 $session = New-Object -ComObject Microsoft.Update.Session
 $session.ClientApplicationID = 'Beacon'
 
+# A search that does not name a DeploymentAction only returns regular updates.
+# Optional ones, such as the monthly preview update, have to be asked for,
+# which is what the second half of this query does. A Windows too old to know
+# the word answers WU_E_INVALID_CRITERIA (0x80240032), and gets the plain one.
+$criteriaAll = "IsInstalled=0 and IsHidden=0 and DeploymentAction='Installation' or IsInstalled=0 and IsHidden=0 and DeploymentAction='OptionalInstallation'"
+function Run-Search($searcher) {
+  try { return ,($searcher.Search($criteriaAll).Updates) }
+  catch {
+    if ($_.Exception.HResult -ne -2145124302) { throw }
+    Log WARN 'This Windows cannot list optional updates, searching without them'
+    return ,($searcher.Search('IsInstalled=0 and IsHidden=0').Updates)
+  }
+}
+
 function Read-LastScan {
   $started = Get-Date
   $searcher = $session.CreateUpdateSearcher()
   $searcher.Online = $false
-  $found = $searcher.Search("IsInstalled=0 and IsHidden=0").Updates
+  $found = Run-Search $searcher
   Log INFO ('Read the last scan in ' + (Seconds $started) + 's: ' + $found.Count + ' update(s)')
   return ,$found
 }
@@ -986,7 +1000,7 @@ function Search-Online {
       $searcher.Online = $true
       $searcher.ServerSelection = $attempt.selection
       if ($attempt.id) { $searcher.ServiceID = $attempt.id }
-      $found = $searcher.Search("IsInstalled=0 and IsHidden=0").Updates
+      $found = Run-Search $searcher
       Log INFO ('Search via ' + $attempt.name + ' finished in ' + (Seconds $started) + 's: ' + $found.Count + ' update(s)')
       return ,$found
     } catch {
@@ -997,7 +1011,21 @@ function Search-Online {
   throw ('No update source answered. Last error: ' + $lastError)
 }
 
+# A property newer than this Windows reads as nothing, which is kept apart
+# from 0 because 0 means something for these.
+function Number-Or-Missing($value) { if ($null -eq $value) { -1 } else { [int]$value } }
+
 function Describe-Update($u) {
+  $flags = [pscustomobject]@{
+    browseOnly = [bool]$u.BrowseOnly
+    autoSelect = [bool]$u.AutoSelectOnWebSites
+    autoSelection = Number-Or-Missing $u.AutoSelection
+    autoDownload = Number-Or-Missing $u.AutoDownload
+    deployment = Number-Or-Missing $u.DeploymentAction
+  }
+  # Written to the log, because which of these decide what Settings calls
+  # optional has only ever been guessed at.
+  Log OUT ($u.Title + ' | browseOnly=' + $flags.browseOnly + ' autoSelect=' + $flags.autoSelect + ' autoSelection=' + $flags.autoSelection + ' autoDownload=' + $flags.autoDownload + ' deployment=' + $flags.deployment)
   [pscustomobject]@{
     id = $u.Identity.UpdateID
     title = $u.Title
@@ -1007,8 +1035,11 @@ function Describe-Update($u) {
     categories = (($u.Categories | ForEach-Object { $_.Name }) -join '|')
     type = [int]$u.Type
     reboot = [int]$u.InstallationBehavior.RebootBehavior
-    browseOnly = [bool]$u.BrowseOnly
-    autoSelect = [bool]$u.AutoSelectOnWebSites
+    browseOnly = $flags.browseOnly
+    autoSelect = $flags.autoSelect
+    autoSelection = $flags.autoSelection
+    autoDownload = $flags.autoDownload
+    deployment = $flags.deployment
   }
 }
 `;
@@ -1100,7 +1131,9 @@ try {
   function Pick($updates) {
     $out = New-Object System.Collections.ArrayList
     foreach ($u in $updates) {
-      $recommended = (-not $u.BrowseOnly) -and $u.AutoSelectOnWebSites
+      # Only used without a listing to go by. With one, the agent names the
+      # updates itself, using the same rule the dashboard shows.
+      $recommended = (-not $u.BrowseOnly) -and ($u.DeploymentAction -ne 4)
       if (($wanted -eq 'all' -and $recommended) -or ($ids -contains $u.Identity.UpdateID)) { [void]$out.Add($u) }
     }
     return ,$out
@@ -1225,6 +1258,27 @@ interface WindowsEntry {
   browseOnly?: boolean;
   /** Windows would pick it by itself. Settings shows the rest as optional. */
   autoSelect?: boolean;
+  /** AutoSelectMode: 0 Windows decides, 1 if downloaded, 2 never, 3 always. -1 unknown. */
+  autoSelection?: number;
+  /** AutoDownloadMode: 0 Windows decides, 1 never, 2 always. -1 unknown. */
+  autoDownload?: number;
+  /** DeploymentAction: 1 install, 4 optional install. -1 unknown. */
+  deployment?: number;
+}
+
+/**
+ * What Settings would not list under its main updates. Optional installs
+ * (preview updates) and browse-only ones say so outright. Defender definitions
+ * install on their own and Settings never shows them. For the rest, the flags
+ * that say Windows will not pick an update by itself make it optional, unless
+ * another flag says it always will.
+ */
+function windowsOptional(entry: WindowsEntry, driver: boolean, definitions: boolean, noCategories: boolean): boolean {
+  if (entry.browseOnly === true || entry.deployment === 4 || definitions) return true;
+  if (entry.autoSelect === undefined) return noCategories && driver;
+  const always = entry.autoSelection === 3 || entry.autoDownload === 2;
+  if (always) return false;
+  return entry.autoSelection === 2 || entry.autoDownload === 1 || entry.autoSelect === false;
 }
 
 /** The JSON line the listing script prints, or its error. */
@@ -1249,16 +1303,15 @@ export function parseWindowsList(output: string): Listing {
       id: entry.id,
       name: title,
       title: entry.kb || null,
-      sizeBytes: entry.size > 0 ? entry.size : null,
+      // A definitions package reports the full download, where Windows only
+      // ever fetches a small difference, so its size would mislead.
+      sizeBytes: entry.size > 0 && !definitions ? entry.size : null,
       security: categories.includes("Security Updates") || (!definitions && entry.severity !== "" && entry.severity !== null),
       restart: entry.reboot === 1 || /Cumulative Update/i.test(title),
       kind: driver ? "driver" : definitions ? "other" : "system",
       // Windows says so where it can. The service interface does not, and the
       // drivers it lists are the ones Settings keeps under Optional updates.
-      optional:
-        entry.browseOnly === true ||
-        entry.autoSelect === false ||
-        (entry.autoSelect === undefined && categories.length === 0 && driver),
+      optional: windowsOptional(entry, driver, definitions, categories.length === 0),
     });
   });
   return { items, rebootRequired: parsed.reboot === true };
@@ -1573,7 +1626,12 @@ export function startCheck(jobId: string, emit: OsUpdateEmit): void {
 export function startInstall(params: OsUpdateInstallParams, emit: OsUpdateEmit): void {
   const info = detect();
   if (!info.manager) throw new Error(info.reason ?? "Updates are not supported here.");
-  const ids = info.canSelect ? params.ids : null;
+  let ids = info.canSelect ? params.ids : null;
+  // Windows has no "everything recommended" of its own that matches what the
+  // dashboard lists, so "all" becomes the updates the list shows as needed.
+  if (ids === null && info.manager === "windows" && inventory) {
+    ids = inventory.items.filter((entry) => !entry.optional).map((entry) => entry.id);
+  }
   const adapter = adapterFor(info.manager);
   const job = begin(params.jobId, "install", emit);
   job.rebootAfter = params.rebootAfter;

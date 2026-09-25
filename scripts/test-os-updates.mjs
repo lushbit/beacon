@@ -179,6 +179,18 @@ console.log("Windows Update…");
     picked.items[0].optional === true && picked.items[1].optional === false,
     "an update Windows would not pick by itself is optional, as Settings shows it"
   );
+  const flags = parseWindowsList(
+    `BEACON-JSON {"items":[` +
+      `{"id":"p","title":"2026-09 Preview Update (KB5124010) (26200.9550)","kb":"KB5124010","size":1,"severity":"","categories":"Updates","type":1,"reboot":1,"browseOnly":false,"autoSelect":true,"autoSelection":0,"autoDownload":0,"deployment":4},` +
+      `{"id":"d","title":"Security Intelligence Update for Microsoft Defender Antivirus - KB2267602 (Version 1.459.389.0)","kb":"KB2267602","size":1825361100,"severity":"","categories":"Definition Updates","type":1,"reboot":0,"browseOnly":false,"autoSelect":true,"autoSelection":0,"autoDownload":0,"deployment":1},` +
+      `{"id":"a","title":"Dell Inc. SoftwareComponent Driver Update (1.1.67.0)","kb":"","size":1,"severity":"","categories":"Drivers","type":2,"reboot":0,"browseOnly":false,"autoSelect":false,"autoSelection":3,"autoDownload":0,"deployment":1},` +
+      `{"id":"m","title":"Intel System Driver Update (2.3.20306.4)","kb":"","size":1,"severity":"","categories":"Drivers","type":2,"reboot":0,"browseOnly":false,"autoSelect":false,"autoSelection":2,"autoDownload":1,"deployment":1}` +
+      `],"reboot":false}`
+  );
+  check(flags.items[0].optional === true, "an optional install, such as a preview update, is optional");
+  check(flags.items[1].optional === true && flags.items[1].sizeBytes === null, "Defender definitions are left to Defender, with no misleading size");
+  check(flags.items[2].optional === false, "a driver Windows always picks is not optional");
+  check(flags.items[3].optional === true, "a driver Windows never picks is");
   check(service.items[2].kind === "other" && !service.items[2].security, "a definitions update is neither a driver nor a security fix");
   const single = parseWindowsList(
     `BEACON-JSON {"items":{"id":"x","title":"One","kb":"","size":1,"severity":"","categories":"Updates","type":1,"reboot":0},"reboot":false}`
