@@ -41,7 +41,7 @@ export function CoreChart({ deviceId, rangeSeconds, cores }: CoreChartProps) {
   const history = useSeries(deviceId, rangeSeconds, [], { cores: true });
   return (
     <div className="px-2 pb-2 pt-3">
-      <div className="flex flex-wrap items-start justify-between gap-3 px-2">
+      <div className="flex min-h-[36px] flex-wrap items-start justify-between gap-3 px-2">
         <h4 className="text-xs font-medium text-foreground">Per core</h4>
         <CoreHeatmapScale />
       </div>
