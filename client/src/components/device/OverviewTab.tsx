@@ -629,9 +629,8 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
         ) : null}
       </div>
 
-      {/* Dense, so a panel opened to the full width does not leave a hole
-          where it stood. Rows stretch, so panels side by side match in height. */}
-      <div className="grid gap-4 xl:grid-flow-row-dense xl:grid-cols-2">
+      {/* Rows stretch, so panels side by side match in height. */}
+      <div className="grid gap-4 xl:grid-cols-2">
         <ChartPanel
           title="CPU usage"
           value={formatPercent(summary?.cpuPct)}

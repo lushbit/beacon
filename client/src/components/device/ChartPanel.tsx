@@ -83,11 +83,9 @@ export function ChartPanel({
     <section
       className={cn(
         // A column, so panels that share a row can share its height and keep
-        // their footers on one line at the bottom.
+        // their buttons on one line at the bottom. Panels stay in their own
+        // column when opened, and the extra charts stack inside them.
         "flex flex-col rounded-lg border border-border/70 bg-card",
-        // Every opened panel takes the whole row, whichever side it is on, so
-        // they all open the same way.
-        expanded && "xl:col-span-2",
         className
       )}
     >
@@ -118,9 +116,9 @@ export function ChartPanel({
 
       {/* The footer reads the main chart's current value, so it stays with it,
           and the extra charts open below everything else. */}
-      <div className="mt-auto">
-        {footer ? <div className="border-t border-border/60 px-4 py-3">{footer}</div> : null}
+      {footer ? <div className="border-t border-border/60 px-4 py-3">{footer}</div> : null}
 
+      <div className="mt-auto">
         {more.length > 0 ? (
           <>
             <div className="border-t border-border/60 px-4 py-3">
@@ -148,23 +146,9 @@ export function ChartPanel({
               </button>
             </div>
             {expanded ? (
-              <div
-                className={cn(
-                  "grid gap-px border-t border-border/60 bg-border/60",
-                  more.length > 1 && "lg:grid-cols-2"
-                )}
-              >
-                {more.map((chart, index) => (
-                  <div
-                    key={chart.id}
-                    className={cn(
-                      "bg-card",
-                      // An odd one out takes the whole row rather than leaving a hole.
-                      more.length % 2 === 1 && index === more.length - 1 && "lg:col-span-2"
-                    )}
-                  >
-                    {chart.render()}
-                  </div>
+              <div className="divide-y divide-border/60 border-t border-border/60">
+                {more.map((chart) => (
+                  <div key={chart.id}>{chart.render()}</div>
                 ))}
               </div>
             ) : null}
