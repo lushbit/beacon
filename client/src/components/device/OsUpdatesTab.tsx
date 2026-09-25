@@ -83,6 +83,7 @@ function resultSummary(job: OsUpdateJobDto): string | null {
  */
 function actorLabel(actor: string): string {
   if (actor === "device") return "the device";
+  if (actor === "after restart") return "Beacon, after the restart";
   return actor.replace(/\s*\([0-9a-f-]{36}\)$/i, "");
 }
 
@@ -273,6 +274,10 @@ export function OsUpdatesTab({ device, online, unitBase }: OsUpdatesTabProps) {
         <InstallResult
           job={lastInstall}
           inventory={inventory}
+          restartedSince={data.history.some(
+            (entry) =>
+              entry.kind === "reboot" && entry.state === "succeeded" && entry.startedAt >= (lastInstall.finishedAt ?? 0)
+          )}
           canRestart={canAct}
           onRestart={() => setConfirm({ kind: "reboot" })}
           onDismiss={() => {
@@ -725,6 +730,7 @@ function LogView({
                             hour12: false,
                           })
                         : ""}
+                      <span className="sr-only"> </span>
                     </span>
                     <span
                       className={cn(
@@ -736,6 +742,8 @@ function LogView({
                       )}
                     >
                       {entry.level}
+                      {/* So a copied line keeps its columns apart. */}
+                      <span className="sr-only"> </span>
                     </span>
                   </>
                 ) : null}
@@ -1208,20 +1216,40 @@ function ResultList({
 function InstallResult({
   job,
   inventory,
+  restartedSince,
   canRestart,
   onRestart,
   onDismiss,
 }: {
   job: OsUpdateJobDto;
   inventory: OsUpdatesDto["inventory"];
+  /** A restart from the dashboard has finished since this install did. */
+  restartedSince: boolean;
   canRestart: boolean;
   onRestart: () => void;
   onDismiss: () => void;
 }) {
   const failures = job.results.filter((result) => !result.ok);
   const installed = job.results.length - failures.length;
-  const restartNeeded = inventory?.rebootRequired === true || (job.rebootRequired && job.phase !== "rebooting");
-  const restarted = job.rebootAfter && job.state === "succeeded" && !inventory?.rebootRequired && job.rebootRequired;
+  /*
+   * The install's own word on a restart only holds until the device is asked
+   * again. A check that ran after the install is the device as it is now, so
+   * once there is one, it alone decides, and a restart that has happened since
+   * settles it too.
+   */
+  const checkedSince = inventory?.checkedAt != null && job.finishedAt != null && inventory.checkedAt > job.finishedAt;
+  const restarted = restartedSince || (job.rebootAfter && job.rebootRequired && job.state === "succeeded");
+  const restartNeeded = checkedSince
+    ? inventory?.rebootRequired === true
+    : !restarted && (inventory?.rebootRequired === true || job.rebootRequired);
+
+  // After that later check, the updates this run installed should be gone
+  // from the list. Any that are still offered did not really go in.
+  const stillOffered = checkedSince
+    ? job.results
+        .filter((result) => result.ok && inventory!.items.some((entry) => entry.name === result.name))
+        .map((result) => result.name)
+    : [];
 
   let tone: "success" | "warning" | "danger" = "success";
   let Icon = ShieldCheck;
@@ -1284,6 +1312,19 @@ function InstallResult({
             ) : null}
             {restarted ? " · restarted to finish" : ""}
           </p>
+          {checkedSince && installed > 0 ? (
+            stillOffered.length === 0 ? (
+              <p className="flex items-center gap-1.5 text-2xs text-success">
+                <Check className="h-3 w-3 shrink-0" />
+                Confirmed by the check <RelativeTime value={inventory!.checkedAt} />: none of them are offered any more.
+              </p>
+            ) : (
+              <p className="flex items-start gap-1.5 text-2xs text-warning">
+                <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                Still offered after the last check: {stillOffered.join(", ")}.
+              </p>
+            )
+          ) : null}
         </div>
         <Button variant="ghost" size="icon" aria-label="Close" onClick={onDismiss}>
           <X className="h-4 w-4" />
