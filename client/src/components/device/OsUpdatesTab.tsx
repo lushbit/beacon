@@ -540,10 +540,6 @@ function ActiveJob({
             <X className="h-3.5 w-3.5" />
             Cancel
           </Button>
-        ) : job.phase === "installing" ? (
-          <p className="max-w-[16rem] text-right text-2xs text-muted-foreground">
-            Installing now. This cannot be stopped part way without risking the system.
-          </p>
         ) : null}
       </header>
 
@@ -915,13 +911,8 @@ function UpdateList({
                 aria-expanded={showOptional}
                 className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.02]"
               >
-                <span>
-                  <span className="block text-sm text-foreground">
-                    Optional updates ({shown.filter((entry) => entry.optional).length})
-                  </span>
-                  <span className="block text-2xs text-muted-foreground">
-                    Offered but not needed, such as newer drivers, preview updates and virus definitions. Install all leaves these out, the same as Windows does.
-                  </span>
+                <span className="text-sm text-foreground">
+                  Optional updates ({shown.filter((entry) => entry.optional).length})
                 </span>
                 <ChevronDown
                   className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", showOptional && "rotate-180")}
