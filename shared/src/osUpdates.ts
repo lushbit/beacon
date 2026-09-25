@@ -60,6 +60,8 @@ export interface OsUpdateInventory {
   checkedAt: number | null;
   items: OsUpdateItem[];
   rebootRequired: boolean;
+  /** What is asking for the restart, where the system says. */
+  rebootReason?: string | null;
   /**
    * Whether single updates can be picked. Arch only upgrades everything at
    * once, because a partial upgrade is how an Arch system breaks.

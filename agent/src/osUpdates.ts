@@ -74,15 +74,30 @@ function isRoot(): boolean {
   return typeof process.getuid !== "function" || process.getuid() === 0;
 }
 
+/** Compares kernel release strings the way a person would, number by number. */
+function compareRelease(a: string, b: string): number {
+  const parts = (value: string) => value.split(/(\d+)/).filter(Boolean);
+  const left = parts(a);
+  const right = parts(b);
+  for (let index = 0; index < Math.max(left.length, right.length); index++) {
+    const x = left[index] ?? "";
+    const y = right[index] ?? "";
+    if (x === y) continue;
+    const bothNumbers = /^\d+$/.test(x) && /^\d+$/.test(y);
+    return bothNumbers ? Number(x) - Number(y) : x < y ? -1 : 1;
+  }
+  return 0;
+}
+
 /**
- * The kernel that is running no longer has its modules on disk once a newer
- * one replaced it, which is the one reboot signal every distribution shares.
- * Only trusted where the modules directory exists at all, since a container or
- * a VPS on a host kernel has none and would always look out of date.
+ * Why the running kernel is out of date, or null when it is not. A kernel
+ * whose modules are gone has been replaced, which is how Arch and Alpine
+ * leave things. Debian, Ubuntu and Fedora keep old kernels, so there the sign
+ * is a newer kernel with an actual boot image. Folders an old kernel leaves
+ * behind, and module rebuilds that touch every installed kernel, have no say.
  */
-function kernelReplaced(): boolean {
+export function kernelRestartReason(): string | null {
   const release = os.release();
-  const bootedAt = Date.now() - os.uptime() * 1000;
   for (const base of ["/usr/lib/modules", "/lib/modules"]) {
     let entries: string[];
     try {
@@ -91,20 +106,35 @@ function kernelReplaced(): boolean {
       continue;
     }
     if (entries.length === 0) continue;
-    if (!entries.includes(release)) return true;
-    // Debian and Ubuntu keep the old kernel beside the new one, so the running
-    // kernel's modules are still there. A different kernel that arrived since
-    // boot is the sign there instead.
-    return entries.some((entry) => {
-      if (entry === release) return false;
-      try {
-        return fs.statSync(path.join(base, entry)).mtimeMs > bootedAt;
-      } catch {
-        return false;
-      }
-    });
+    if (!entries.includes(release)) {
+      const newest = entries.slice().sort(compareRelease).pop();
+      return newest ? `Kernel ${newest} is installed, ${release} is still running` : null;
+    }
+    const newer = entries
+      .filter((entry) => compareRelease(entry, release) > 0)
+      .filter((entry) => fs.existsSync(`/boot/vmlinuz-${entry}`) || fs.existsSync(path.join(base, entry, "vmlinuz")))
+      .sort(compareRelease);
+    const newest = newer.pop();
+    return newest ? `Kernel ${newest} is installed, ${release} is still running` : null;
   }
-  return false;
+  return null;
+}
+
+function kernelReplaced(): boolean {
+  return kernelRestartReason() !== null;
+}
+
+/** What is asking for the restart on Linux, in a line for the dashboard. */
+function linuxRestartReason(): string | null {
+  const kernel = kernelRestartReason();
+  if (kernel) return kernel;
+  try {
+    const packages = fs.readFileSync("/var/run/reboot-required.pkgs", "utf8").split("\n").map((line) => line.trim()).filter(Boolean);
+    if (packages.length > 0) return `Requested by ${[...new Set(packages)].join(", ")}`;
+  } catch {
+    /* not every system writes this */
+  }
+  return null;
 }
 
 /* ------------------------------------------------------------------ platform */
@@ -1537,6 +1567,11 @@ function inventoryFrom(listing: Listing | null, error?: string): OsUpdateInvento
     checkedAt: listing ? Date.now() : (inventory?.checkedAt ?? null),
     items: listing ? listing.items : (inventory?.items ?? []),
     rebootRequired: listing ? listing.rebootRequired : (inventory?.rebootRequired ?? false),
+    rebootReason: listing
+      ? listing.rebootRequired && process.platform === "linux"
+        ? linuxRestartReason()
+        : null
+      : (inventory?.rebootReason ?? null),
     canSelect: info.canSelect,
     notes: info.notes,
   };

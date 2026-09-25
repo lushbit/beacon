@@ -457,6 +457,9 @@ function StatusCard({
         <div className="flex items-center gap-2 border-t border-border/60 bg-warning/5 px-4 py-2.5 text-xs text-warning">
           <RotateCcw className="h-3.5 w-3.5 shrink-0" />
           A restart is needed to finish installing updates.
+          {inventory.rebootReason ? (
+            <span className="text-muted-foreground">{inventory.rebootReason}.</span>
+          ) : null}
         </div>
       ) : null}
       {inventory?.reason ? (
