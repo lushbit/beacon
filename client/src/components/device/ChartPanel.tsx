@@ -82,10 +82,9 @@ export function ChartPanel({
   return (
     <section
       className={cn(
-        // A column, so panels that share a row can share its height and keep
-        // their buttons on one line at the bottom. Panels stay in their own
-        // column when opened, and the extra charts stack inside them.
-        "flex flex-col rounded-lg border border-border/70 bg-card",
+        // Panels stay in their own column when opened, and the extra charts
+        // stack inside them.
+        "rounded-lg border border-border/70 bg-card",
         className
       )}
     >
@@ -118,7 +117,7 @@ export function ChartPanel({
           and the extra charts open below everything else. */}
       {footer ? <div className="border-t border-border/60 px-4 py-3">{footer}</div> : null}
 
-      <div className="mt-auto">
+      <div>
         {more.length > 0 ? (
           <>
             <div className="border-t border-border/60 px-4 py-3">

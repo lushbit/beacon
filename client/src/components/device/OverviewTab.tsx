@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Children, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Activity,
   ArrowDownUp,
@@ -21,6 +21,7 @@ import { CoreChart, SummaryChart, SummaryPanel } from "@/components/device/Detai
 import { integrate } from "@/components/charts/chartUtils";
 import { EmptyState } from "@/components/ui/misc";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useSeries } from "@/hooks/useSeries";
 import { SERIES } from "@/lib/colors";
 import { gpuName } from "@/lib/gpu";
@@ -59,6 +60,25 @@ function remember(kind: string, deviceId: string, name: string): void {
   } catch {
     /* private browsing has no storage, and the choice is not worth failing over */
   }
+}
+
+/**
+ * The chart panels in two columns that stack on their own, taking every other
+ * panel so the order reads left, right, left as before. Opening a panel's extra
+ * charts only makes its own column longer. As a grid of rows, it either
+ * stretched the panel beside it or left a hole under it. Narrow screens get
+ * one column, in the same order.
+ */
+function PanelColumns({ children }: { children: ReactNode }) {
+  const wide = useMediaQuery("(min-width: 1280px)");
+  const panels = Children.toArray(children);
+  if (!wide) return <div className="flex flex-col gap-4">{panels}</div>;
+  return (
+    <div className="grid grid-cols-2 items-start gap-4">
+      <div className="flex min-w-0 flex-col gap-4">{panels.filter((_, index) => index % 2 === 0)}</div>
+      <div className="flex min-w-0 flex-col gap-4">{panels.filter((_, index) => index % 2 === 1)}</div>
+    </div>
+  );
 }
 
 /** Radix refuses an empty value, so the total gets a name no interface has. */
@@ -629,8 +649,7 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
         ) : null}
       </div>
 
-      {/* Rows stretch, so panels side by side match in height. */}
-      <div className="grid gap-4 xl:grid-cols-2">
+      <PanelColumns>
         <ChartPanel
           title="CPU usage"
           value={formatPercent(summary?.cpuPct)}
@@ -926,7 +945,7 @@ export function OverviewTab({ device, sample, rangeSeconds, unitBase, temperatur
             }
           />
         ) : null}
-      </div>
+      </PanelColumns>
 
       <section className="rounded-lg border border-border/70 bg-card">
         <header className="flex items-center gap-2 border-b border-border/60 px-4 py-3">
