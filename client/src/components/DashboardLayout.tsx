@@ -176,8 +176,8 @@ function SidebarLink({
 }
 
 /**
- * Collapsed, the heading would not fit, so a short rule stands in for it. The
- * rule sits in the same box as the text, so every link below stays at the same
+ * Collapsed, the heading would not fit, so a row of dots stands in for it. The
+ * dots sit in the same box as the text, so every link below stays at the same
  * height in both widths and nothing jumps when the sidebar opens or closes.
  */
 function SectionLabel({ children, collapsed }: { children: React.ReactNode; collapsed: boolean }) {
@@ -185,7 +185,13 @@ function SectionLabel({ children, collapsed }: { children: React.ReactNode; coll
     <p className="px-3 pb-2 pt-5 text-2xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
       <span className="relative block">
         <span className={cn("whitespace-nowrap", collapsed && "invisible")}>{children}</span>
-        {collapsed ? <span className="absolute inset-x-0 top-1/2 border-t border-border/60" aria-hidden /> : null}
+        {collapsed ? (
+          <span className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 gap-[3px]" aria-hidden>
+            {[0, 1, 2].map((dot) => (
+              <span key={dot} className="h-[3px] w-[3px] rounded-full bg-muted-foreground/50" />
+            ))}
+          </span>
+        ) : null}
       </span>
     </p>
   );
@@ -414,7 +420,9 @@ function CompactFooter({
         }}
         title={sourceUrl ? `Beacon v${version}. Open the source repository` : `Beacon v${version}`}
         className={cn(
-          "max-w-full truncate rounded-md px-1.5 py-1 text-2xs font-medium tabular text-muted-foreground transition-colors",
+          // The column is narrower than the number, so the label borrows the
+          // sidebar's side padding rather than cutting the version short.
+          "-mx-3 whitespace-nowrap rounded-md px-1 py-1 text-[0.625rem] font-medium tabular text-muted-foreground transition-colors",
           sourceUrl ? "hover:bg-white/[0.05] hover:text-foreground" : "cursor-default"
         )}
       >
