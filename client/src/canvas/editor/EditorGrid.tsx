@@ -11,18 +11,22 @@ import { useBoxSize } from "../useBoxSize";
 import { BLOCK_ICONS } from "./BlockLibrary";
 
 const DROPPING_ID = "__dropping__";
-/** Empty rows kept under the last block, so there is always room to add more. */
-const SPARE_ROWS = 8;
+/**
+ * Empty rows kept under the lowest block. The grid otherwise fills the screen,
+ * so it only grows, and the page only scrolls, once a block comes near the
+ * bottom.
+ */
+const SPARE_ROWS = 4;
 /** The size the + on an empty spot shows wherever it fits. The block picked keeps its own size. */
-const GHOST = { w: 6, h: 4 };
+const GHOST = { w: 4, h: 4 };
 
 interface EditorGridProps {
   blocks: CanvasBlock[];
   selectedId: string | null;
   dragType: CanvasBlockType | null;
   onSelect: (id: string | null) => void;
-  /** Positions after a drag or resize, for every block that moved. */
-  onLayout: (positions: Map<string, { x: number; y: number; w: number; h: number }>) => void;
+  /** Positions after a drag or resize, and the block that was dragged or resized. */
+  onLayout: (positions: Map<string, { x: number; y: number; w: number; h: number }>, movedId: string) => void;
   onDrop: (type: CanvasBlockType, at: { x: number; y: number; w: number; h: number }, positions: Map<string, { x: number; y: number; w: number; h: number }>) => void;
   /** The + on an empty spot was pressed, at the cell under the pointer. */
   onAddAt: (cell: { col: number; row: number }) => void;
@@ -30,6 +34,10 @@ interface EditorGridProps {
   onBackground: () => void;
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
+  /** How much the page is shrunk to fit between the sidebars. 1 is full size. */
+  scale: number;
+  /** The visible height, in unscaled pixels, the grid should at least fill. */
+  fillHeight: number;
 }
 
 function positionsOf(layout: Layout[]): Map<string, { x: number; y: number; w: number; h: number }> {
@@ -39,17 +47,34 @@ function positionsOf(layout: Layout[]): Map<string, { x: number; y: number; w: n
 /**
  * The page being built, on the same grid visitors see. Blocks are dragged by
  * any part of them and resized from their edges, and can go anywhere, with
- * empty space around them if wanted. A block cannot be dragged or resized onto
- * another one, so nothing is ever pushed out of place by passing over it.
+ * empty space around them if wanted. While a block is dragged it may pass over
+ * others without disturbing them. Where it is let go, anything it lands on
+ * moves down to make room, so nothing is shoved about on the way there.
  */
-export function EditorGrid({ blocks, selectedId, dragType, onSelect, onLayout, onDrop, onAddAt, onBackground, onDuplicate, onDelete }: EditorGridProps) {
+export function EditorGrid({
+  blocks,
+  selectedId,
+  dragType,
+  onSelect,
+  onLayout,
+  onDrop,
+  onAddAt,
+  onBackground,
+  onDuplicate,
+  onDelete,
+  scale,
+  fillHeight,
+}: EditorGridProps) {
   const [ref, size] = useBoxSize<HTMLDivElement>();
   const [ghost, setGhost] = useState<{ x: number; y: number; w: number; h: number; col: number; row: number } | null>(null);
   const [interacting, setInteracting] = useState(false);
 
   const width = size.width;
   const colWidth = width > 0 ? (width - CANVAS_GAP * (CANVAS_COLUMNS - 1)) / CANVAS_COLUMNS : 0;
-  const rows = bottomOf(blocks) + SPARE_ROWS;
+  // Down to the bottom of the screen, wherever the grid starts on the page.
+  const top = ref.current?.offsetTop ?? 0;
+  const screenRows = Math.floor((fillHeight - top + CANVAS_GAP) / (CANVAS_ROW_HEIGHT + CANVAS_GAP));
+  const rows = Math.max(bottomOf(blocks) + SPARE_ROWS, screenRows, 1);
   const height = rows * CANVAS_ROW_HEIGHT + (rows - 1) * CANVAS_GAP;
 
   const layout = useMemo<Layout[]>(
@@ -68,8 +93,9 @@ export function EditorGrid({ blocks, selectedId, dragType, onSelect, onLayout, o
    */
   const spotAt = (clientX: number, clientY: number, element: HTMLElement) => {
     const rect = element.getBoundingClientRect();
-    const col = Math.floor((clientX - rect.left) / (colWidth + CANVAS_GAP));
-    const row = Math.floor((clientY - rect.top) / (CANVAS_ROW_HEIGHT + CANVAS_GAP));
+    // The pointer is in screen pixels, the grid in page pixels.
+    const col = Math.floor((clientX - rect.left) / scale / (colWidth + CANVAS_GAP));
+    const row = Math.floor((clientY - rect.top) / scale / (CANVAS_ROW_HEIGHT + CANVAS_GAP));
     if (col < 0 || col >= CANVAS_COLUMNS || row < 0) return null;
     const spot = fitAt(blocks, { col, row }, GHOST);
     return spot ? { ...spot, col, row } : null;
@@ -152,10 +178,10 @@ export function EditorGrid({ blocks, selectedId, dragType, onSelect, onLayout, o
           margin={[CANVAS_GAP, CANVAS_GAP]}
           containerPadding={[0, 0]}
           compactType={null}
-          preventCollision
-          allowOverlap={false}
+          allowOverlap
           isBounded
           useCSSTransforms
+          transformScale={scale}
           resizeHandles={["s", "e", "se", "sw", "w"]}
           draggableCancel=".canvas-no-drag"
           isDroppable
@@ -170,17 +196,17 @@ export function EditorGrid({ blocks, selectedId, dragType, onSelect, onLayout, o
             setGhost(null);
             onSelect(item.i);
           }}
-          onDragStop={(next) => {
+          onDragStop={(next, _old, item) => {
             setInteracting(false);
-            onLayout(positionsOf(next));
+            onLayout(positionsOf(next), item.i);
           }}
           onResizeStart={(_layout, item) => {
             setInteracting(true);
             onSelect(item.i);
           }}
-          onResizeStop={(next) => {
+          onResizeStop={(next, _old, item) => {
             setInteracting(false);
-            onLayout(positionsOf(next));
+            onLayout(positionsOf(next), item.i);
           }}
         >
           {blocks.map((block) => {

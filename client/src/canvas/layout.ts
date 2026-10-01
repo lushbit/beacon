@@ -122,13 +122,20 @@ export function placeBlock(
   return { blocks: makeRoom([...blocks, block], id), id };
 }
 
-/** Moves a block by whole cells, unless that would land it on another block. */
+/**
+ * Moves a block by whole cells within the page. Whatever it lands on moves
+ * down to make room, the same as when it is dragged there.
+ */
 export function nudge(blocks: CanvasBlock[], id: string, dx: number, dy: number): CanvasBlock[] | null {
   const block = blocks.find((entry) => entry.id === id);
   if (!block) return null;
-  const rect = { x: block.x + dx, y: block.y + dy, w: block.w, h: block.h };
-  if (!isFree(blocks, rect, id)) return null;
-  return blocks.map((entry) => (entry.id === id ? { ...entry, x: rect.x, y: rect.y } : entry));
+  const x = block.x + dx;
+  const y = block.y + dy;
+  if (x < 0 || y < 0 || x + block.w > CANVAS_COLUMNS) return null;
+  return makeRoom(
+    blocks.map((entry) => (entry.id === id ? { ...entry, x, y } : entry)),
+    id
+  );
 }
 
 /* --------------------------------------------------------------- templates */

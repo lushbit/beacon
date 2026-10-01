@@ -9,10 +9,14 @@ import {
   Plus,
   Redo2,
   Share2,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   Settings2,
+  type LucideIcon,
   Undo2,
   Upload,
-  X,
 } from "lucide-react";
 import type { CanvasBlock, CanvasBlockType, CanvasContent, CanvasDeviceMeta, CanvasDeviceSnapshot, CanvasPageDto } from "@beacon/shared";
 import { CANVAS_BLOCK_INFO, allNeeds, blockDeviceIds, buildSnapshot, clampBlock } from "@beacon/shared";
@@ -22,8 +26,9 @@ import { useLive } from "@/context/LiveContext";
 import { useToast } from "@/context/ToastContext";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { CanvasHeader, PAGE_COLUMN, pageColumnStyle } from "@/canvas/CanvasHeader";
+import { CanvasHeader, PAGE_COLUMN } from "@/canvas/CanvasHeader";
 import { CanvasView } from "@/canvas/CanvasView";
+import { useBoxSize } from "@/canvas/useBoxSize";
 import { CanvasDataProvider, type CanvasDataValue } from "@/canvas/data";
 import { BLOCK_ICONS, BlockLibrary, BlockPicker } from "@/canvas/editor/BlockLibrary";
 import { EditorGrid } from "@/canvas/editor/EditorGrid";
@@ -115,21 +120,26 @@ function Editor({ initial, devices }: { initial: CanvasPageDto; devices: CanvasD
   const [preview, setPreview] = useState(false);
   const [previewRange, setPreviewRange] = useState<number | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
-  const [libraryOpen, setLibraryOpen] = useState(libraryDefault);
-  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(() => sidebarDefault(LIBRARY_KEY, 1700));
+  const [settingsOpen, setSettingsOpen] = useState(() => sidebarDefault(SETTINGS_KEY, 1024));
+  const [settingsTab, setSettingsTab] = useState<"block" | "page">("page");
   const toggleLibrary = (open: boolean) => {
     setLibraryOpen(open);
-    try {
-      window.localStorage.setItem(LIBRARY_KEY, open ? "1" : "0");
-    } catch {
-      /* the choice just will not be remembered */
-    }
+    rememberSidebar(LIBRARY_KEY, open);
   };
-  // Picking a block brings up its settings. Clicking off it leaves them open
-  // for the page.
+  const toggleSettings = (open: boolean) => {
+    setSettingsOpen(open);
+    rememberSidebar(SETTINGS_KEY, open);
+  };
+  // Picking a block brings up its settings, opening the sidebar if it was
+  // folded away. Clicking off it shows the page's settings instead.
   const select = useCallback((id: string | null) => {
     setSelectedId(id);
-    if (id) setInspectorOpen(true);
+    setSettingsTab(id ? "block" : "page");
+    if (id) {
+      setSettingsOpen(true);
+      rememberSidebar(SETTINGS_KEY, true);
+    }
   }, []);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [publishing, setPublishing] = useState(false);
@@ -257,7 +267,7 @@ function Editor({ initial, devices }: { initial: CanvasPageDto; devices: CanvasD
   );
 
   const applyPositions = useCallback(
-    (positions: Map<string, { x: number; y: number; w: number; h: number }>) => {
+    (positions: Map<string, { x: number; y: number; w: number; h: number }>, movedId: string) => {
       commit((current) => {
         let changed = false;
         const blocks = current.blocks.map((block) => {
@@ -267,7 +277,7 @@ function Editor({ initial, devices }: { initial: CanvasPageDto; devices: CanvasD
           changed = true;
           return { ...block, ...position };
         });
-        return changed ? { ...current, blocks } : current;
+        return changed ? { ...current, blocks: makeRoom(blocks, movedId) } : current;
       });
     },
     [commit]
@@ -302,7 +312,7 @@ function Editor({ initial, devices }: { initial: CanvasPageDto; devices: CanvasD
         event.preventDefault();
         const dx = event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1 : 0;
         const dy = event.key === "ArrowUp" ? -1 : event.key === "ArrowDown" ? 1 : 0;
-        // A block stops at the edge of the page and at the blocks around it.
+        // A block stops at the edges of the page and pushes aside what it lands on.
         if (!nudge(content.blocks, block.id, dx, dy)) return;
         commit((current) => ({ ...current, blocks: nudge(current.blocks, block.id, dx, dy) ?? current.blocks }), `${block.id}:nudge`);
       }
@@ -366,24 +376,20 @@ function Editor({ initial, devices }: { initial: CanvasPageDto; devices: CanvasD
     saveState === "saving" ? "Saving…" : saveState === "pending" ? "Unsaved changes" : saveState === "error" ? "Not saved" : "Draft saved";
   const updatedAt = Math.max(0, ...Object.values(snapshots).map((snapshot) => snapshot.ts ?? 0)) || null;
   const range = previewRange ?? content.options.defaultRange;
-  const showLibrary = libraryOpen && !preview;
-  const showInspector = inspectorOpen && !preview;
-  // Clicking on the page away from the blocks puts both panels away. The block
-  // list comes back on its own next time if it was left open on purpose.
-  const closePanels = () => {
-    setInspectorOpen(false);
-    setLibraryOpen(false);
-  };
+
+  /*
+   * The page is laid out at the width a visitor's window gives it and then
+   * shrunk to fit between the sidebars, so a block that fits here fits on the
+   * published page too, however far the sidebars are open.
+   */
+  const windowWidth = useWindowWidth();
+  const designWidth = content.options.maxWidth ? Math.min(content.options.maxWidth + 40, windowWidth) : windowWidth;
+  const [stageRef, stage] = useBoxSize<HTMLDivElement>();
+  const [pageRef, pageSize] = useBoxSize<HTMLDivElement>();
+  const scale = stage.width > 0 ? Math.min(1, stage.width / designWidth) : 1;
+
   const SelectedIcon = selected ? BLOCK_ICONS[selected.type] : null;
-  const panelTitle = selected ? (
-    <span className="flex min-w-0 items-center gap-2">
-      {SelectedIcon ? <SelectedIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : null}
-      <span className="truncate">{selected.title || CANVAS_BLOCK_INFO[selected.type].label}</span>
-      {selected.title ? <span className="shrink-0 font-normal text-muted-foreground">{CANVAS_BLOCK_INFO[selected.type].label}</span> : null}
-    </span>
-  ) : (
-    "Page settings"
-  );
+  const showBlockTab = settingsTab === "block" && selected !== null;
 
   return (
     <CanvasDataProvider value={data}>
@@ -410,21 +416,6 @@ function Editor({ initial, devices }: { initial: CanvasPageDto; devices: CanvasD
                 </Button>
                 <Button variant="ghost" size="icon" onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Shift+Z)" aria-label="Redo">
                   <Redo2 className="h-4 w-4" />
-                </Button>
-                <Button variant={libraryOpen ? "outline" : "secondary"} size="sm" onClick={() => toggleLibrary(!libraryOpen)} aria-pressed={libraryOpen}>
-                  <Plus className="h-3.5 w-3.5" /> Blocks
-                </Button>
-                <Button
-                  variant={inspectorOpen && !selected ? "outline" : "secondary"}
-                  size="sm"
-                  aria-pressed={inspectorOpen && !selected}
-                  onClick={() => {
-                    const showing = inspectorOpen && !selected;
-                    setSelectedId(null);
-                    setInspectorOpen(!showing);
-                  }}
-                >
-                  <Settings2 className="h-3.5 w-3.5" /> Page settings
                 </Button>
               </>
             ) : null}
@@ -454,79 +445,130 @@ function Editor({ initial, devices }: { initial: CanvasPageDto; devices: CanvasD
           </div>
         </div>
 
-        {/*
-          The page fills the window exactly as it will for visitors, so blocks
-          are sized against the real width. The library and the settings float
-          over it and can be closed to see the whole page.
-        */}
-        <div className="relative min-h-0 flex-1">
-          <div
-            className="scroll-slim h-full overflow-y-auto overflow-x-hidden"
-            data-backdrop
-            onClick={(event) => {
-              if ((event.target as HTMLElement).dataset.backdrop === undefined) return;
-              setSelectedId(null);
-              closePanels();
-            }}
-          >
-            <div className={cn(PAGE_COLUMN, "py-5 sm:py-8")} style={pageColumnStyle(content.options.maxWidth)} data-backdrop>
-              {content.options.showHeader ? (
-                <CanvasHeader content={content} range={range} onRange={setPreviewRange} updatedAt={updatedAt} />
-              ) : null}
-              {preview ? (
-                <CanvasView blocks={content.blocks} />
-              ) : content.blocks.length === 0 && !dragType ? (
-                <div className="rounded-lg border border-dashed border-border">
-                  <EmptyState
-                    icon={LayoutDashboard}
-                    title="An empty page"
-                    description="Drag a block from the block list onto the page, or pick one with the button."
-                    action={
-                      <Button variant="primary" onClick={() => setPicker(null)}>
-                        <Plus className="h-4 w-4" /> Add a block
-                      </Button>
-                    }
-                  />
+        <div className="flex min-h-0 flex-1">
+          {!preview ? (
+            <Sidebar side="left" open={libraryOpen} onToggle={() => toggleLibrary(!libraryOpen)} label="block list" railIcon={Plus} header="Blocks">
+              <BlockLibrary onAdd={(type) => addBlock(type, null)} onDragType={setDragType} />
+            </Sidebar>
+          ) : null}
+
+          <div ref={stageRef} className="relative min-w-0 flex-1">
+            <div
+              className="scroll-slim absolute inset-0 overflow-y-auto overflow-x-hidden"
+              data-backdrop
+              onClick={(event) => {
+                if ((event.target as HTMLElement).dataset.backdrop !== undefined) select(null);
+              }}
+            >
+              {/* Takes the shrunken height, so the scroll bar matches what is on screen. */}
+              <div className="mx-auto" style={{ width: designWidth * scale, height: pageSize.height * scale }} data-backdrop>
+                <div
+                  ref={pageRef}
+                  className={cn(PAGE_COLUMN, "relative py-5 sm:py-8")}
+                  style={{ width: designWidth, maxWidth: "none", transform: scale < 1 ? `scale(${scale})` : undefined, transformOrigin: "top left" }}
+                  data-backdrop
+                >
+                  {content.options.showHeader ? (
+                    <CanvasHeader content={content} range={range} onRange={setPreviewRange} updatedAt={updatedAt} />
+                  ) : null}
+                  {preview ? (
+                    <CanvasView blocks={content.blocks} />
+                  ) : content.blocks.length === 0 && !dragType ? (
+                    <div className="rounded-lg border border-dashed border-border">
+                      <EmptyState
+                        icon={LayoutDashboard}
+                        title="An empty page"
+                        description="Drag a block from the block list onto the page, or pick one with the button."
+                        action={
+                          <Button variant="primary" onClick={() => setPicker(null)}>
+                            <Plus className="h-4 w-4" /> Add a block
+                          </Button>
+                        }
+                      />
+                    </div>
+                  ) : (
+                    <EditorGrid
+                      blocks={content.blocks}
+                      selectedId={selectedId}
+                      dragType={dragType}
+                      onSelect={select}
+                      onLayout={applyPositions}
+                      onDrop={(type, at, positions) => {
+                        setDragType(null);
+                        let createdId = "";
+                        commit((current) => {
+                          const moved = current.blocks.map((block) => ({ ...block, ...(positions.get(block.id) ?? {}) }));
+                          const result = placeBlock(moved, type, at, firstDevice);
+                          createdId = result.id;
+                          return { ...current, blocks: result.blocks };
+                        });
+                        window.setTimeout(() => select(createdId), 0);
+                      }}
+                      onAddAt={(cell) => setPicker(cell)}
+                      onBackground={() => select(null)}
+                      onDuplicate={duplicateBlock}
+                      onDelete={deleteBlock}
+                      scale={scale}
+                      fillHeight={stage.height / scale}
+                    />
+                  )}
                 </div>
-              ) : (
-                <EditorGrid
-                  blocks={content.blocks}
-                  selectedId={selectedId}
-                  dragType={dragType}
-                  onSelect={select}
-                  onLayout={applyPositions}
-                  onDrop={(type, at, positions) => {
-                    setDragType(null);
-                    let createdId = "";
-                    commit((current) => {
-                      const moved = current.blocks.map((block) => ({ ...block, ...(positions.get(block.id) ?? {}) }));
-                      const result = placeBlock(moved, type, at, firstDevice);
-                      createdId = result.id;
-                      return { ...current, blocks: result.blocks };
-                    });
-                    window.setTimeout(() => select(createdId), 0);
-                  }}
-                  onAddAt={(cell) => {
-                    closePanels();
-                    setPicker(cell);
-                  }}
-                  onBackground={closePanels}
-                  onDuplicate={duplicateBlock}
-                  onDelete={deleteBlock}
-                />
-              )}
+              </div>
             </div>
           </div>
 
-          {showLibrary ? (
-            <FloatingPanel side="left" title="Blocks" label="block list" onClose={() => toggleLibrary(false)}>
-              <BlockLibrary onAdd={(type) => addBlock(type, null)} onDragType={setDragType} />
-            </FloatingPanel>
-          ) : null}
-          {showInspector ? (
-            <FloatingPanel side="right" title={panelTitle} label="settings" onClose={() => setInspectorOpen(false)}>
-              {inspector}
-            </FloatingPanel>
+          {!preview ? (
+            <Sidebar
+              side="right"
+              open={settingsOpen}
+              onToggle={() => toggleSettings(!settingsOpen)}
+              label="settings"
+              railIcon={Settings2}
+              header={
+                <div className="flex w-full rounded-md border border-border bg-surface-2 p-0.5" role="tablist" aria-label="Settings">
+                  {(["block", "page"] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      role="tab"
+                      aria-selected={(tab === "block") === showBlockTab}
+                      disabled={tab === "block" && !selected}
+                      title={tab === "block" && !selected ? "Click a block on the page first" : undefined}
+                      onClick={() => setSettingsTab(tab)}
+                      className={cn(
+                        "flex h-7 min-w-0 flex-1 items-center justify-center gap-1.5 rounded px-2 text-xs font-medium transition-colors disabled:opacity-40",
+                        (tab === "block") === showBlockTab ? "bg-surface-3 text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      {tab === "block" ? (
+                        <>
+                          {SelectedIcon ? <SelectedIcon className="h-3.5 w-3.5 shrink-0" /> : null}
+                          <span className="truncate">{selected ? selected.title || CANVAS_BLOCK_INFO[selected.type].label : "Block"}</span>
+                        </>
+                      ) : (
+                        "Page"
+                      )}
+                    </button>
+                  ))}
+                </div>
+              }
+            >
+              {showBlockTab && selected ? (
+                <BlockInspector
+                  key={selected.id}
+                  block={selected}
+                  onChange={updateBlock}
+                  onDuplicate={() => duplicateBlock(selected.id)}
+                  onDelete={() => deleteBlock(selected.id)}
+                  devices={metas}
+                  snapshots={snapshots}
+                  pageUrl={page.published ? pageAddress(page) : null}
+                  badges={badges}
+                />
+              ) : (
+                <PageInspector content={content} onChange={(next, group) => commit(next, group)} />
+              )}
+            </Sidebar>
           ) : null}
         </div>
       </div>
@@ -547,49 +589,94 @@ function Editor({ initial, devices }: { initial: CanvasPageDto; devices: CanvasD
   );
 }
 
-/** A panel floating over the page, so the page itself keeps the full width. */
-function FloatingPanel({
+/**
+ * A sidebar beside the page, like the dashboard's own. Folded, it is a thin
+ * rail with a button to open it again, so it never sits on top of a block.
+ */
+function Sidebar({
   side,
-  title,
+  open,
+  onToggle,
   label,
-  onClose,
+  railIcon: RailIcon,
+  header,
   children,
 }: {
   side: "left" | "right";
-  title: ReactNode;
+  open: boolean;
+  onToggle: () => void;
   label: string;
-  onClose: () => void;
+  railIcon: LucideIcon;
+  header: ReactNode;
   children: ReactNode;
 }) {
+  const Fold = side === "left" ? (open ? PanelLeftClose : PanelLeftOpen) : open ? PanelRightClose : PanelRightOpen;
+  const toggle = (
+    <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onToggle} title={open ? `Fold the ${label} away` : `Open the ${label}`} aria-label={open ? `Fold the ${label} away` : `Open the ${label}`}>
+      <Fold className="h-4 w-4" />
+    </Button>
+  );
   return (
     <aside
       className={cn(
-        "absolute bottom-3 top-3 z-30 flex flex-col overflow-hidden rounded-lg border border-border bg-popover/95 shadow-2xl shadow-black/60 backdrop-blur",
-        side === "left" ? "left-3 w-[min(15rem,calc(100%-1.5rem))]" : "right-3 w-[min(21rem,calc(100%-1.5rem))]"
+        "flex shrink-0 flex-col border-border/60 bg-surface/40 transition-[width] duration-200 ease-out",
+        side === "left" ? "border-r" : "border-l",
+        open ? (side === "left" ? "w-56" : "w-80") : "w-12"
       )}
     >
-      <div className="flex shrink-0 items-center justify-between border-b border-border/60 py-2 pl-4 pr-2">
-        <div className="min-w-0 text-sm font-semibold text-foreground">{title}</div>
-        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={onClose} aria-label={`Close the ${label}`}>
-          <X className="h-4 w-4" />
-        </Button>
-      </div>
-      <div className="scroll-slim min-h-0 flex-1 overflow-y-auto">{children}</div>
+      {open ? (
+        <>
+          <div className={cn("flex h-12 shrink-0 items-center gap-2 border-b border-border/60 px-2", side === "left" ? "pl-4" : "flex-row-reverse pr-3")}>
+            <div className="flex min-w-0 flex-1 items-center text-sm font-semibold text-foreground">{header}</div>
+            {toggle}
+          </div>
+          <div className="scroll-slim min-h-0 flex-1 overflow-y-auto">{children}</div>
+        </>
+      ) : (
+        <div className="flex flex-col items-center gap-1 py-2">
+          {toggle}
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onToggle} title={`Open the ${label}`} aria-label={`Open the ${label}`}>
+            <RailIcon className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
     </aside>
   );
 }
 
 const LIBRARY_KEY = "beacon.canvas.library";
+const SETTINGS_KEY = "beacon.canvas.settings";
 
-/** Open by default only where the page leaves room beside it. */
-function libraryDefault(): boolean {
+/**
+ * Open unless folded away before. Each opens on its own only on a window wide
+ * enough that the page does not have to shrink much to make room for it.
+ */
+function sidebarDefault(key: string, minWidth: number): boolean {
   try {
-    const stored = window.localStorage.getItem(LIBRARY_KEY);
+    const stored = window.localStorage.getItem(key);
     if (stored !== null) return stored === "1";
   } catch {
     /* falls back to the width of the window */
   }
-  return window.innerWidth >= 1800;
+  return window.innerWidth >= minWidth;
+}
+
+function rememberSidebar(key: string, open: boolean): void {
+  try {
+    window.localStorage.setItem(key, open ? "1" : "0");
+  } catch {
+    /* the choice just will not be remembered */
+  }
+}
+
+function useWindowWidth(): number {
+  const [width, setWidth] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const onResize = () => setWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return width;
 }
 
 export function CanvasEditorPage() {
