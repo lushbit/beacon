@@ -249,10 +249,10 @@ export function blockSeries(block: CanvasBlock, rangeSec: number, metas: CanvasD
 /* ------------------------------------------------------------------ uptime */
 
 /**
- * The share of each day a device was reporting. Days still inside the raw
- * history count the minutes that have a reading, which keeps today up to the
- * minute. Older days count the rolled-up minutes while those are kept and the
- * hours after that. Counting starts at the device's first reading, so a device
+ * The share of each day a device was reporting. Days count the rolled-up
+ * minutes while those are kept and the hours after that. The last quarter of
+ * an hour, which may not be rolled up yet, counts the raw readings instead, so
+ * today is up to the minute without reading two days of raw history. Counting starts at the device's first reading, so a device
  * added this week is not marked down for the weeks before. Days run in the
  * visitor's time zone, given as minutes east of UTC.
  */
@@ -264,7 +264,9 @@ export function blockUptime(block: CanvasBlock, metas: CanvasDeviceMeta[], tzOff
   const todayStart = Math.floor((now + offsetMs) / 86_400_000) * 86_400_000 - offsetMs;
   const firstDay = todayStart - (days - 1) * 86_400_000;
   const retention = getServerSettings().retention;
-  const rawFrom = now - retention.rawHours * 3_600_000;
+  // Rollups run every minute over the last ten, so anything older is in the
+  // minute history and only this short tail needs the raw readings.
+  const rawFrom = now - 15 * 60_000;
   const minuteFrom = now - retention.minuteDays * 86_400_000;
   // The minute still under way has not had the chance to report yet.
   const until = now - 60_000;
@@ -287,16 +289,20 @@ export function blockUptime(block: CanvasBlock, metas: CanvasDeviceMeta[], tzOff
       WHERE device_id = ? AND tier = 'raw' AND ts >= ? AND ts < ?
       GROUP BY day`
   );
-  const firstStmt = db.prepare("SELECT MIN(ts) AS ts FROM samples WHERE device_id = ?");
+  // One lookup per tier, so each is answered from the key instead of a scan.
+  const firstStmt = db.prepare("SELECT MIN(ts) AS ts FROM samples WHERE device_id = ? AND tier = ?");
   const counts = (entries: unknown[]) => new Map((entries as { day: number; n: number }[]).map((entry) => [entry.day, entry.n]));
 
   const devices = ids.map((id) => {
     const row = rows.get(id);
     const meta = metas.find((entry) => entry.id === id);
     const interval = row ? deviceSettings(row).sampleIntervalMs : 5000;
-    const first = (firstStmt.get(id) as { ts: number | null }).ts;
-    const raw = counts(rawStmt.all(offsetMs, id, firstDay, now));
-    const minutes = counts(countStmt.all(offsetMs, id, "minute", Math.max(firstDay, minuteFrom), now));
+    const firsts = (["raw", "minute", "hour"] as const)
+      .map((tier) => (firstStmt.get(id, tier) as { ts: number | null }).ts)
+      .filter((ts): ts is number => ts !== null);
+    const first = firsts.length > 0 ? Math.min(...firsts) : null;
+    const raw = counts(rawStmt.all(offsetMs, id, Math.max(firstDay, rawFrom), now));
+    const minutes = counts(countStmt.all(offsetMs, id, "minute", Math.max(firstDay, minuteFrom), Math.min(now, rawFrom)));
     const hours = minuteFrom > firstDay ? counts(countStmt.all(offsetMs, id, "hour", firstDay, minuteFrom)) : new Map<number, number>();
     // A device that reports less often than once a minute fills fewer minutes.
     const perMinute = Math.min(1, 60_000 / Math.max(1000, interval));
@@ -312,12 +318,10 @@ export function blockUptime(block: CanvasBlock, metas: CanvasDeviceMeta[], tzOff
       const dayKey = Math.floor((start + offsetMs) / 86_400_000);
       let expected: number;
       let seen: number;
-      if (start >= rawFrom) {
+      if (start >= minuteFrom || end > rawFrom) {
+        // Rolled-up minutes, plus the raw tail for the day it falls in.
         expected = ((end - from) / 60_000) * perMinute;
-        seen = raw.get(dayKey) ?? 0;
-      } else if (start >= minuteFrom) {
-        expected = ((end - from) / 60_000) * perMinute;
-        seen = minutes.get(dayKey) ?? 0;
+        seen = (minutes.get(dayKey) ?? 0) + (raw.get(dayKey) ?? 0);
       } else {
         expected = (end - from) / 3_600_000;
         seen = hours.get(dayKey) ?? 0;

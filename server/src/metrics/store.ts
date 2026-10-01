@@ -203,18 +203,19 @@ export function getLatestSample(deviceId: string): MetricSample | null {
   };
 }
 
+/**
+ * Every device's latest raw sample. Asked for one device at a time, so each is
+ * a single step down the key. Grouping the whole raw table to find the newest
+ * row per device read every stored sample on each call.
+ */
+const latestStmt = db.prepare("SELECT * FROM samples WHERE device_id = ? AND tier = 'raw' ORDER BY ts DESC LIMIT 1");
+
 export function getLatestSamples(): Map<string, MetricSample> {
-  const rows = db
-    .prepare(
-      `SELECT s.* FROM samples s
-        JOIN (SELECT device_id, MAX(ts) AS ts FROM samples WHERE tier = 'raw' GROUP BY device_id) m
-          ON m.device_id = s.device_id AND m.ts = s.ts
-       WHERE s.tier = 'raw'`
-    )
-    .all() as (SampleRow & { device_id: string })[];
   const out = new Map<string, MetricSample>();
-  for (const row of rows) {
-    out.set(row.device_id, {
+  for (const { id } of db.prepare("SELECT id FROM devices").all() as { id: string }[]) {
+    const row = latestStmt.get(id) as SampleRow | undefined;
+    if (!row) continue;
+    out.set(id, {
       ts: row.ts,
       summary: rowToSummary(row),
       detail: parseJson(row.detail ?? null, EMPTY_DETAIL),

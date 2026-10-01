@@ -119,18 +119,20 @@ export function EditorGrid({
   };
 
   /*
-   * A faint tile for every cell, exactly where blocks snap to, so the edges
-   * of a block always line up with the grid behind it.
+   * A dot wherever four cells meet, in the middle of the gap between them, and
+   * along the outer edges too. Every block's corners sit just inside four dots,
+   * so the dots show exactly where a block can start and end.
    */
   const tileWidth = colWidth + CANVAS_GAP;
   const tileHeight = CANVAS_ROW_HEIGHT + CANVAS_GAP;
-  const cells =
+  const dots =
     colWidth > 0
       ? {
-          backgroundImage: `url("data:image/svg+xml,${encodeURIComponent(
-            `<svg xmlns="http://www.w3.org/2000/svg" width="${tileWidth}" height="${tileHeight}" viewBox="0 0 ${tileWidth} ${tileHeight}"><rect x="0.5" y="0.5" width="${colWidth - 1}" height="${CANVAS_ROW_HEIGHT - 1}" rx="4" fill="white" fill-opacity="0.012" stroke="white" stroke-opacity="0.035"/></svg>`
-          )}")`,
+          backgroundImage: "radial-gradient(circle, hsl(0 0% 100% / 0.22) 1.25px, transparent 1.75px)",
           backgroundSize: `${tileWidth}px ${tileHeight}px`,
+          // The layer starts half a gap before the grid, so its tile corners,
+          // where the dots sit, land in the middle of each gap.
+          backgroundPosition: `${-tileWidth / 2}px ${-tileHeight / 2}px`,
         }
       : {};
 
@@ -138,7 +140,7 @@ export function EditorGrid({
     <div
       ref={ref}
       className="canvas-editor canvas-grid-surface relative w-full"
-      style={{ minHeight: height, ...cells }}
+      style={{ minHeight: height, cursor: ghost ? "pointer" : undefined }}
       onPointerMove={onPointerMove}
       onPointerLeave={() => setGhost(null)}
       onClick={(event) => {
@@ -157,6 +159,11 @@ export function EditorGrid({
         }
       }}
     >
+      <div
+        aria-hidden
+        className="pointer-events-none absolute"
+        style={{ left: -CANVAS_GAP / 2, top: -CANVAS_GAP / 2, width: width + CANVAS_GAP, height: height + CANVAS_GAP, ...dots }}
+      />
       {ghost && colWidth > 0 ? (
         // Only drawn. The pointer goes straight through to the grid below, so the
         // outline can follow it every step instead of hiding the next move.
