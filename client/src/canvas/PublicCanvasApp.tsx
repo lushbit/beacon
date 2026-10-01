@@ -9,7 +9,7 @@ import type {
   CanvasUptimeDto,
   PublicCanvasDto,
 } from "@beacon/shared";
-import { CANVAS_RANGES } from "@beacon/shared";
+import { BEACON_VERSION, CANVAS_RANGES } from "@beacon/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { noteServerTime } from "@/lib/clock";
@@ -158,24 +158,29 @@ function Notice({ icon: Icon, title, text, action }: { icon: typeof Lock; title:
 const PROJECT_URL = "https://github.com/lushbit/beacon";
 
 /**
- * The line under every page: what made it, who made that, where to find the
- * project, and the hub the page is served from.
+ * The line under every page: what made it, then buttons for the project and
+ * for the hub the page is served from, with the version between them.
  */
 function PageFooter() {
-  const link = "text-muted-foreground transition-colors hover:text-foreground";
   return (
-    <footer className="mt-10 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-t border-border/50 pt-5 text-2xs text-muted-foreground/80">
+    <footer className="mt-10 flex flex-wrap items-center justify-center gap-x-3 gap-y-2 border-t border-border/50 pt-5 text-2xs text-muted-foreground/80">
       <span>
-        Made with <span className="font-medium text-muted-foreground">Beacon Canvas</span> by Lushbit
+        Made with <span className="font-medium text-muted-foreground">Beacon</span> by lushbit
       </span>
-      <span aria-hidden>·</span>
-      <a href={PROJECT_URL} target="_blank" rel="noopener noreferrer" className={cn("inline-flex items-center gap-1", link)}>
-        <Github className="h-3 w-3" /> GitHub
-      </a>
-      <span aria-hidden>·</span>
-      <a href="/" target={window.top !== window ? "_blank" : undefined} rel="noopener" className={link}>
-        {window.location.host}
-      </a>
+      <div className="flex items-center gap-2">
+        <Button asChild variant="outline" size="sm" className="h-7 w-7 px-0 text-muted-foreground hover:text-foreground">
+          <a href={PROJECT_URL} target="_blank" rel="noopener noreferrer" title="Beacon on GitHub" aria-label="Beacon on GitHub">
+            <Github className="h-3.5 w-3.5" />
+          </a>
+        </Button>
+        <span className="tabular">v{BEACON_VERSION}</span>
+        <Button asChild variant="outline" size="sm" className="h-7 gap-1.5 px-2.5 text-2xs text-muted-foreground hover:text-foreground">
+          <a href="/" target={window.top !== window ? "_blank" : undefined} rel="noopener">
+            <RadioTower className="h-3.5 w-3.5" />
+            {window.location.host}
+          </a>
+        </Button>
+      </div>
     </footer>
   );
 }
