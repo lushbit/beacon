@@ -20,6 +20,29 @@ const SPARE_ROWS = 4;
 /** The size the + on an empty spot shows wherever it fits. The block picked keeps its own size. */
 const GHOST = { w: 6, h: 4 };
 
+type Rect = { x: number; y: number; w: number; h: number };
+type Edge = "e" | "w" | "s" | "se" | "sw";
+const EDGES: Edge[] = ["s", "e", "se", "sw", "w"];
+
+/**
+ * A block's size while one of its edges is pulled. Only the pulled edges move,
+ * in whole cells, and the block never leaves the page or breaks its limits, so
+ * the opposite side stays exactly where it was.
+ */
+function resizedRect(start: Rect, edge: Edge, cols: number, rows: number, type: CanvasBlockType): Rect {
+  const info = CANVAS_BLOCK_INFO[type];
+  const next = { ...start };
+  if (edge.includes("e")) {
+    next.w = Math.max(info.minW, Math.min(info.maxW, CANVAS_COLUMNS - start.x, start.w + cols));
+  } else if (edge.includes("w")) {
+    const right = start.x + start.w;
+    next.w = Math.max(Math.min(info.minW, right), Math.min(info.maxW, right, start.w - cols));
+    next.x = right - next.w;
+  }
+  if (edge.includes("s")) next.h = Math.max(info.minH, Math.min(info.maxH, start.h + rows));
+  return next;
+}
+
 interface EditorGridProps {
   blocks: CanvasBlock[];
   selectedId: string | null;
@@ -40,7 +63,7 @@ interface EditorGridProps {
   fillHeight: number;
 }
 
-function positionsOf(layout: Layout[]): Map<string, { x: number; y: number; w: number; h: number }> {
+function positionsOf(layout: Layout[]): Map<string, Rect> {
   return new Map(layout.filter((item) => item.i !== DROPPING_ID).map((item) => [item.i, { x: item.x, y: item.y, w: item.w, h: item.h }]));
 }
 
@@ -68,6 +91,8 @@ export function EditorGrid({
   const [ref, size] = useBoxSize<HTMLDivElement>();
   const [ghost, setGhost] = useState<{ x: number; y: number; w: number; h: number; col: number; row: number } | null>(null);
   const [interacting, setInteracting] = useState(false);
+  // The block being resized: where the pointer started, its size then, and now.
+  const [resize, setResize] = useState<{ id: string; edge: Edge; startX: number; startY: number; start: Rect; rect: Rect } | null>(null);
   const patternId = `canvas-grid-${useId().replace(/:/g, "")}`;
 
   const width = size.width;
@@ -82,10 +107,47 @@ export function EditorGrid({
     () =>
       blocks.map((block) => {
         const info = CANVAS_BLOCK_INFO[block.type];
-        return { i: block.id, x: block.x, y: block.y, w: block.w, h: block.h, minW: info.minW, minH: info.minH, maxW: info.maxW, maxH: info.maxH };
+        const at = resize?.id === block.id ? resize.rect : block;
+        return { i: block.id, x: at.x, y: at.y, w: at.w, h: at.h, minW: info.minW, minH: info.minH, maxW: info.maxW, maxH: info.maxH };
       }),
-    [blocks]
+    [blocks, resize]
   );
+
+  /*
+   * Resizing is done here rather than by the grid library. Its own handles
+   * mixed up page and screen pixels on the shrunk page, so a block pulled from
+   * the left drifted on its right side, and pulling past the edge of the page
+   * was remembered, so coming back the block no longer followed the pointer.
+   */
+  const startResize = (event: React.PointerEvent<HTMLElement>, block: CanvasBlock, edge: Edge) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const start = { x: block.x, y: block.y, w: block.w, h: block.h };
+    setResize({ id: block.id, edge, startX: event.clientX, startY: event.clientY, start, rect: start });
+    setInteracting(true);
+    setGhost(null);
+    onSelect(block.id);
+  };
+
+  const moveResize = (event: React.PointerEvent<HTMLElement>, block: CanvasBlock) => {
+    if (!resize || resize.id !== block.id || colWidth === 0) return;
+    const cols = Math.round((event.clientX - resize.startX) / scale / (colWidth + CANVAS_GAP));
+    const rowsMoved = Math.round((event.clientY - resize.startY) / scale / (CANVAS_ROW_HEIGHT + CANVAS_GAP));
+    const rect = resizedRect(resize.start, resize.edge, cols, rowsMoved, block.type);
+    if (rect.x !== resize.rect.x || rect.w !== resize.rect.w || rect.h !== resize.rect.h) setResize({ ...resize, rect });
+  };
+
+  const endResize = (event: React.PointerEvent<HTMLElement>) => {
+    if (!resize) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    const { id, start, rect } = resize;
+    setResize(null);
+    setInteracting(false);
+    if (rect.x === start.x && rect.w === start.w && rect.h === start.h) return;
+    onLayout(positionsOf(layout), id);
+  };
 
   /**
    * The + for the free cell under the pointer. It always covers that cell and
@@ -218,7 +280,8 @@ export function EditorGrid({
           isBounded
           useCSSTransforms
           transformScale={scale}
-          resizeHandles={["s", "e", "se", "sw", "w"]}
+          // The handles are drawn below, with their own resizing.
+          resizeHandles={[]}
           draggableCancel=".canvas-no-drag"
           isDroppable
           droppingItem={{ i: DROPPING_ID, w: dragType ? CANVAS_BLOCK_INFO[dragType].w : GHOST.w, h: dragType ? CANVAS_BLOCK_INFO[dragType].h : GHOST.h }}
@@ -236,23 +299,17 @@ export function EditorGrid({
             setInteracting(false);
             onLayout(positionsOf(next), item.i);
           }}
-          onResizeStart={(_layout, item) => {
-            setInteracting(true);
-            onSelect(item.i);
-          }}
-          onResizeStop={(next, _old, item) => {
-            setInteracting(false);
-            onLayout(positionsOf(next), item.i);
-          }}
         >
           {blocks.map((block) => {
             const selected = block.id === selectedId;
+            const shown = resize?.id === block.id ? resize.rect : block;
             const Icon = BLOCK_ICONS[block.type];
             return (
               <div
                 key={block.id}
                 className={cn(
                   "group/block rounded-lg outline-offset-2 transition-[outline-color]",
+                  resize?.id === block.id && "resizing",
                   selected ? "outline outline-2 outline-foreground/80" : "outline outline-1 outline-transparent hover:outline-foreground/25",
                   (block.type === "spacer" || !block.frame) && "border border-dashed border-border bg-foreground/[0.015]"
                 )}
@@ -275,7 +332,7 @@ export function EditorGrid({
                   >
                     <span className="flex items-center gap-1 px-1.5 text-xs text-muted-foreground">
                       <Icon className="h-3.5 w-3.5" />
-                      {block.w}×{block.h}
+                      {shown.w}×{shown.h}
                     </span>
                     <button
                       type="button"
@@ -303,6 +360,17 @@ export function EditorGrid({
                     </button>
                   </div>
                 ) : null}
+                {EDGES.map((edge) => (
+                  <span
+                    key={edge}
+                    className={`canvas-no-drag react-resizable-handle react-resizable-handle-${edge}`}
+                    style={{ touchAction: "none" }}
+                    onPointerDown={(event) => startResize(event, block, edge)}
+                    onPointerMove={(event) => moveResize(event, block)}
+                    onPointerUp={endResize}
+                    onPointerCancel={endResize}
+                  />
+                ))}
               </div>
             );
           })}
