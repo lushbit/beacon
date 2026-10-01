@@ -56,16 +56,20 @@ export function isFree(blocks: CanvasBlock[], rect: Rect, ignoreId?: string): bo
 /**
  * The best free spot that covers a cell: the wanted size if it fits there,
  * otherwise the largest size down to the smallest allowed. Of the spots that
- * fit, the one whose middle is nearest the cell wins, so the spot sits around
- * the pointer rather than off to one side of it.
+ * fit, the one whose middle is nearest the point wins. The point is the exact
+ * pointer position in cells when there is one, so the spot stays centred under
+ * the pointer and follows it one cell at a time in every direction. `maxRow`
+ * keeps the spot inside the grid as it is.
  */
 export function fitAt(
   blocks: CanvasBlock[],
   cell: { col: number; row: number },
   size: { w: number; h: number },
   min: { w: number; h: number } = { w: 1, h: 1 },
-  ignoreId?: string
+  ignoreId?: string,
+  options: { point?: { x: number; y: number }; maxRow?: number } = {}
 ): Rect | null {
+  const point = options.point ?? { x: cell.col + 0.5, y: cell.row + 0.5 };
   if (!isFree(blocks, { x: cell.col, y: cell.row, w: 1, h: 1 }, ignoreId)) return null;
   const sizes: { w: number; h: number }[] = [];
   for (let h = size.h; h >= min.h; h -= 1) for (let w = size.w; w >= min.w; w -= 1) sizes.push({ w, h });
@@ -76,8 +80,9 @@ export function fitAt(
     for (let x = cell.col - candidate.w + 1; x <= cell.col; x += 1) {
       for (let y = cell.row - candidate.h + 1; y <= cell.row; y += 1) {
         const rect = { x, y, ...candidate };
+        if (options.maxRow !== undefined && y + candidate.h > options.maxRow) continue;
         if (!isFree(blocks, rect, ignoreId)) continue;
-        const distance = Math.abs(x + candidate.w / 2 - (cell.col + 0.5)) + Math.abs(y + candidate.h / 2 - (cell.row + 0.5));
+        const distance = Math.hypot(x + candidate.w / 2 - point.x, y + candidate.h / 2 - point.y);
         if (distance < bestDistance) {
           best = rect;
           bestDistance = distance;

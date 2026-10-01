@@ -3,7 +3,6 @@ import { AlignCenter, AlignLeft, AlignRight, Copy, Trash2 } from "lucide-react";
 import type {
   CanvasBlock,
   CanvasBlockOf,
-  CanvasColor,
   CanvasContent,
   CanvasDeviceMeta,
   CanvasDeviceSnapshot,
@@ -13,7 +12,6 @@ import type {
 import {
   CANVAS_BLOCK_INFO,
   CANVAS_CARD_METRICS,
-  CANVAS_COLORS,
   CANVAS_COLUMNS,
   CANVAS_INFO_FIELDS,
   CANVAS_INFO_LABELS,
@@ -28,7 +26,9 @@ import { CommandSteps } from "@/components/CommandSteps";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { CANVAS_COLOR_LABELS, CANVAS_COLOR_VALUES } from "../format";
+import { pickerColor } from "../format";
+import { RichTextEditor } from "./RichTextEditor";
+import { ColorPicker } from "@/components/ColorPicker";
 import { BLOCK_ICONS } from "./BlockLibrary";
 import { DevicePicker, NativeSelect, NumberInput, Row, Section, SelectorField, Segmented, ThresholdsField, Toggle } from "./fields";
 
@@ -264,8 +264,8 @@ function BlockSettings({
     case "text":
       return (
         <>
-          <Row label="Text" hint="**bold**, *italics*, `code`, [a link](https://example.com) and lines starting with - for a list.">
-            <Textarea rows={7} maxLength={4000} value={block.config.text} onChange={(event) => set(block, { text: event.target.value }, "text")} />
+          <Row label="Text">
+            <RichTextEditor doc={block.config.doc} text={block.config.text} onChange={(doc, text) => set(block, { doc, text }, "text")} />
           </Row>
           <Row label="Size">
             <Segmented
@@ -302,24 +302,8 @@ function BlockSettings({
             <RangeSelect value={block.config.range} onChange={(range) => set(block, { range })} followLabel="Follow the page" />
           </Row>
           {single && !(block.config.source.target.kind === "fleet" && block.config.source.target.split) ? (
-            <Row label="Colour">
-              <div className="flex flex-wrap gap-1.5">
-                {CANVAS_COLORS.map((color: CanvasColor) => (
-                  <button
-                    key={color}
-                    type="button"
-                    title={CANVAS_COLOR_LABELS[color]}
-                    aria-label={CANVAS_COLOR_LABELS[color]}
-                    aria-pressed={block.config.color === color}
-                    onClick={() => set(block, { color })}
-                    className={cn(
-                      "h-7 w-7 rounded-full border-2 transition-transform hover:scale-110",
-                      block.config.color === color ? "border-foreground" : "border-transparent"
-                    )}
-                    style={{ background: CANVAS_COLOR_VALUES[color] }}
-                  />
-                ))}
-              </div>
+            <Row label="Colour" hint="No colour draws the line in white.">
+              <ColorPicker value={pickerColor(block.config.color)} onChange={(color) => set(block, { color }, "color")} />
             </Row>
           ) : null}
           {!single || (block.config.source.target.kind === "fleet" && block.config.source.target.split) ? (
@@ -369,6 +353,9 @@ function BlockSettings({
                 { value: "bar", label: "Bar" },
               ]}
             />
+          </Row>
+          <Row label="Colour" hint="Past a limit the gauge still turns yellow or red.">
+            <ColorPicker value={pickerColor(block.config.color)} onChange={(color) => set(block, { color }, "color")} />
           </Row>
           <Row label="Full at" hint={metric?.max ? `Empty uses ${metric.max}.` : "The value of a full gauge. Empty uses 100."}>
             <NumberInput label="Full at" value={block.config.max} onChange={(max) => set(block, { max: max !== null && max > 0 ? max : null }, "max")} placeholder="Automatic" />

@@ -354,14 +354,22 @@ export type CanvasCardMetric = (typeof CANVAS_CARD_METRICS)[number];
 
 export interface CanvasBlockConfigs {
   heading: { text: string; subtitle: string; size: "sm" | "md" | "lg" | "xl"; align: "left" | "center" | "right" };
-  text: { text: string; size: "sm" | "md" | "lg"; align: "left" | "center" | "right" };
+  text: {
+    /** Plain text. What older pages hold, and what shows where a rich document cannot. */
+    text: string;
+    /** The formatted text from the editor, once it has been used. */
+    doc?: RichDoc | null;
+    size: "sm" | "md" | "lg";
+    align: "left" | "center" | "right";
+  };
   divider: { label: string };
   spacer: Record<string, never>;
   chart: {
     source: CanvasSource;
     /** Seconds, or null to follow the range the visitor picked. */
     range: number | null;
-    color: CanvasColor;
+    /** A named colour from older pages, `#rrggbb`, or empty for the default white. */
+    color: CanvasColor | string;
     legend: boolean;
     showValue: boolean;
     /** Marks alerts raised in the range on the chart. */
@@ -374,7 +382,14 @@ export interface CanvasBlockConfigs {
     thresholds: CanvasThresholds;
     caption: string;
   };
-  gauge: { source: CanvasSource; style: "ring" | "bar"; thresholds: CanvasThresholds; max: number | null };
+  gauge: {
+    source: CanvasSource;
+    style: "ring" | "bar";
+    thresholds: CanvasThresholds;
+    max: number | null;
+    /** `#rrggbb` while the reading is within its limits, or empty for white. */
+    color?: string;
+  };
   status: { select: CanvasDeviceSelector };
   info: { deviceId: string; fields: CanvasInfoField[] };
   volumes: { deviceId: string };
@@ -534,7 +549,7 @@ export function newCanvasBlock(
         ...base,
         type,
         title: "CPU usage",
-        config: { source: source("cpu"), range: null, color: "ink", legend: true, showValue: true, alerts: false },
+        config: { source: source("cpu"), range: null, color: "", legend: true, showValue: true, alerts: false },
       };
     case "value":
       return {
@@ -554,7 +569,7 @@ export function newCanvasBlock(
         ...base,
         type,
         title: "Memory",
-        config: { source: source("memory"), style: "ring", thresholds: defaultThresholds(canvasMetric("memory")), max: null },
+        config: { source: source("memory"), style: "ring", thresholds: defaultThresholds(canvasMetric("memory")), max: null, color: "" },
       };
     case "status":
       return { ...base, type, title: "Status", config: { select: deviceId ? { mode: "pick", tag: "", ids: [deviceId] } : defaultSelector() } };
@@ -1168,6 +1183,104 @@ export function formatCanvasValue(
       return `${days}d ${hours % 24}h`;
     }
   }
+}
+
+/* --------------------------------------------------------------- rich text */
+
+/**
+ * Formatted text, in the shape the text editor saves it. Only the nodes,
+ * marks and attributes listed here survive `sanitizeRichDoc`, and the page
+ * renders them as elements of its own, never as HTML, so a text block cannot
+ * carry markup or scripts onto a public page.
+ */
+export interface RichNode {
+  type: string;
+  attrs?: Record<string, string | number | null>;
+  content?: RichNode[];
+  marks?: { type: string; attrs?: Record<string, string | null> }[];
+  text?: string;
+}
+
+export type RichDoc = RichNode & { type: "doc" };
+
+const RICH_BLOCKS = new Set([
+  "paragraph",
+  "heading",
+  "bulletList",
+  "orderedList",
+  "listItem",
+  "blockquote",
+  "codeBlock",
+  "horizontalRule",
+  "hardBreak",
+  "text",
+]);
+const RICH_MARKS = new Set(["bold", "italic", "underline", "strike", "code", "link", "textStyle"]);
+const RICH_ALIGN = new Set(["left", "center", "right", "justify"]);
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+/** Web and mail addresses only. Anything else, such as `javascript:`, is dropped. */
+const SAFE_HREF = /^(https?:\/\/|mailto:)[^\s"<>]{1,500}$/i;
+const RICH_LIMIT = 30_000;
+
+function cleanNode(input: unknown, depth: number, budget: { left: number }): RichNode | null {
+  if (!input || typeof input !== "object" || depth > 12 || budget.left <= 0) return null;
+  const node = input as Record<string, unknown>;
+  const type = typeof node.type === "string" ? node.type : "";
+  if (!RICH_BLOCKS.has(type)) return null;
+  budget.left -= 1;
+  const out: RichNode = { type };
+
+  const attrs = (node.attrs && typeof node.attrs === "object" ? node.attrs : {}) as Record<string, unknown>;
+  if (type === "heading") {
+    const level = Number(attrs.level);
+    out.attrs = { level: level >= 1 && level <= 3 ? level : 2 };
+  }
+  if (type === "orderedList" && Number.isInteger(attrs.start) && (attrs.start as number) > 1 && (attrs.start as number) < 10_000) {
+    out.attrs = { start: attrs.start as number };
+  }
+  if ((type === "paragraph" || type === "heading") && typeof attrs.textAlign === "string" && RICH_ALIGN.has(attrs.textAlign)) {
+    out.attrs = { ...out.attrs, textAlign: attrs.textAlign };
+  }
+
+  if (type === "text") {
+    if (typeof node.text !== "string" || node.text.length === 0) return null;
+    out.text = node.text.slice(0, 4000);
+    budget.left -= out.text.length;
+    const marks = Array.isArray(node.marks) ? node.marks : [];
+    const kept: NonNullable<RichNode["marks"]> = [];
+    for (const raw of marks.slice(0, 8)) {
+      const mark = raw as { type?: unknown; attrs?: Record<string, unknown> };
+      if (typeof mark.type !== "string" || !RICH_MARKS.has(mark.type)) continue;
+      if (mark.type === "link") {
+        const href = typeof mark.attrs?.href === "string" ? mark.attrs.href.trim() : "";
+        if (SAFE_HREF.test(href)) kept.push({ type: "link", attrs: { href } });
+      } else if (mark.type === "textStyle") {
+        const color = typeof mark.attrs?.color === "string" ? mark.attrs.color : "";
+        if (HEX_COLOR.test(color)) kept.push({ type: "textStyle", attrs: { color: color.toLowerCase() } });
+      } else {
+        kept.push({ type: mark.type });
+      }
+    }
+    if (kept.length > 0) out.marks = kept;
+    return out;
+  }
+
+  if (Array.isArray(node.content)) {
+    const content = node.content.map((child) => cleanNode(child, depth + 1, budget)).filter((child): child is RichNode => child !== null);
+    if (content.length > 0) out.content = content;
+  }
+  return out;
+}
+
+/** The parts of a document the page knows how to show, or null when nothing is left. */
+export function sanitizeRichDoc(input: unknown): RichDoc | null {
+  if (!input || typeof input !== "object" || (input as { type?: unknown }).type !== "doc") return null;
+  const budget = { left: RICH_LIMIT };
+  const content = Array.isArray((input as { content?: unknown }).content) ? ((input as { content: unknown[] }).content) : [];
+  const nodes = content.map((child) => cleanNode(child, 1, budget)).filter((child): child is RichNode => child !== null);
+  // Empty paragraphs at the end only add blank space under the text.
+  while (nodes.length > 1 && nodes[nodes.length - 1].type === "paragraph" && !nodes[nodes.length - 1].content) nodes.pop();
+  return { type: "doc", content: nodes };
 }
 
 /* ------------------------------------------------------------ public reads */

@@ -93,11 +93,15 @@ export function EditorGrid({
    */
   const spotAt = (clientX: number, clientY: number, element: HTMLElement) => {
     const rect = element.getBoundingClientRect();
-    // The pointer is in screen pixels, the grid in page pixels.
-    const col = Math.floor((clientX - rect.left) / scale / (colWidth + CANVAS_GAP));
-    const row = Math.floor((clientY - rect.top) / scale / (CANVAS_ROW_HEIGHT + CANVAS_GAP));
-    if (col < 0 || col >= CANVAS_COLUMNS || row < 0) return null;
-    const spot = fitAt(blocks, { col, row }, GHOST);
+    // The pointer is in screen pixels, the grid in page pixels. A cell and the
+    // gap after it count as one step, so the gap belongs to the cell before it.
+    const x = (clientX - rect.left) / scale / (colWidth + CANVAS_GAP);
+    const y = (clientY - rect.top) / scale / (CANVAS_ROW_HEIGHT + CANVAS_GAP);
+    const col = Math.floor(x);
+    const row = Math.floor(y);
+    if (col < 0 || col >= CANVAS_COLUMNS || row < 0 || row >= rows) return null;
+    // Kept inside the grid as it is, so hovering never makes the page longer.
+    const spot = fitAt(blocks, { col, row }, GHOST, { w: 1, h: 1 }, undefined, { point: { x, y }, maxRow: rows });
     return spot ? { ...spot, col, row } : null;
   };
 
@@ -139,32 +143,36 @@ export function EditorGrid({
       onPointerLeave={() => setGhost(null)}
       onClick={(event) => {
         const target = event.target as HTMLElement;
-        if (target.classList.contains("canvas-grid-surface") || target.classList.contains("react-grid-layout")) {
-          onSelect(null);
+        if (!target.classList.contains("canvas-grid-surface") && !target.classList.contains("react-grid-layout")) return;
+        onSelect(null);
+        // A click on a free spot adds a block there, where the outline shows.
+        // Worked out from the click itself, since a tap on a touch screen
+        // comes without any hovering first.
+        const spot = spotAt(event.clientX, event.clientY, event.currentTarget);
+        if (spot) {
+          onAddAt({ col: spot.col, row: spot.row });
+          setGhost(null);
+        } else {
           onBackground();
         }
       }}
     >
       {ghost && colWidth > 0 ? (
-        <button
-          type="button"
-          className="absolute z-[3] flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-foreground/30 bg-foreground/[0.03] text-xs font-medium text-muted-foreground transition-colors hover:border-foreground/60 hover:text-foreground"
+        // Only drawn. The pointer goes straight through to the grid below, so the
+        // outline can follow it every step instead of hiding the next move.
+        <div
+          aria-hidden
+          className="pointer-events-none absolute z-[3] flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-foreground/45 bg-foreground/[0.04] text-xs font-medium text-foreground/80"
           style={{
             left: ghost.x * (colWidth + CANVAS_GAP),
             top: ghost.y * (CANVAS_ROW_HEIGHT + CANVAS_GAP),
             width: ghost.w * colWidth + (ghost.w - 1) * CANVAS_GAP,
             height: ghost.h * CANVAS_ROW_HEIGHT + (ghost.h - 1) * CANVAS_GAP,
           }}
-          onClick={(event) => {
-            event.stopPropagation();
-            onAddAt({ col: ghost.col, row: ghost.row });
-            setGhost(null);
-          }}
-          onPointerMove={(event) => event.stopPropagation()}
         >
           <Plus className="h-4 w-4 shrink-0" />
           {ghost.w >= 3 ? "Add block" : null}
-        </button>
+        </div>
       ) : null}
 
       {width > 0 ? (
@@ -232,14 +240,18 @@ export function EditorGrid({
                   )}
                 </div>
                 {selected ? (
-                  <div className="canvas-no-drag absolute -top-3 right-2 z-10 flex items-center gap-0.5 rounded-md border border-border bg-popover px-1 py-0.5 shadow-lg shadow-black/40">
-                    <span className="flex items-center gap-1 px-1 text-2xs text-muted-foreground">
-                      <Icon className="h-3 w-3" />
+                  <div
+                    className="canvas-no-drag absolute -top-4 right-2 z-10 flex items-center gap-0.5 rounded-md border border-border bg-popover px-1 py-0.5 shadow-lg shadow-black/40"
+                    // Undoes the page's shrink, so the buttons stay a comfortable size.
+                    style={{ transform: scale < 1 ? `scale(${1 / scale})` : undefined, transformOrigin: "bottom right" }}
+                  >
+                    <span className="flex items-center gap-1 px-1.5 text-xs text-muted-foreground">
+                      <Icon className="h-3.5 w-3.5" />
                       {block.w}×{block.h}
                     </span>
                     <button
                       type="button"
-                      className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-surface-3 hover:text-foreground"
+                      className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-surface-3 hover:text-foreground"
                       title="Duplicate"
                       aria-label="Duplicate block"
                       onClick={(event) => {
@@ -247,11 +259,11 @@ export function EditorGrid({
                         onDuplicate(block.id);
                       }}
                     >
-                      <Copy className="h-3.5 w-3.5" />
+                      <Copy className="h-4 w-4" />
                     </button>
                     <button
                       type="button"
-                      className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-danger/15 hover:text-danger"
+                      className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-danger/15 hover:text-danger"
                       title="Delete"
                       aria-label="Delete block"
                       onClick={(event) => {
@@ -259,7 +271,7 @@ export function EditorGrid({
                         onDelete(block.id);
                       }}
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
+                      <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
                 ) : null}

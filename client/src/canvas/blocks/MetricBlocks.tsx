@@ -6,7 +6,7 @@ import { ChartLegend, TimeChart, type ChartMarker, type ChartSeries } from "@/co
 import { aggregate, bucketFor, linePaths, linearScale, peakOf } from "@/components/charts/chartUtils";
 import { cn } from "@/lib/utils";
 import { useBlockDevices, useBlockRange, useBlockSeries, useCanvasData } from "../data";
-import { CANVAS_COLOR_VALUES, LEVEL_TEXT, MULTI_SERIES, formatValue, unitFormatter } from "../format";
+import { LEVEL_TEXT, MULTI_SERIES, drawColor, formatValue, unitFormatter } from "../format";
 import { useBoxSize } from "../useBoxSize";
 import { BlockFrame, BlockNote } from "./BlockFrame";
 
@@ -48,7 +48,7 @@ export function ChartBlock({ block }: { block: CanvasBlockOf<"chart"> }) {
   const chartSeries: ChartSeries[] = keys.map((entry, index) => ({
     key: entry.key,
     label: entry.label,
-    color: keys.length === 1 ? CANVAS_COLOR_VALUES[block.config.color] : MULTI_SERIES[index % MULTI_SERIES.length],
+    color: keys.length === 1 ? drawColor(block.config.color) : MULTI_SERIES[index % MULTI_SERIES.length],
   }));
   const markers: ChartMarker[] = (series?.markers ?? []).map((marker) => ({
     ts: marker.ts,
@@ -220,7 +220,9 @@ export function GaugeBlock({ block }: { block: CanvasBlockOf<"gauge"> }) {
     return () => cancelAnimationFrame(frame);
   }, [share]);
   const level = thresholdLevel(value, block.config.thresholds);
-  const fill = LEVEL_FILL[level];
+  // The chosen colour while the reading is fine. Past a limit the limit's own
+  // colour takes over, since that is what it is there to show.
+  const fill = level === "ok" ? drawColor(block.config.color) : LEVEL_FILL[level];
   const text = metric ? formatValue(value, metric.unit, data.options) : "—";
   const label = block.title || metric?.label || "";
   const caption = sourceCaption(block, ids, snapshots[0]?.name);

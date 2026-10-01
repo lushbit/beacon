@@ -10,6 +10,7 @@ import {
   CANVAS_RANGE_SECONDS,
   CANVAS_WIDTHS,
   canvasMetric,
+  sanitizeRichDoc,
 } from "@beacon/shared";
 import type { CanvasContent } from "@beacon/shared";
 
@@ -69,6 +70,7 @@ const source = z
   });
 
 const align = z.enum(["left", "center", "right"]);
+const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/).transform((value) => value.toLowerCase());
 const deviceRef = z.union([id, z.literal("")]);
 
 function block<T extends string, C extends z.ZodTypeAny>(type: T, config: C) {
@@ -88,7 +90,16 @@ function block<T extends string, C extends z.ZodTypeAny>(type: T, config: C) {
 const blockSchema = z
   .discriminatedUnion("type", [
     block("heading", z.object({ text: text(200), subtitle: text(300), size: z.enum(["sm", "md", "lg", "xl"]), align })),
-    block("text", z.object({ text: text(4000), size: z.enum(["sm", "md", "lg"]), align })),
+    block(
+      "text",
+      z.object({
+        text: text(4000),
+        // Rebuilt from the parts a page can show, whatever was sent.
+        doc: z.unknown().optional().transform((value) => (value == null ? null : sanitizeRichDoc(value))),
+        size: z.enum(["sm", "md", "lg"]),
+        align,
+      })
+    ),
     block("divider", z.object({ label: text(80) })),
     block("spacer", z.object({}).strict()),
     block(
@@ -96,7 +107,7 @@ const blockSchema = z
       z.object({
         source,
         range: optionalRange,
-        color: z.enum(CANVAS_COLORS),
+        color: z.union([z.enum(CANVAS_COLORS), hexColor, z.literal("")]),
         legend: z.boolean(),
         showValue: z.boolean(),
         alerts: z.boolean(),
@@ -105,7 +116,13 @@ const blockSchema = z
     block("value", z.object({ source, sparkline: z.boolean(), range: optionalRange, thresholds, caption: text(120) })),
     block(
       "gauge",
-      z.object({ source, style: z.enum(["ring", "bar"]), thresholds, max: z.number().finite().positive().nullable() })
+      z.object({
+        source,
+        style: z.enum(["ring", "bar"]),
+        thresholds,
+        max: z.number().finite().positive().nullable(),
+        color: z.union([hexColor, z.literal("")]).optional(),
+      })
     ),
     block("status", z.object({ select: selector })),
     block("info", z.object({ deviceId: deviceRef, fields: z.array(z.enum(CANVAS_INFO_FIELDS)).max(CANVAS_INFO_FIELDS.length) })),

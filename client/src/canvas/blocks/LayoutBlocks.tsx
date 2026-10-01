@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { CanvasBlockOf } from "@beacon/shared";
 import { cn } from "@/lib/utils";
+import { RichDocView } from "../RichDocView";
 import { BlockFrame } from "./BlockFrame";
 
 const ALIGN = { left: "text-left items-start", center: "text-center items-center", right: "text-right items-end" } as const;
@@ -91,12 +92,12 @@ export function RichText({ text }: { text: string }) {
 }
 
 export function TextBlock({ block }: { block: CanvasBlockOf<"text"> }) {
-  const { text, size, align } = block.config;
+  const { text, size, align, doc } = block.config;
   return (
     <BlockFrame block={block} bodyClassName="overflow-y-auto scroll-slim">
       <div
         className={cn(
-          "space-y-2 text-muted-foreground",
+          "canvas-rich",
           size === "sm" && "text-xs",
           size === "md" && "text-sm",
           size === "lg" && "text-base",
@@ -104,7 +105,7 @@ export function TextBlock({ block }: { block: CanvasBlockOf<"text"> }) {
           align === "right" && "text-right"
         )}
       >
-        <RichText text={text} />
+        {doc ? <RichDocView doc={doc} /> : <RichText text={text} />}
       </div>
     </BlockFrame>
   );

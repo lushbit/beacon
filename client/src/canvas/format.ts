@@ -50,24 +50,30 @@ export function formatValue(value: number | null | undefined, unit: CanvasUnit, 
   return unitFormatter(unit, options)(value);
 }
 
-/** The colour a single-series chart is drawn in. */
-export const CANVAS_COLOR_VALUES: Record<CanvasColor, string> = {
-  ink: SERIES.ink,
-  blue: "var(--series-1)",
-  orange: "var(--series-2)",
-  aqua: "var(--series-3)",
-  yellow: "var(--series-4)",
-  magenta: "var(--series-5)",
+/** The named colours older pages saved, as the hex value the colour picker shows. */
+const NAMED_HEX: Record<CanvasColor, string> = {
+  ink: "",
+  blue: "#3987e5",
+  orange: "#d95926",
+  aqua: "#199e70",
+  yellow: "#c98500",
+  magenta: "#d55181",
 };
 
-export const CANVAS_COLOR_LABELS: Record<CanvasColor, string> = {
-  ink: "White",
-  blue: "Blue",
-  orange: "Orange",
-  aqua: "Aqua",
-  yellow: "Yellow",
-  magenta: "Magenta",
-};
+const HEX = /^#[0-9a-f]{6}$/i;
+
+/** A block's colour for the colour picker: `#rrggbb`, or empty for the default. */
+export function pickerColor(value: string | undefined): string {
+  if (!value) return "";
+  if (HEX.test(value)) return value.toLowerCase();
+  return NAMED_HEX[value as CanvasColor] ?? "";
+}
+
+/** The colour to draw with. Empty, or anything unknown, is the default white. */
+export function drawColor(value: string | undefined): string {
+  const hex = pickerColor(value);
+  return hex || SERIES.ink;
+}
 
 /** Colours for charts with more than one line, in the documented palette order. */
 export const MULTI_SERIES = ["var(--series-1)", "var(--series-2)", "var(--series-3)", "var(--series-4)", "var(--series-5)"];

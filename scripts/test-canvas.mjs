@@ -242,6 +242,37 @@ async function main() {
     const res2 = await admin(`/canvas/${page.id}/draft`, { method: "PUT", body: JSON.stringify({ content: unknown }) });
     check(res2.status === 400, "a metric the hub does not know is refused");
 
+    // Formatted text keeps only what a page can show. A script link, an unknown
+    // node and a colour that is not a colour are all dropped on save.
+    const rich = structuredClone(content);
+    rich.blocks.push(
+      block("text", "words", [0, 20, 12, 3], {
+        text: "hello",
+        size: "md",
+        align: "left",
+        doc: {
+          type: "doc",
+          content: [
+            {
+              type: "paragraph",
+              content: [
+                { type: "text", text: "safe", marks: [{ type: "bold" }, { type: "link", attrs: { href: "javascript:alert(1)" } }] },
+                { type: "text", text: "red", marks: [{ type: "textStyle", attrs: { color: "red; background:url(x)" } }] },
+              ],
+            },
+            { type: "iframe", attrs: { src: "https://example.com" } },
+          ],
+        },
+      })
+    );
+    const savedRich = await admin(`/canvas/${page.id}/draft`, { method: "PUT", body: JSON.stringify({ content: rich }) });
+    check(savedRich.ok, "a text block with formatting saves");
+    const stored = (await (await admin(`/canvas/${page.id}`)).json()).draft.blocks.find((entry) => entry.id === "words");
+    const storedText = JSON.stringify(stored?.config.doc ?? null);
+    check(storedText.includes('"bold"') && storedText.includes("safe"), "formatting the page can show is kept");
+    check(!storedText.includes("javascript") && !storedText.includes("iframe") && !storedText.includes("url(x)"), "script links, unknown nodes and bad colours are dropped");
+    await admin(`/canvas/${page.id}/draft`, { method: "PUT", body: JSON.stringify({ content }) });
+
     const dupes = structuredClone(content);
     dupes.blocks[1].id = "cpu";
     const res3 = await admin(`/canvas/${page.id}/draft`, { method: "PUT", body: JSON.stringify({ content: dupes }) });

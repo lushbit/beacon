@@ -261,3 +261,62 @@
     border-color: hsl(var(--foreground) / 0.75);
   }
 }
+
+/*
+ * Formatted text in Canvas text blocks. The editor and the published page
+ * share these rules, so what is typed looks the same once published.
+ */
+@layer components {
+  .canvas-rich {
+    @apply text-muted-foreground;
+  }
+  .canvas-rich > * + * {
+    margin-top: 0.6em;
+  }
+  .canvas-rich h1 {
+    @apply text-[1.6em] font-semibold leading-tight tracking-tight text-foreground;
+  }
+  .canvas-rich h2 {
+    @apply text-[1.3em] font-semibold leading-snug text-foreground;
+  }
+  .canvas-rich h3 {
+    @apply text-[1.1em] font-semibold text-foreground;
+  }
+  .canvas-rich strong {
+    @apply font-semibold text-foreground;
+  }
+  .canvas-rich a {
+    @apply text-foreground underline underline-offset-2 hover:opacity-80;
+  }
+  .canvas-rich ul {
+    @apply list-disc pl-5;
+  }
+  .canvas-rich ol {
+    @apply list-decimal pl-5;
+  }
+  .canvas-rich li > p {
+    margin: 0;
+  }
+  .canvas-rich blockquote {
+    @apply border-l-2 border-border pl-3 italic;
+  }
+  .canvas-rich code {
+    @apply rounded bg-surface-2 px-1 py-0.5 font-mono text-[0.9em] text-foreground;
+  }
+  .canvas-rich pre {
+    @apply overflow-x-auto rounded-md bg-surface-2 p-3;
+  }
+  .canvas-rich pre code {
+    @apply bg-transparent p-0;
+  }
+  .canvas-rich hr {
+    @apply border-border;
+  }
+  .canvas-rich .is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    float: left;
+    height: 0;
+    pointer-events: none;
+    @apply text-muted-foreground/60;
+  }
+}
