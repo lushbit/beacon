@@ -1,15 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { Ban, Check, Copy, Pipette } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/context/ToastContext";
 import { copyText } from "@/lib/clipboard";
-import { DEVICE_COLORS, deviceColorHex, parseHexColor } from "@/lib/colors";
+import { DEVICE_COLORS, deviceColorHex, hexToHsv, hsvToHex, parseHexColor, type Hsv } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 
 /**
- * Picks a device accent: a few quick presets, any colour from the system
- * picker, or a typed hex value. `value` is `#rrggbb`, a legacy preset id, or an
+ * Picks a device accent: a few quick presets, any colour from the picker
+ * panel, or a typed hex value. `value` is `#rrggbb`, a legacy preset id, or an
  * empty string for no accent. Changes always come back as `#rrggbb` or "".
  */
 export function ColorPicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
@@ -17,6 +17,7 @@ export function ColorPicker({ value, onChange }: { value: string; onChange: (val
   const hex = deviceColorHex(value);
   const [text, setText] = useState(hex ?? "");
   const [copied, setCopied] = useState(false);
+  const [picking, setPicking] = useState(false);
   const field = useRef<HTMLInputElement>(null);
 
   // Follow the value when it changes from outside, such as a preset or Discard.
@@ -52,13 +53,17 @@ export function ColorPicker({ value, onChange }: { value: string; onChange: (val
             style={{ background: preset.hex }}
           />
         ))}
-        {/* The system picker covers every colour, so it sits with the presets. */}
-        <label
+        {/* The picker panel covers every colour, so its toggle sits with the presets. */}
+        <button
+          type="button"
+          onClick={() => setPicking((current) => !current)}
+          aria-expanded={picking}
+          aria-label="Pick any colour"
           title="Pick any colour"
           className={cn(
             swatch,
-            "flex cursor-pointer items-center justify-center",
-            custom ? "ring-2 ring-foreground/70" : "ring-1 ring-border"
+            "flex items-center justify-center",
+            custom || picking ? "ring-2 ring-foreground/70" : "ring-1 ring-border"
           )}
           style={{
             background: custom
@@ -67,14 +72,7 @@ export function ColorPicker({ value, onChange }: { value: string; onChange: (val
           }}
         >
           <Pipette className="h-3.5 w-3.5 text-white drop-shadow" aria-hidden />
-          <span className="sr-only">Pick any colour</span>
-          <input
-            type="color"
-            value={hex ?? DEVICE_COLORS[0].hex}
-            onChange={(event) => onChange(event.target.value.toLowerCase())}
-            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-          />
-        </label>
+        </button>
         <button
           type="button"
           onClick={() => onChange("")}
@@ -90,6 +88,8 @@ export function ColorPicker({ value, onChange }: { value: string; onChange: (val
           <Ban className="h-3.5 w-3.5" aria-hidden />
         </button>
       </div>
+
+      {picking ? <HsvPanel hex={hex ?? DEVICE_COLORS[1].hex} onChange={onChange} /> : null}
 
       <div className="flex items-center gap-2">
         <div className="relative w-32">
@@ -127,6 +127,107 @@ export function ColorPicker({ value, onChange }: { value: string; onChange: (val
             Remove
           </Button>
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+const clamp = (value: number) => Math.min(1, Math.max(0, value));
+
+/**
+ * A saturation and brightness square over a hue strip. It keeps its own hue
+ * while dragging, because a grey or black has no hue to read back and the
+ * strip would otherwise jump to red.
+ */
+function HsvPanel({ hex, onChange }: { hex: string; onChange: (value: string) => void }) {
+  const [hsv, setHsv] = useState<Hsv>(() => hexToHsv(hex));
+  const sent = useRef(hex);
+
+  // A preset, the hex field or Discard moved the colour from outside.
+  useEffect(() => {
+    if (hex !== sent.current) {
+      sent.current = hex;
+      setHsv(hexToHsv(hex));
+    }
+  }, [hex]);
+
+  const update = (next: Hsv) => {
+    setHsv(next);
+    const value = hsvToHex(next);
+    sent.current = value;
+    onChange(value);
+  };
+
+  /** Follows the pointer from the press until release, even outside the element. */
+  const drag = (read: (x: number, y: number) => void) => (event: PointerEvent<HTMLDivElement>) => {
+    const element = event.currentTarget;
+    element.setPointerCapture(event.pointerId);
+    const move = (x: number, y: number) => {
+      const box = element.getBoundingClientRect();
+      read(clamp((x - box.left) / box.width), clamp((y - box.top) / box.height));
+    };
+    move(event.clientX, event.clientY);
+    const onMove = (moveEvent: globalThis.PointerEvent) => move(moveEvent.clientX, moveEvent.clientY);
+    const stop = () => {
+      element.removeEventListener("pointermove", onMove);
+      element.removeEventListener("pointerup", stop);
+      element.removeEventListener("pointercancel", stop);
+    };
+    element.addEventListener("pointermove", onMove);
+    element.addEventListener("pointerup", stop);
+    element.addEventListener("pointercancel", stop);
+  };
+
+  const keys =
+    (step: (dx: number, dy: number) => void) =>
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      const size = event.shiftKey ? 0.1 : 0.01;
+      const moves: Record<string, [number, number]> = {
+        ArrowLeft: [-size, 0],
+        ArrowRight: [size, 0],
+        ArrowUp: [0, -size],
+        ArrowDown: [0, size],
+      };
+      const delta = moves[event.key];
+      if (!delta) return;
+      event.preventDefault();
+      step(delta[0], delta[1]);
+    };
+
+  const knob = "pointer-events-none absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.5)]";
+
+  return (
+    <div className="space-y-3 rounded-lg border border-border/70 bg-surface-2 p-3">
+      <div
+        role="slider"
+        tabIndex={0}
+        aria-label="Saturation and brightness"
+        aria-valuetext={`Saturation ${Math.round(hsv.s * 100)}%, brightness ${Math.round(hsv.v * 100)}%`}
+        onPointerDown={drag((x, y) => update({ ...hsv, s: x, v: 1 - y }))}
+        onKeyDown={keys((dx, dy) => update({ ...hsv, s: clamp(hsv.s + dx), v: clamp(hsv.v - dy) }))}
+        className="relative h-36 w-full cursor-crosshair touch-none rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+        style={{
+          background: `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, hsl(${hsv.h} 100% 50%))`,
+        }}
+      >
+        <span className={knob} style={{ left: `${hsv.s * 100}%`, top: `${(1 - hsv.v) * 100}%`, background: hsvToHex(hsv) }} />
+      </div>
+      <div
+        role="slider"
+        tabIndex={0}
+        aria-label="Hue"
+        aria-valuemin={0}
+        aria-valuemax={360}
+        aria-valuenow={Math.round(hsv.h)}
+        onPointerDown={drag((x) => update({ ...hsv, h: x * 360 }))}
+        onKeyDown={keys((dx) => update({ ...hsv, h: Math.min(360, Math.max(0, hsv.h + dx * 360)) }))}
+        className="relative h-3 w-full cursor-pointer touch-none rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+        style={{
+          background:
+            "linear-gradient(to right, #f00 0%, #ff0 16.66%, #0f0 33.33%, #0ff 50%, #00f 66.66%, #f0f 83.33%, #f00 100%)",
+        }}
+      >
+        <span className={knob} style={{ left: `${(hsv.h / 360) * 100}%`, top: "50%", background: `hsl(${hsv.h} 100% 50%)` }} />
       </div>
     </div>
   );
