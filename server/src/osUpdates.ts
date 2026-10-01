@@ -5,6 +5,7 @@ import type {
   OsUpdateJobSnapshot,
   OsUpdateStatusResult,
   OsUpdateSummaryDto,
+  OsUpdateHistoryDto,
   OsUpdatesDto,
 } from "@beacon/shared";
 import { formatLogLine } from "@beacon/shared";
@@ -122,13 +123,27 @@ export function osUpdatesFor(deviceId: string): OsUpdatesDto {
   const history = db
     .prepare(`SELECT ${JOB_COLUMNS} FROM os_update_jobs WHERE device_id = ? ORDER BY started_at DESC LIMIT 30`)
     .all(deviceId) as JobRow[];
+  const total = db.prepare("SELECT COUNT(*) AS n FROM os_update_jobs WHERE device_id = ?").get(deviceId) as {
+    n: number;
+  };
   return {
     inventory: inventoryFor(deviceId),
     active: activeJob(deviceId),
     history: history.map(toDto),
+    historyTotal: total.n,
     agentSupports: row ? deviceCapabilities(row).osUpdates === true : false,
     allowed: row ? deviceSettings(row).allowOsUpdates : false,
   };
+}
+
+/** One page of the full history, newest first, for the "All history" popup. */
+export function osUpdateHistory(deviceId: string, before: number | null, limit: number): OsUpdateHistoryDto {
+  const rows = db
+    .prepare(
+      `SELECT ${JOB_COLUMNS} FROM os_update_jobs WHERE device_id = ? AND started_at < ? ORDER BY started_at DESC LIMIT ?`
+    )
+    .all(deviceId, before ?? Number.MAX_SAFE_INTEGER, limit + 1) as JobRow[];
+  return { jobs: rows.slice(0, limit).map(toDto), more: rows.length > limit };
 }
 
 function storeInventory(deviceId: string, inventory: OsUpdateInventory): void {

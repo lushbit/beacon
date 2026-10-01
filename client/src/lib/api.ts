@@ -12,6 +12,7 @@ import type {
   EnrollTokenDto,
   ListProcessesResult,
   MetricSeriesDto,
+  OsUpdateHistoryDto,
   OsUpdateJobDto,
   OsUpdatesDto,
   ServerSettingsDto,
@@ -127,6 +128,8 @@ export const api = {
     request<MetricSeriesDto>(`/devices/${id}/series${query(options)}`),
 
   osUpdates: (id: string) => request<OsUpdatesDto>(`/devices/${id}/os-updates`),
+  osUpdateHistory: (id: string, before?: number) =>
+    request<OsUpdateHistoryDto>(`/devices/${id}/os-updates/history${query({ before })}`),
   osUpdateJob: (id: string, jobId: string) =>
     request<OsUpdateJobDto & { log: string[] }>(`/devices/${id}/os-updates/jobs/${jobId}`),
   checkOsUpdates: (id: string) => post<OsUpdateJobDto>(`/devices/${id}/os-updates/check`),
@@ -136,7 +139,7 @@ export const api = {
   cancelOsUpdate: (id: string, jobId: string) => post<{ ok: true }>(`/devices/${id}/os-updates/jobs/${jobId}/cancel`),
 
   enrollTokens: () => request<EnrollTokenDto[]>("/enroll-tokens"),
-  createEnrollToken: (body: { label: string; expiresInHours: number | null; maxUses: number }) =>
+  createEnrollToken: (body: { label: string; color: string; expiresInHours: number | null; maxUses: number }) =>
     post<EnrollTokenDto>("/enroll-tokens", body),
   deleteEnrollToken: (id: string) => remove<{ ok: true }>(`/enroll-tokens/${id}`),
   /** Has a device checked in with this token yet? */

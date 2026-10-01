@@ -9,6 +9,7 @@ import {
   FileDown,
   Info,
   Loader2,
+  Maximize2,
   PackageCheck,
   RefreshCw,
   RotateCcw,
@@ -166,6 +167,7 @@ export function OsUpdatesTab({ device, online, unitBase }: OsUpdatesTabProps) {
             if (job.state === "running") next.active = job;
             else if (current.active?.id === job.id) next.active = null;
             const others = current.history.filter((entry) => entry.id !== job.id);
+            if (others.length === current.history.length) next.historyTotal = current.historyTotal + 1;
             next.history = [job, ...others].sort((a, b) => b.startedAt - a.startedAt).slice(0, 30);
           }
           return next;
@@ -313,7 +315,10 @@ export function OsUpdatesTab({ device, online, unitBase }: OsUpdatesTabProps) {
       ) : null}
 
       <History
+        deviceId={device.id}
+        deviceName={device.name}
         jobs={data.history.filter((job) => job.state !== "running")}
+        total={data.historyTotal - (active ? 1 : 0)}
         logs={logs}
         onOpen={(jobId) => {
           if (!logs[jobId]) void loadLog(jobId);
@@ -1072,7 +1077,156 @@ function UpdateRow({
 
 /* ----------------------------------------------------------------- history */
 
+/** The tab keeps to the latest few runs. Everything older is in the popup. */
+const HISTORY_PREVIEW = 5;
+
 function History({
+  deviceId,
+  deviceName,
+  jobs,
+  total,
+  logs,
+  onOpen,
+}: {
+  deviceId: string;
+  deviceName: string;
+  jobs: OsUpdateJobDto[];
+  total: number;
+  logs: Record<string, string[]>;
+  onOpen: (jobId: string) => void;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const count = Math.max(total, jobs.length);
+
+  return (
+    <section className="rounded-lg border border-border/70 bg-card">
+      <header className="border-b border-border/60 px-4 py-3">
+        <h3 className="text-sm font-medium text-foreground">History</h3>
+      </header>
+      {jobs.length === 0 ? (
+        <p className="px-4 py-4 text-xs text-muted-foreground">Nothing has run from the dashboard yet.</p>
+      ) : (
+        <>
+          <HistoryRows jobs={jobs.slice(0, HISTORY_PREVIEW)} logs={logs} onOpen={onOpen} />
+          {count > HISTORY_PREVIEW ? (
+            <button
+              type="button"
+              onClick={() => setShowAll(true)}
+              className="flex w-full items-center justify-center gap-1.5 border-t border-border/60 px-4 py-2.5 text-xs text-muted-foreground transition-colors hover:bg-white/[0.02] hover:text-foreground"
+            >
+              <Maximize2 className="h-3.5 w-3.5" />
+              Show all {count} runs
+            </button>
+          ) : null}
+        </>
+      )}
+      <HistoryDialog
+        open={showAll}
+        onOpenChange={setShowAll}
+        deviceId={deviceId}
+        deviceName={deviceName}
+        count={count}
+        logs={logs}
+        onOpen={onOpen}
+      />
+    </section>
+  );
+}
+
+/**
+ * Every run this device has had, newest first. Pages are fetched as the list
+ * is read, so a device that has checked every six hours for a year does not
+ * load all of it at once.
+ */
+function HistoryDialog({
+  open,
+  onOpenChange,
+  deviceId,
+  deviceName,
+  count,
+  logs,
+  onOpen,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  deviceId: string;
+  deviceName: string;
+  count: number;
+  logs: Record<string, string[]>;
+  onOpen: (jobId: string) => void;
+}) {
+  const [jobs, setJobs] = useState<OsUpdateJobDto[] | null>(null);
+  const [more, setMore] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchPage = useCallback(
+    async (before?: number) => {
+      setLoading(true);
+      try {
+        const page = await api.osUpdateHistory(deviceId, before);
+        const finished = page.jobs.filter((job) => job.state !== "running");
+        setJobs((current) => (before && current ? [...current, ...finished] : finished));
+        setMore(page.more);
+        setError(null);
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "Could not load the history.");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [deviceId]
+  );
+
+  // Fresh every time it opens, so runs that finished in the meantime are there.
+  useEffect(() => {
+    if (open) void fetchPage();
+    else setJobs(null);
+  }, [open, fetchPage]);
+
+  const last = jobs?.[jobs.length - 1];
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl p-0 sm:p-0">
+        <div className="px-4 pt-4 sm:px-5 sm:pt-5">
+          <DialogHeader
+            title="Update history"
+            description={`${count} ${count === 1 ? "run" : "runs"} on ${deviceName}, newest first.`}
+          />
+        </div>
+        {error ? (
+          <p role="alert" className="mx-4 mb-4 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
+            {error}
+          </p>
+        ) : null}
+        {jobs === null ? (
+          error ? null : (
+            <div className="space-y-2 px-4 pb-4 sm:px-5 sm:pb-5">
+              {Array.from({ length: 5 }, (_, index) => (
+                <Skeleton key={index} className="h-12" />
+              ))}
+            </div>
+          )
+        ) : (
+          <div className="border-t border-border/60">
+            <HistoryRows jobs={jobs} logs={logs} onOpen={onOpen} />
+            {more && last ? (
+              <div className="border-t border-border/60 p-3 text-center">
+                <Button variant="ghost" size="sm" disabled={loading} onClick={() => void fetchPage(last.startedAt)}>
+                  {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                  Load older runs
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function HistoryRows({
   jobs,
   logs,
   onOpen,
@@ -1084,75 +1238,66 @@ function History({
   const [open, setOpen] = useState<string | null>(null);
 
   return (
-    <section className="rounded-lg border border-border/70 bg-card">
-      <header className="border-b border-border/60 px-4 py-3">
-        <h3 className="text-sm font-medium text-foreground">History</h3>
-      </header>
-      {jobs.length === 0 ? (
-        <p className="px-4 py-4 text-xs text-muted-foreground">Nothing has run from the dashboard yet.</p>
-      ) : (
-        <ul className="divide-y divide-border/40">
-          {jobs.map((job) => {
-            const outcome = OUTCOME[job.state];
-            const expanded = open === job.id;
-            const summary = resultSummary(job);
-            const failures = job.results.filter((result) => !result.ok);
-            return (
-              <li key={job.id}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOpen(expanded ? null : job.id);
-                    if (!expanded) onOpen(job.id);
-                  }}
-                  aria-expanded={expanded}
-                  className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-left transition-colors hover:bg-white/[0.02]"
-                >
-                  <Badge tone={outcome.tone} className="w-[5.5rem] justify-center">
-                    {outcome.label}
-                  </Badge>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm text-foreground">{jobTitle(job)}</span>
-                    <span className="block truncate text-2xs text-muted-foreground">
-                      {[summary, job.error, job.rebootRequired && job.state === "succeeded" ? "restart needed" : null]
-                        .filter(Boolean)
-                        .join(" · ") || `by ${actorLabel(job.actor)}`}
-                    </span>
-                  </span>
-                  <span className="shrink-0 text-right text-2xs text-muted-foreground tabular">
-                    <RelativeTime value={job.startedAt} />
-                    {job.finishedAt ? (
-                      <>
-                        {" · took "}
-                        <Duration from={job.startedAt} to={job.finishedAt} />
-                      </>
-                    ) : null}
-                  </span>
-                  <ChevronDown
-                    className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-180")}
-                  />
-                </button>
-                {expanded ? (
-                  <div className="bg-surface/40">
-                    <p className="px-4 pt-3 text-2xs text-muted-foreground">
-                      Started by {actorLabel(job.actor)} on {new Date(job.startedAt).toLocaleString()}
-                    </p>
-                    {job.results.length > 0 ? <ResultList results={job.results} failures={failures} /> : null}
-                    <div className="pt-2">
-                      <LogView
-                        lines={logs[job.id] ?? []}
-                        fileName={`${job.kind}-${new Date(job.startedAt).toISOString()}.log`}
-                        defaultOpen
-                      />
-                    </div>
-                  </div>
+    <ul className="divide-y divide-border/40">
+      {jobs.map((job) => {
+        const outcome = OUTCOME[job.state];
+        const expanded = open === job.id;
+        const summary = resultSummary(job);
+        const failures = job.results.filter((result) => !result.ok);
+        return (
+          <li key={job.id}>
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(expanded ? null : job.id);
+                if (!expanded) onOpen(job.id);
+              }}
+              aria-expanded={expanded}
+              className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-left transition-colors hover:bg-white/[0.02]"
+            >
+              <Badge tone={outcome.tone} className="w-[5.5rem] justify-center">
+                {outcome.label}
+              </Badge>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm text-foreground">{jobTitle(job)}</span>
+                <span className="block truncate text-2xs text-muted-foreground">
+                  {[summary, job.error, job.rebootRequired && job.state === "succeeded" ? "restart needed" : null]
+                    .filter(Boolean)
+                    .join(" · ") || `by ${actorLabel(job.actor)}`}
+                </span>
+              </span>
+              <span className="shrink-0 text-right text-2xs text-muted-foreground tabular">
+                <RelativeTime value={job.startedAt} />
+                {job.finishedAt ? (
+                  <>
+                    {" · took "}
+                    <Duration from={job.startedAt} to={job.finishedAt} />
+                  </>
                 ) : null}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </section>
+              </span>
+              <ChevronDown
+                className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-180")}
+              />
+            </button>
+            {expanded ? (
+              <div className="bg-surface/40">
+                <p className="px-4 pt-3 text-2xs text-muted-foreground">
+                  Started by {actorLabel(job.actor)} on {new Date(job.startedAt).toLocaleString()}
+                </p>
+                {job.results.length > 0 ? <ResultList results={job.results} failures={failures} /> : null}
+                <div className="pt-2">
+                  <LogView
+                    lines={logs[job.id] ?? []}
+                    fileName={`${job.kind}-${new Date(job.startedAt).toISOString()}.log`}
+                    defaultOpen
+                  />
+                </div>
+              </div>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

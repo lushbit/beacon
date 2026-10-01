@@ -117,12 +117,20 @@ export interface OsUpdateJobDto extends OsUpdateJobSnapshot {
   logLines: number;
 }
 
+export interface OsUpdateHistoryDto {
+  jobs: OsUpdateJobDto[];
+  /** Older jobs exist past the last one returned. */
+  more: boolean;
+}
+
 export interface OsUpdatesDto {
   inventory: OsUpdateInventory | null;
   /** The running job, if there is one. */
   active: OsUpdateJobDto | null;
   /** The most recent jobs, newest first, without their logs. */
   history: OsUpdateJobDto[];
+  /** How many jobs this device has run in all, including those not in `history`. */
+  historyTotal: number;
   /** False for an agent too old to know about OS updates. */
   agentSupports: boolean;
   /** This device's settings allow installing and restarting from the dashboard. */

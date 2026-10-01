@@ -32,7 +32,7 @@ import {
   agentNeedsUpdate,
 } from "../agentUpdates.js";
 import { getLatestSample, getLatestSamples, getSpark } from "../metrics/store.js";
-import { cancelOsJob, jobWithLog, osUpdatesFor, OsUpdateNotPossible, startOsJob, summaryFor } from "../osUpdates.js";
+import { cancelOsJob, jobWithLog, osUpdateHistory, osUpdatesFor, OsUpdateNotPossible, startOsJob, summaryFor } from "../osUpdates.js";
 import { mergeDeviceSettings } from "../settings.js";
 import { handler, notFound, parseBody } from "./helpers.js";
 
@@ -91,6 +91,16 @@ devicesRouter.get(
   })
 );
 
+/**
+ * A device accent: a hex colour, an empty string for none, or one of the named
+ * presets devices were given before any colour could be picked.
+ */
+const deviceColorSchema = z
+  .string()
+  .trim()
+  .regex(/^(#[0-9a-fA-F]{6}|[a-z]{0,12})$/, "Use a colour like #3b82f6.")
+  .transform((value) => value.toLowerCase());
+
 const settingsSchema = z.object({
   sampleIntervalMs: z.number().int().min(1000).max(300_000).optional(),
   allowProcessKill: z.boolean().optional(),
@@ -110,7 +120,7 @@ const settingsSchema = z.object({
 
 const devicePatchSchema = z.object({
   name: z.string().trim().min(1).max(60).optional(),
-  color: z.string().trim().max(24).optional(),
+  color: deviceColorSchema.optional(),
   tags: z.array(z.string().trim().min(1).max(24)).max(12).optional(),
   notes: z.string().max(2000).optional(),
   settings: settingsSchema.optional(),
@@ -286,6 +296,25 @@ devicesRouter.get(
   })
 );
 
+const historyQuery = z.object({
+  before: z.coerce.number().int().positive().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+devicesRouter.get(
+  "/:id/os-updates/history",
+  handler((req, res) => {
+    const row = getDeviceRow(req.params.id);
+    if (!row) return notFound(res, "Device not found.");
+    const parsed = historyQuery.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid history query." });
+      return;
+    }
+    res.json(osUpdateHistory(row.id, parsed.data.before ?? null, parsed.data.limit));
+  })
+);
+
 devicesRouter.get(
   "/:id/os-updates/jobs/:jobId",
   handler((req, res) => {
@@ -392,6 +421,7 @@ enrollRouter.get(
 
 const enrollSchema = z.object({
   label: z.string().trim().max(60).default(""),
+  color: deviceColorSchema.default("slate"),
   expiresInHours: z.number().int().min(1).max(8760).nullable().default(24),
   maxUses: z.number().int().min(0).max(1000).default(1),
 });
@@ -403,6 +433,7 @@ enrollRouter.post(
     if (!body) return;
     const { row, token } = createEnrollToken({
       label: body.label,
+      color: body.color,
       createdBy: req.user!.username,
       expiresAt: body.expiresInHours === null ? null : Date.now() + body.expiresInHours * 3600_000,
       maxUses: body.maxUses,
