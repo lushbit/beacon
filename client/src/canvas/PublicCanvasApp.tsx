@@ -158,29 +158,31 @@ function Notice({ icon: Icon, title, text, action }: { icon: typeof Lock; title:
 const PROJECT_URL = "https://github.com/lushbit/beacon";
 
 /**
- * The line under every page: what made it, then buttons for the project and
- * for the hub the page is served from, with the version between them.
+ * The line under every page: what made it, the project, the version and the
+ * hub the page is served from, with a dot between each.
  */
 function PageFooter() {
+  const link = "inline-flex items-center gap-1.5 transition-colors hover:text-foreground";
+  const dot = <span aria-hidden>·</span>;
   return (
-    <footer className="mt-10 flex flex-wrap items-center justify-center gap-x-3 gap-y-2 border-t border-border/50 pt-5 text-2xs text-muted-foreground/80">
+    <footer className="mt-10 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-t border-border/50 pt-5 text-2xs text-muted-foreground/80">
       <span>
         Made with <span className="font-medium text-muted-foreground">Beacon</span> by lushbit
       </span>
-      <div className="flex items-center gap-2">
-        <Button asChild variant="outline" size="sm" className="h-7 w-7 px-0 text-muted-foreground hover:text-foreground">
-          <a href={PROJECT_URL} target="_blank" rel="noopener noreferrer" title="Beacon on GitHub" aria-label="Beacon on GitHub">
-            <Github className="h-3.5 w-3.5" />
-          </a>
-        </Button>
-        <span className="tabular">v{BEACON_VERSION}</span>
-        <Button asChild variant="outline" size="sm" className="h-7 gap-1.5 px-2.5 text-2xs text-muted-foreground hover:text-foreground">
-          <a href="/" target={window.top !== window ? "_blank" : undefined} rel="noopener">
-            <RadioTower className="h-3.5 w-3.5" />
-            {window.location.host}
-          </a>
-        </Button>
-      </div>
+      {dot}
+      <a href={PROJECT_URL} target="_blank" rel="noopener noreferrer" title="Beacon on GitHub" aria-label="Beacon on GitHub" className={link}>
+        <Github className="h-3.5 w-3.5 opacity-60" />
+      </a>
+      {dot}
+      <span className="tabular">v{BEACON_VERSION}</span>
+      {/* On a phone the hub gets a line of its own, so no dot is left hanging. */}
+      <span aria-hidden className="hidden sm:inline">
+        ·
+      </span>
+      <a href="/" target={window.top !== window ? "_blank" : undefined} rel="noopener" className={cn(link, "w-full justify-center sm:w-auto")}>
+        <RadioTower className="h-3.5 w-3.5 opacity-60" />
+        {window.location.host}
+      </a>
     </footer>
   );
 }
