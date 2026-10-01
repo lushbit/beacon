@@ -226,7 +226,10 @@ function BlockSettings({
     const metricChanged = before?.id !== after?.id;
     const next = { ...current, config: { ...current.config, source } } as typeof current;
     if (metricChanged && after) {
-      if (!current.title || current.title === before?.label) next.title = after.label;
+      // New blocks start with a short name ("Memory", "CPU"), so any name the
+      // old metric goes by counts as untouched, not just its full label.
+      const untouched = !current.title || (before ? [before.label, before.group, ...before.fields.map((field) => field.label)].includes(current.title) : false);
+      if (untouched) next.title = after.label;
       if (next.type !== "chart") (next as CanvasBlockOf<"value">).config.thresholds = defaultThresholds(after);
     }
     onChange(next as CanvasBlock, group);
