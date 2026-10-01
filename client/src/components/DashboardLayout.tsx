@@ -111,12 +111,12 @@ function AlertBadge({
 function NewPill({ compact }: { compact: boolean }) {
   if (compact) {
     return (
-      <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-foreground" title="New" aria-label="New" />
+      <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-foreground" title="NEW" aria-label="New" />
     );
   }
   return (
     <span className="relative ml-auto shrink-0 rounded-full bg-white/[0.08] px-1.5 py-0.5 text-2xs font-semibold text-foreground ring-1 ring-inset ring-white/15">
-      New
+      NEW
     </span>
   );
 }
@@ -126,7 +126,7 @@ interface NavItem {
   label: string;
   icon: LucideIcon;
   adminOnly?: boolean;
-  /** Shows a "New" pill beside the label, for a recently added page. */
+  /** Shows a "NEW" pill beside the label, for a recently added page. */
   isNew?: boolean;
 }
 
