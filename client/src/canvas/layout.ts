@@ -46,48 +46,89 @@ export function makeRoom(blocks: CanvasBlock[], fixedId: string): CanvasBlock[] 
   return blocks.map((block) => moved.get(block.id) ?? block);
 }
 
-/**
- * Slides every block up as far as it goes, keeping the order. The editor's grid
- * packs the same way, so the stored page always matches what the editor shows.
- */
-export function tidyUp(blocks: CanvasBlock[]): CanvasBlock[] {
-  const placed: CanvasBlock[] = [];
-  for (const original of blocks.slice().sort((a, b) => a.y - b.y || a.x - b.x)) {
-    const block = { ...original };
-    while (block.y > 0 && !placed.some((other) => overlaps({ ...block, y: block.y - 1 }, other))) block.y -= 1;
-    placed.push(block);
-  }
-  const byId = new Map(placed.map((block) => [block.id, block]));
-  return blocks.map((block) => byId.get(block.id) ?? block);
+type Rect = { x: number; y: number; w: number; h: number };
+
+export function isFree(blocks: CanvasBlock[], rect: Rect, ignoreId?: string): boolean {
+  if (rect.x < 0 || rect.y < 0 || rect.x + rect.w > CANVAS_COLUMNS) return false;
+  return !blocks.some((block) => block.id !== ignoreId && overlaps(rect, block));
 }
 
 /**
- * A new block of a type at a spot, at its usual size. A spot too close to the
- * right edge moves the block left until it fits, and room is made below.
+ * The best free spot that covers a cell: the wanted size if it fits there,
+ * otherwise the largest size down to the smallest allowed. Of the spots that
+ * fit, the one whose middle is nearest the cell wins, so the spot sits around
+ * the pointer rather than off to one side of it.
+ */
+export function fitAt(
+  blocks: CanvasBlock[],
+  cell: { col: number; row: number },
+  size: { w: number; h: number },
+  min: { w: number; h: number } = { w: 1, h: 1 },
+  ignoreId?: string
+): Rect | null {
+  if (!isFree(blocks, { x: cell.col, y: cell.row, w: 1, h: 1 }, ignoreId)) return null;
+  const sizes: { w: number; h: number }[] = [];
+  for (let h = size.h; h >= min.h; h -= 1) for (let w = size.w; w >= min.w; w -= 1) sizes.push({ w, h });
+  sizes.sort((a, b) => b.w * b.h - a.w * a.h);
+  for (const candidate of sizes) {
+    let best: Rect | null = null;
+    let bestDistance = Infinity;
+    for (let x = cell.col - candidate.w + 1; x <= cell.col; x += 1) {
+      for (let y = cell.row - candidate.h + 1; y <= cell.row; y += 1) {
+        const rect = { x, y, ...candidate };
+        if (!isFree(blocks, rect, ignoreId)) continue;
+        const distance = Math.abs(x + candidate.w / 2 - (cell.col + 0.5)) + Math.abs(y + candidate.h / 2 - (cell.row + 0.5));
+        if (distance < bestDistance) {
+          best = rect;
+          bestDistance = distance;
+        }
+      }
+    }
+    if (best) return best;
+  }
+  return null;
+}
+
+/**
+ * A new block of a type. At a cell it takes the best free spot around that
+ * cell, as large as its usual size allows. Where not even its smallest size
+ * fits, it goes there anyway and pushes what it lands on down. Without a cell
+ * it goes below everything else.
  */
 export function placeBlock(
   blocks: CanvasBlock[],
   type: CanvasBlockType,
-  at: { x: number; y: number; w?: number; h?: number } | null,
+  at: { col: number; row: number } | Rect | null,
   deviceId: string
 ): { blocks: CanvasBlock[]; id: string } {
   const info = CANVAS_BLOCK_INFO[type];
-  const w = at?.w ?? info.w;
-  const x = at ? Math.max(0, Math.min(at.x, CANVAS_COLUMNS - w)) : 0;
-  const y = at ? at.y : bottomOf(blocks);
   const id = newBlockId();
-  const block = clampBlock(newCanvasBlock(type, id, { x, y, w, h: at?.h ?? info.h }, deviceId));
-  return { blocks: tidyUp(makeRoom([...blocks, block], id)), id };
+  let rect: Rect;
+  if (!at) {
+    rect = { x: 0, y: bottomOf(blocks), w: info.w, h: info.h };
+  } else if ("w" in at && isFree(blocks, at)) {
+    rect = at;
+  } else {
+    const cell = "col" in at ? at : { col: at.x, row: at.y };
+    rect =
+      fitAt(blocks, cell, { w: info.w, h: info.h }, { w: Math.min(info.minW, CANVAS_COLUMNS), h: info.minH }) ?? {
+        x: Math.max(0, Math.min(cell.col, CANVAS_COLUMNS - info.minW)),
+        y: cell.row,
+        w: info.minW,
+        h: info.minH,
+      };
+  }
+  const block = clampBlock(newCanvasBlock(type, id, rect, deviceId));
+  return { blocks: makeRoom([...blocks, block], id), id };
 }
 
-/**
- * Where a block put at a spot ends up once the page packs upwards: as high in
- * its columns as it can go without landing on anything above it.
- */
-export function landingSpot(blocks: CanvasBlock[], at: { x: number; y: number; w: number; h: number }) {
-  const spot = { ...at };
-  while (spot.y > 0 && !blocks.some((block) => overlaps({ ...spot, y: spot.y - 1, h: 1 }, block))) spot.y -= 1;
-  return spot;
+/** Moves a block by whole cells, unless that would land it on another block. */
+export function nudge(blocks: CanvasBlock[], id: string, dx: number, dy: number): CanvasBlock[] | null {
+  const block = blocks.find((entry) => entry.id === id);
+  if (!block) return null;
+  const rect = { x: block.x + dx, y: block.y + dy, w: block.w, h: block.h };
+  if (!isFree(blocks, rect, id)) return null;
+  return blocks.map((entry) => (entry.id === id ? { ...entry, x: rect.x, y: rect.y } : entry));
 }
 
 /* --------------------------------------------------------------- templates */

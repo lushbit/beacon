@@ -586,7 +586,7 @@ export function BlockInspector({
   return (
     <div>
       <Section
-        title={info.label}
+        title="Content"
         action={
           <span className="flex items-center gap-1">
             <Button variant="ghost" size="sm" className="h-7 px-2" onClick={onDuplicate} title="Duplicate (Ctrl+D)" aria-label="Duplicate block">

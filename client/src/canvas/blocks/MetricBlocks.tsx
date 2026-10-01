@@ -264,7 +264,7 @@ export function GaugeBlock({ block }: { block: CanvasBlockOf<"gauge"> }) {
     <BlockFrame block={block} hideTitle bodyClassName="flex flex-col">
       <p className="shrink-0 truncate text-xs text-muted-foreground">{label}</p>
       <div className="min-h-0 flex-1">
-        <svg viewBox="0 0 100 86" className="h-full w-full" role="meter" aria-label={label} aria-valuenow={Math.round(share * 100)}>
+        <svg viewBox="0 0 100 84" className="h-full w-full" role="meter" aria-label={label} aria-valuenow={Math.round(share * 100)}>
           <path d={arc(50, 50, 38, start, end)} fill="none" stroke={`color-mix(in srgb, ${fill} 22%, hsl(var(--surface-2)))`} strokeWidth={9} strokeLinecap="round" />
           {/* The same arc, drawn only as far as the reading. Moving the end of
               the dash fills the dial like a bar charging up, where changing
@@ -283,13 +283,10 @@ export function GaugeBlock({ block }: { block: CanvasBlockOf<"gauge"> }) {
           <text x={50} y={55} textAnchor="middle" className="tabular" style={{ fontSize: 15, fontWeight: 600, fill: LEVEL_TEXT[level] }}>
             {text}
           </text>
-          {caption ? (
-            <text x={50} y={83} textAnchor="middle" style={{ fontSize: 7, fill: "hsl(var(--muted-foreground))" }}>
-              {caption.length > 28 ? `${caption.slice(0, 27)}…` : caption}
-            </text>
-          ) : null}
         </svg>
       </div>
+      {/* Under the dial rather than inside it, so a long caption never runs into the ring. */}
+      {caption ? <p className="mt-1 shrink-0 truncate text-center text-2xs text-muted-foreground">{caption}</p> : null}
     </BlockFrame>
   );
 }

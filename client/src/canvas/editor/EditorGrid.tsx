@@ -6,14 +6,14 @@ import type { CanvasBlock, CanvasBlockType } from "@beacon/shared";
 import { CANVAS_BLOCK_INFO, CANVAS_COLUMNS, CANVAS_GAP, CANVAS_ROW_HEIGHT } from "@beacon/shared";
 import { cn } from "@/lib/utils";
 import { BlockView } from "../BlockView";
-import { bottomOf, landingSpot, overlaps } from "../layout";
+import { bottomOf, fitAt } from "../layout";
 import { useBoxSize } from "../useBoxSize";
 import { BLOCK_ICONS } from "./BlockLibrary";
 
 const DROPPING_ID = "__dropping__";
 /** Empty rows kept under the last block, so there is always room to add more. */
 const SPARE_ROWS = 8;
-/** The size the + on an empty spot always shows. The block picked keeps its own size. */
+/** The size the + on an empty spot shows wherever it fits. The block picked keeps its own size. */
 const GHOST = { w: 6, h: 4 };
 
 interface EditorGridProps {
@@ -24,8 +24,10 @@ interface EditorGridProps {
   /** Positions after a drag or resize, for every block that moved. */
   onLayout: (positions: Map<string, { x: number; y: number; w: number; h: number }>) => void;
   onDrop: (type: CanvasBlockType, at: { x: number; y: number; w: number; h: number }, positions: Map<string, { x: number; y: number; w: number; h: number }>) => void;
-  /** The + on an empty spot was pressed. */
-  onAddAt: (at: { x: number; y: number; w: number; h: number }) => void;
+  /** The + on an empty spot was pressed, at the cell under the pointer. */
+  onAddAt: (cell: { col: number; row: number }) => void;
+  /** Somewhere on the page that is not a block was clicked. */
+  onBackground: () => void;
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
 }
@@ -36,14 +38,13 @@ function positionsOf(layout: Layout[]): Map<string, { x: number; y: number; w: n
 
 /**
  * The page being built, on the same grid visitors see. Blocks are dragged by
- * any part of them and resized from their edges. Blocks always pack upwards,
- * as on a Grafana dashboard: dragging over a block moves it out of the way
- * and back again, and no hole is ever left behind. A Spacer block holds room
- * open where a gap is wanted.
+ * any part of them and resized from their edges, and can go anywhere, with
+ * empty space around them if wanted. A block cannot be dragged or resized onto
+ * another one, so nothing is ever pushed out of place by passing over it.
  */
-export function EditorGrid({ blocks, selectedId, dragType, onSelect, onLayout, onDrop, onAddAt, onDuplicate, onDelete }: EditorGridProps) {
+export function EditorGrid({ blocks, selectedId, dragType, onSelect, onLayout, onDrop, onAddAt, onBackground, onDuplicate, onDelete }: EditorGridProps) {
   const [ref, size] = useBoxSize<HTMLDivElement>();
-  const [ghost, setGhost] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const [ghost, setGhost] = useState<{ x: number; y: number; w: number; h: number; col: number; row: number } | null>(null);
   const [interacting, setInteracting] = useState(false);
 
   const width = size.width;
@@ -61,24 +62,20 @@ export function EditorGrid({ blocks, selectedId, dragType, onSelect, onLayout, o
   );
 
   /**
-   * The + for the free cell under the pointer. It is always the same size and
-   * sits where a new block would really end up, since the page packs upwards.
+   * The + for the free cell under the pointer. It always covers that cell and
+   * sits centred on it where there is room, at the same size everywhere except
+   * in gaps too small for it.
    */
   const spotAt = (clientX: number, clientY: number, element: HTMLElement) => {
     const rect = element.getBoundingClientRect();
     const col = Math.floor((clientX - rect.left) / (colWidth + CANVAS_GAP));
     const row = Math.floor((clientY - rect.top) / (CANVAS_ROW_HEIGHT + CANVAS_GAP));
     if (col < 0 || col >= CANVAS_COLUMNS || row < 0) return null;
-    if (blocks.some((block) => overlaps({ x: col, y: row, w: 1, h: 1 }, block))) return null;
-    // Slides left until it fits beside whatever is to its right.
-    for (let x = Math.min(col, CANVAS_COLUMNS - GHOST.w); x >= Math.max(0, col - GHOST.w + 1); x -= 1) {
-      const spot = landingSpot(blocks, { x, y: row, w: GHOST.w, h: GHOST.h });
-      if (!blocks.some((block) => overlaps(spot, block))) return spot;
-    }
-    return null;
+    const spot = fitAt(blocks, { col, row }, GHOST);
+    return spot ? { ...spot, col, row } : null;
   };
 
-  const onBackground = (event: React.PointerEvent<HTMLDivElement>) => {
+  const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
     if (interacting || dragType) return;
     const target = event.target as HTMLElement;
     if (!target.classList.contains("canvas-grid-surface") && !target.classList.contains("react-grid-layout")) {
@@ -87,18 +84,23 @@ export function EditorGrid({ blocks, selectedId, dragType, onSelect, onLayout, o
     }
     const spot = spotAt(event.clientX, event.clientY, event.currentTarget);
     setGhost((current) =>
-      spot && current && spot.x === current.x && spot.y === current.y && spot.w === current.w && spot.h === current.h ? current : spot
+      spot && current && spot.x === current.x && spot.y === current.y && spot.w === current.w && spot.h === current.h ? { ...current, col: spot.col, row: spot.row } : spot
     );
   };
 
-  // A dot where each row and column meet, so the grid is there without
-  // competing with the blocks on it.
-  const dots =
+  /*
+   * A faint tile for every cell, exactly where blocks snap to, so the edges
+   * of a block always line up with the grid behind it.
+   */
+  const tileWidth = colWidth + CANVAS_GAP;
+  const tileHeight = CANVAS_ROW_HEIGHT + CANVAS_GAP;
+  const cells =
     colWidth > 0
       ? {
-          backgroundImage: "radial-gradient(circle, hsl(0 0% 100% / 0.16) 1.2px, transparent 1.6px)",
-          backgroundSize: `${colWidth + CANVAS_GAP}px ${CANVAS_ROW_HEIGHT + CANVAS_GAP}px`,
-          backgroundPosition: `${-CANVAS_GAP / 2 - (colWidth + CANVAS_GAP) / 2}px ${-CANVAS_GAP / 2 - (CANVAS_ROW_HEIGHT + CANVAS_GAP) / 2}px`,
+          backgroundImage: `url("data:image/svg+xml,${encodeURIComponent(
+            `<svg xmlns="http://www.w3.org/2000/svg" width="${tileWidth}" height="${tileHeight}" viewBox="0 0 ${tileWidth} ${tileHeight}"><rect x="0.5" y="0.5" width="${colWidth - 1}" height="${CANVAS_ROW_HEIGHT - 1}" rx="4" fill="white" fill-opacity="0.012" stroke="white" stroke-opacity="0.035"/></svg>`
+          )}")`,
+          backgroundSize: `${tileWidth}px ${tileHeight}px`,
         }
       : {};
 
@@ -106,12 +108,15 @@ export function EditorGrid({ blocks, selectedId, dragType, onSelect, onLayout, o
     <div
       ref={ref}
       className="canvas-editor canvas-grid-surface relative w-full"
-      style={{ minHeight: height, ...dots }}
-      onPointerMove={onBackground}
+      style={{ minHeight: height, ...cells }}
+      onPointerMove={onPointerMove}
       onPointerLeave={() => setGhost(null)}
       onClick={(event) => {
         const target = event.target as HTMLElement;
-        if (target.classList.contains("canvas-grid-surface") || target.classList.contains("react-grid-layout")) onSelect(null);
+        if (target.classList.contains("canvas-grid-surface") || target.classList.contains("react-grid-layout")) {
+          onSelect(null);
+          onBackground();
+        }
       }}
     >
       {ghost && colWidth > 0 ? (
@@ -126,13 +131,13 @@ export function EditorGrid({ blocks, selectedId, dragType, onSelect, onLayout, o
           }}
           onClick={(event) => {
             event.stopPropagation();
-            onAddAt(ghost);
+            onAddAt({ col: ghost.col, row: ghost.row });
             setGhost(null);
           }}
           onPointerMove={(event) => event.stopPropagation()}
         >
-          <Plus className="h-4 w-4" />
-          Add block
+          <Plus className="h-4 w-4 shrink-0" />
+          {ghost.w >= 3 ? "Add block" : null}
         </button>
       ) : null}
 
@@ -146,8 +151,8 @@ export function EditorGrid({ blocks, selectedId, dragType, onSelect, onLayout, o
           width={width}
           margin={[CANVAS_GAP, CANVAS_GAP]}
           containerPadding={[0, 0]}
-          compactType="vertical"
-          preventCollision={false}
+          compactType={null}
+          preventCollision
           allowOverlap={false}
           isBounded
           useCSSTransforms

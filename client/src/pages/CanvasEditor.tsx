@@ -9,13 +9,13 @@ import {
   Plus,
   Redo2,
   Share2,
-  SlidersHorizontal,
+  Settings2,
   Undo2,
   Upload,
   X,
 } from "lucide-react";
 import type { CanvasBlock, CanvasBlockType, CanvasContent, CanvasDeviceMeta, CanvasDeviceSnapshot, CanvasPageDto } from "@beacon/shared";
-import { CANVAS_COLUMNS, allNeeds, blockDeviceIds, buildSnapshot, clampBlock } from "@beacon/shared";
+import { CANVAS_BLOCK_INFO, allNeeds, blockDeviceIds, buildSnapshot, clampBlock } from "@beacon/shared";
 import { Button } from "@/components/ui/button";
 import { EmptyState, Skeleton } from "@/components/ui/misc";
 import { useLive } from "@/context/LiveContext";
@@ -25,16 +25,11 @@ import { cn } from "@/lib/utils";
 import { CanvasHeader, PAGE_COLUMN, pageColumnStyle } from "@/canvas/CanvasHeader";
 import { CanvasView } from "@/canvas/CanvasView";
 import { CanvasDataProvider, type CanvasDataValue } from "@/canvas/data";
-import { BlockLibrary, BlockPicker } from "@/canvas/editor/BlockLibrary";
+import { BLOCK_ICONS, BlockLibrary, BlockPicker } from "@/canvas/editor/BlockLibrary";
 import { EditorGrid } from "@/canvas/editor/EditorGrid";
 import { BlockInspector, PageInspector } from "@/canvas/editor/Inspector";
 import { ShareDialog, pageAddress } from "@/canvas/editor/ShareDialog";
-import { makeRoom, newBlockId, placeBlock, tidyUp } from "@/canvas/layout";
-
-/** Makes room for a block that moved or grew, then packs the page upwards. */
-function settle(blocks: CanvasBlock[], fixedId: string): CanvasBlock[] {
-  return tidyUp(makeRoom(blocks, fixedId));
-}
+import { isFree, makeRoom, newBlockId, nudge, placeBlock } from "@/canvas/layout";
 
 type SaveState = "saved" | "pending" | "saving" | "error";
 
@@ -111,12 +106,12 @@ function Editor({ initial, devices }: { initial: CanvasPageDto; devices: CanvasD
   const { notify, attempt } = useToast();
   const { samples, statuses } = useLive();
   const [page, setPage] = useState(initial);
-  // An imported or older page may have gaps the grid would close, or blocks
-  // outside the sizes they allow now, so it is fixed up the same way first.
-  const { content, commit, undo, redo, reset, canUndo, canRedo } = useHistory({ ...initial.draft, blocks: tidyUp(initial.draft.blocks.map(clampBlock)) });
+  // A page saved before the size limits existed may hold blocks outside them,
+  // so they are brought within them first.
+  const { content, commit, undo, redo, reset, canUndo, canRedo } = useHistory({ ...initial.draft, blocks: initial.draft.blocks.map(clampBlock) });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dragType, setDragType] = useState<CanvasBlockType | null>(null);
-  const [picker, setPicker] = useState<{ x: number; y: number; w: number; h: number } | null | false>(false);
+  const [picker, setPicker] = useState<{ col: number; row: number } | null | false>(false);
   const [preview, setPreview] = useState(false);
   const [previewRange, setPreviewRange] = useState<number | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
@@ -218,7 +213,7 @@ function Editor({ initial, devices }: { initial: CanvasPageDto; devices: CanvasD
           const before = current.blocks.find((entry) => entry.id === block.id);
           // A block made bigger from the settings panel pushes what it now covers out of the way.
           const resized = before && (before.w !== block.w || before.h !== block.h);
-          return { ...current, blocks: resized ? settle(blocks, block.id) : blocks };
+          return { ...current, blocks: resized ? makeRoom(blocks, block.id) : blocks };
         },
         group ? `${block.id}:${group}` : undefined
       );
@@ -227,7 +222,7 @@ function Editor({ initial, devices }: { initial: CanvasPageDto; devices: CanvasD
   );
 
   const addBlock = useCallback(
-    (type: CanvasBlockType, at: { x: number; y: number; w?: number; h?: number } | null) => {
+    (type: CanvasBlockType, at: { col: number; row: number } | { x: number; y: number; w: number; h: number } | null) => {
       let createdId = "";
       commit((current) => {
         const result = placeBlock(current.blocks, type, at, firstDevice);
@@ -243,8 +238,11 @@ function Editor({ initial, devices }: { initial: CanvasPageDto; devices: CanvasD
     (id: string) => {
       const source = content.blocks.find((block) => block.id === id);
       if (!source) return;
-      const copy = { ...structuredClone(source), id: newBlockId(), y: source.y + source.h } as CanvasBlock;
-      commit((current) => ({ ...current, blocks: settle([...current.blocks, copy], copy.id) }));
+      // Beside the original if there is room, otherwise under it.
+      const beside = { x: source.x + source.w, y: source.y, w: source.w, h: source.h };
+      const spot = isFree(content.blocks, beside) ? beside : { ...beside, x: source.x, y: source.y + source.h };
+      const copy = { ...structuredClone(source), id: newBlockId(), x: spot.x, y: spot.y } as CanvasBlock;
+      commit((current) => ({ ...current, blocks: makeRoom([...current.blocks, copy], copy.id) }));
       select(copy.id);
     },
     [content.blocks, commit, select]
@@ -269,7 +267,7 @@ function Editor({ initial, devices }: { initial: CanvasPageDto; devices: CanvasD
           changed = true;
           return { ...block, ...position };
         });
-        return changed ? { ...current, blocks: tidyUp(blocks) } : current;
+        return changed ? { ...current, blocks } : current;
       });
     },
     [commit]
@@ -302,32 +300,11 @@ function Editor({ initial, devices }: { initial: CanvasPageDto; devices: CanvasD
         const block = content.blocks.find((entry) => entry.id === selectedId);
         if (!block) return;
         event.preventDefault();
-        let x = block.x;
-        let y = block.y;
-        if (event.key === "ArrowLeft") x = Math.max(0, block.x - 1);
-        else if (event.key === "ArrowRight") x = Math.min(CANVAS_COLUMNS - block.w, block.x + 1);
-        else if (event.key === "ArrowUp") {
-          // Blocks pack upwards, so up and down trade places with the neighbour.
-          if (block.y === 0) return;
-          y = block.y - 1;
-        } else {
-          const below = content.blocks
-            .filter((other) => other.id !== block.id && other.y >= block.y + block.h && other.x < block.x + block.w && block.x < other.x + other.w)
-            .sort((a, b) => a.y - b.y)[0];
-          if (!below) return;
-          y = below.y + below.h;
-        }
-        if (x === block.x && y === block.y) return;
-        commit(
-          (current) => ({
-            ...current,
-            blocks: settle(
-              current.blocks.map((entry) => (entry.id === block.id ? { ...entry, x, y } : entry)),
-              block.id
-            ),
-          }),
-          `${block.id}:nudge`
-        );
+        const dx = event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1 : 0;
+        const dy = event.key === "ArrowUp" ? -1 : event.key === "ArrowDown" ? 1 : 0;
+        // A block stops at the edge of the page and at the blocks around it.
+        if (!nudge(content.blocks, block.id, dx, dy)) return;
+        commit((current) => ({ ...current, blocks: nudge(current.blocks, block.id, dx, dy) ?? current.blocks }), `${block.id}:nudge`);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -391,6 +368,22 @@ function Editor({ initial, devices }: { initial: CanvasPageDto; devices: CanvasD
   const range = previewRange ?? content.options.defaultRange;
   const showLibrary = libraryOpen && !preview;
   const showInspector = inspectorOpen && !preview;
+  // Clicking on the page away from the blocks puts both panels away. The block
+  // list comes back on its own next time if it was left open on purpose.
+  const closePanels = () => {
+    setInspectorOpen(false);
+    setLibraryOpen(false);
+  };
+  const SelectedIcon = selected ? BLOCK_ICONS[selected.type] : null;
+  const panelTitle = selected ? (
+    <span className="flex min-w-0 items-center gap-2">
+      {SelectedIcon ? <SelectedIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : null}
+      <span className="truncate">{selected.title || CANVAS_BLOCK_INFO[selected.type].label}</span>
+      {selected.title ? <span className="shrink-0 font-normal text-muted-foreground">{CANVAS_BLOCK_INFO[selected.type].label}</span> : null}
+    </span>
+  ) : (
+    "Page settings"
+  );
 
   return (
     <CanvasDataProvider value={data}>
@@ -421,8 +414,17 @@ function Editor({ initial, devices }: { initial: CanvasPageDto; devices: CanvasD
                 <Button variant={libraryOpen ? "outline" : "secondary"} size="sm" onClick={() => toggleLibrary(!libraryOpen)} aria-pressed={libraryOpen}>
                   <Plus className="h-3.5 w-3.5" /> Blocks
                 </Button>
-                <Button variant={inspectorOpen ? "outline" : "secondary"} size="sm" onClick={() => setInspectorOpen(!inspectorOpen)} aria-pressed={inspectorOpen}>
-                  <SlidersHorizontal className="h-3.5 w-3.5" /> {selected ? "Block settings" : "Page settings"}
+                <Button
+                  variant={inspectorOpen && !selected ? "outline" : "secondary"}
+                  size="sm"
+                  aria-pressed={inspectorOpen && !selected}
+                  onClick={() => {
+                    const showing = inspectorOpen && !selected;
+                    setSelectedId(null);
+                    setInspectorOpen(!showing);
+                  }}
+                >
+                  <Settings2 className="h-3.5 w-3.5" /> Page settings
                 </Button>
               </>
             ) : null}
@@ -458,8 +460,16 @@ function Editor({ initial, devices }: { initial: CanvasPageDto; devices: CanvasD
           over it and can be closed to see the whole page.
         */}
         <div className="relative min-h-0 flex-1">
-          <div className="scroll-slim h-full overflow-y-auto overflow-x-hidden">
-            <div className={cn(PAGE_COLUMN, "py-5 sm:py-8")} style={pageColumnStyle(content.options.maxWidth)}>
+          <div
+            className="scroll-slim h-full overflow-y-auto overflow-x-hidden"
+            data-backdrop
+            onClick={(event) => {
+              if ((event.target as HTMLElement).dataset.backdrop === undefined) return;
+              setSelectedId(null);
+              closePanels();
+            }}
+          >
+            <div className={cn(PAGE_COLUMN, "py-5 sm:py-8")} style={pageColumnStyle(content.options.maxWidth)} data-backdrop>
               {content.options.showHeader ? (
                 <CanvasHeader content={content} range={range} onRange={setPreviewRange} updatedAt={updatedAt} />
               ) : null}
@@ -496,7 +506,11 @@ function Editor({ initial, devices }: { initial: CanvasPageDto; devices: CanvasD
                     });
                     window.setTimeout(() => select(createdId), 0);
                   }}
-                  onAddAt={(at) => setPicker(at)}
+                  onAddAt={(cell) => {
+                    closePanels();
+                    setPicker(cell);
+                  }}
+                  onBackground={closePanels}
                   onDuplicate={duplicateBlock}
                   onDelete={deleteBlock}
                 />
@@ -505,12 +519,12 @@ function Editor({ initial, devices }: { initial: CanvasPageDto; devices: CanvasD
           </div>
 
           {showLibrary ? (
-            <FloatingPanel side="left" title="Blocks" onClose={() => toggleLibrary(false)}>
+            <FloatingPanel side="left" title="Blocks" label="block list" onClose={() => toggleLibrary(false)}>
               <BlockLibrary onAdd={(type) => addBlock(type, null)} onDragType={setDragType} />
             </FloatingPanel>
           ) : null}
           {showInspector ? (
-            <FloatingPanel side="right" title={selected ? "Block settings" : "Page settings"} onClose={() => setInspectorOpen(false)}>
+            <FloatingPanel side="right" title={panelTitle} label="settings" onClose={() => setInspectorOpen(false)}>
               {inspector}
             </FloatingPanel>
           ) : null}
@@ -534,7 +548,19 @@ function Editor({ initial, devices }: { initial: CanvasPageDto; devices: CanvasD
 }
 
 /** A panel floating over the page, so the page itself keeps the full width. */
-function FloatingPanel({ side, title, onClose, children }: { side: "left" | "right"; title: string; onClose: () => void; children: ReactNode }) {
+function FloatingPanel({
+  side,
+  title,
+  label,
+  onClose,
+  children,
+}: {
+  side: "left" | "right";
+  title: ReactNode;
+  label: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
   return (
     <aside
       className={cn(
@@ -543,8 +569,8 @@ function FloatingPanel({ side, title, onClose, children }: { side: "left" | "rig
       )}
     >
       <div className="flex shrink-0 items-center justify-between border-b border-border/60 py-2 pl-4 pr-2">
-        <p className="text-xs font-semibold text-foreground">{title}</p>
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose} aria-label={`Close ${title.toLowerCase()}`}>
+        <div className="min-w-0 text-sm font-semibold text-foreground">{title}</div>
+        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={onClose} aria-label={`Close the ${label}`}>
           <X className="h-4 w-4" />
         </Button>
       </div>
