@@ -138,12 +138,13 @@ export function ProcessesTab({
     }
   }, [device.id, limit, sortBy, online]);
 
+  // Paused means nothing is fetched at all, not even when the order changes.
+  // Sorting then only reorders the rows on screen. Going live again fetches
+  // straight away instead of waiting for the next tick.
   useEffect(() => {
+    if (paused) return;
     void load();
-  }, [load]);
-
-  useEffect(() => {
-    if (paused || !online) return;
+    if (!online) return;
     const timer = window.setInterval(() => void load(), 5000);
     return () => window.clearInterval(timer);
   }, [paused, load, online]);
@@ -170,8 +171,12 @@ export function ProcessesTab({
       () => api.killProcess(device.id, { pid: pending.pid, signal }),
       `Sent ${signal === "kill" ? "SIGKILL" : "SIGTERM"} to ${pending.name}.`
     );
+    const ended = pending.pid;
     setPending(null);
-    if (done) window.setTimeout(() => void load(), 800);
+    if (!done) return;
+    // A paused list stays frozen, so only the process that was ended leaves it.
+    if (paused) setProcesses((current) => current?.filter((process) => process.pid !== ended) ?? current);
+    else window.setTimeout(() => void load(), 800);
   };
 
   if (!online) {
@@ -184,14 +189,14 @@ export function ProcessesTab({
         <p className="text-2xs text-muted-foreground tabular">{total} running</p>
         {/*
          * The list follows the device on its own, so the only control is a
-         * pause. It holds the rows still, which helps when ending a process
-         * that keeps moving up and down the list.
+         * pause. It freezes the list completely, which helps when ending a
+         * process that keeps moving up and down.
          */}
         <button
           type="button"
           onClick={() => setPaused((current) => !current)}
           aria-pressed={paused}
-          title={paused ? "Paused. Click to follow the device again." : "Updating every 5 seconds. Click to hold the list still."}
+          title={paused ? "Paused. Nothing updates until you click to go live again." : "Updating every 5 seconds. Click to pause."}
           className="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-white/[0.05] hover:text-foreground"
         >
           {paused ? (
