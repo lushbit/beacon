@@ -1,7 +1,22 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { ArrowUpCircle, Bell, ExternalLink, Gauge, LogOut, Menu, RadioTower, RotateCw, Settings2, Tag, Users as UsersIcon, X } from "lucide-react";
+import {
+  ArrowUpCircle,
+  Bell,
+  ExternalLink,
+  Gauge,
+  LogOut,
+  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
+  RadioTower,
+  RotateCw,
+  Settings2,
+  Tag,
+  Users as UsersIcon,
+  X,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { AlertSummaryDto } from "@beacon/shared";
 import { Button } from "@/components/ui/button";
@@ -54,7 +69,13 @@ function useAlertSummary(): AlertSummaryDto {
  * Something is firing: a red count, ringing while nobody has acknowledged it.
  * Nothing firing but alerts this account has not seen: a plain count instead.
  */
-function AlertBadge({ active, unacknowledged, unreadActive, unreadHistory }: AlertSummaryDto) {
+function AlertBadge({
+  active,
+  unacknowledged,
+  unreadActive,
+  unreadHistory,
+  compact = false,
+}: AlertSummaryDto & { compact?: boolean }) {
   const unread = unreadActive + unreadHistory;
   const firing = active > 0;
   const count = firing ? active : unread;
@@ -65,13 +86,17 @@ function AlertBadge({ active, unacknowledged, unreadActive, unreadHistory }: Ale
     : `${unread} alert${unread === 1 ? "" : "s"} you have not read`;
 
   return (
-    <span className="relative ml-auto flex shrink-0 items-center" title={label}>
+    <span
+      className={cn("flex shrink-0 items-center", compact ? "absolute -right-0.5 -top-0.5" : "relative ml-auto")}
+      title={label}
+    >
       {firing && unacknowledged > 0 ? (
         <span className="absolute inset-0 animate-pulse-ring rounded-full bg-danger/60" aria-hidden />
       ) : null}
       <span
         className={cn(
-          "relative flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-2xs font-semibold tabular",
+          "relative flex items-center justify-center rounded-full font-semibold tabular",
+          compact ? "min-w-[1rem] px-1 text-[0.625rem] leading-4" : "min-w-[1.25rem] px-1.5 py-0.5 text-2xs",
           firing ? "bg-danger/15 text-danger ring-1 ring-inset ring-danger/40" : "bg-white/[0.08] text-muted-foreground"
         )}
       >
@@ -104,19 +129,28 @@ function SidebarLink({
   onNavigate,
   scope,
   badge,
+  collapsed,
 }: {
   item: NavItem;
   onNavigate?: () => void;
   scope: string;
   badge?: React.ReactNode;
+  collapsed: boolean;
 }) {
   const Icon = item.icon;
   return (
-    <NavLink to={item.to} end={item.to === "/"} onClick={onNavigate}>
+    <NavLink
+      to={item.to}
+      end={item.to === "/"}
+      onClick={onNavigate}
+      title={collapsed ? item.label : undefined}
+      aria-label={collapsed ? item.label : undefined}
+    >
       {({ isActive }) => (
         <span
           className={cn(
-            "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-200",
+            "group relative flex items-center gap-3 rounded-xl py-2.5 text-sm font-medium transition-colors duration-200",
+            collapsed ? "justify-center px-0" : "px-3",
             isActive ? "text-foreground" : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
           )}
         >
@@ -133,7 +167,7 @@ function SidebarLink({
               isActive ? "text-foreground" : "text-muted-foreground group-hover:text-foreground"
             )}
           />
-          <span className="relative truncate">{item.label}</span>
+          {collapsed ? null : <span className="relative truncate">{item.label}</span>}
           {badge}
         </span>
       )}
@@ -141,7 +175,9 @@ function SidebarLink({
   );
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
+function SectionLabel({ children, collapsed }: { children: React.ReactNode; collapsed: boolean }) {
+  // Collapsed, the heading would not fit, so a short rule keeps the groups apart.
+  if (collapsed) return <div className="mx-3 mb-2 mt-5 border-t border-border/60" aria-hidden />;
   return <p className="px-3 pb-2 pt-5 text-2xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">{children}</p>;
 }
 
@@ -157,10 +193,15 @@ function SidebarContent({
   onNavigate,
   scope,
   alerts,
+  collapsed = false,
+  onToggleCollapsed,
 }: {
   onNavigate?: () => void;
   scope: string;
   alerts: AlertSummaryDto;
+  /** Desktop only: the sidebar narrowed to its icons. */
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }) {
   const { session, signOut, siteName } = useAuth();
   const { info, appVersion, needsReload } = useVersion();
@@ -170,15 +211,31 @@ function SidebarContent({
 
   return (
     <div className="flex h-full flex-col">
-      <Link to="/" onClick={onNavigate} className="flex items-center gap-2.5 px-3 pb-2 pt-1">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.06] ring-1 ring-inset ring-white/10">
-          <RadioTower className="h-4 w-4 text-foreground" />
-        </span>
-        <span className="truncate text-sm font-semibold tracking-tight text-foreground">{siteName}</span>
-      </Link>
+      <div className={cn("flex items-center gap-1 pb-2 pt-1", collapsed ? "flex-col gap-2" : "pl-3")}>
+        <Link to="/" onClick={onNavigate} title={collapsed ? siteName : undefined} className={cn("flex min-w-0 items-center gap-2.5", collapsed ? "justify-center" : "flex-1")}>
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] ring-1 ring-inset ring-white/10">
+            <RadioTower className="h-4 w-4 text-foreground" />
+          </span>
+          {collapsed ? null : (
+            <span className="truncate text-sm font-semibold tracking-tight text-foreground">{siteName}</span>
+          )}
+        </Link>
+        {onToggleCollapsed ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onToggleCollapsed}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            className="h-8 w-8 shrink-0 text-muted-foreground"
+          >
+            {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          </Button>
+        ) : null}
+      </div>
 
       <nav className="flex-1 overflow-y-auto scroll-slim">
-        <SectionLabel>Navigate</SectionLabel>
+        <SectionLabel collapsed={collapsed}>Navigate</SectionLabel>
         <div className="space-y-1">
           {NAVIGATE.map((item) => (
             <SidebarLink
@@ -186,81 +243,169 @@ function SidebarContent({
               item={item}
               onNavigate={onNavigate}
               scope={scope}
-              badge={item.to === "/alerts" ? <AlertBadge {...alerts} /> : null}
+              collapsed={collapsed}
+              badge={item.to === "/alerts" ? <AlertBadge {...alerts} compact={collapsed} /> : null}
             />
           ))}
         </div>
 
-        <SectionLabel>Manage</SectionLabel>
+        <SectionLabel collapsed={collapsed}>Manage</SectionLabel>
         <div className="space-y-1">
           {MANAGE.filter((item) => !item.adminOnly || isAdmin).map((item) => (
-            <SidebarLink key={item.to} item={item} onNavigate={onNavigate} scope={scope} />
+            <SidebarLink key={item.to} item={item} onNavigate={onNavigate} scope={scope} collapsed={collapsed} />
           ))}
         </div>
       </nav>
 
-      <div className="space-y-3 border-t border-border/60 px-3 pb-2 pt-3">
-        {needsReload ? (
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="flex w-full items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-2 text-left text-2xs text-warning transition-colors hover:bg-warning/15"
+      {collapsed ? (
+        <CompactFooter
+          version={version}
+          sourceUrl={sourceUrl}
+          needsReload={needsReload}
+          latest={info?.updateAvailable ? (info.latest?.version ?? null) : null}
+        />
+      ) : (
+        <div className="space-y-3 border-t border-border/60 px-3 pb-2 pt-3">
+          {needsReload ? (
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="flex w-full items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-2 text-left text-2xs text-warning transition-colors hover:bg-warning/15"
+            >
+              <RotateCw className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">Dashboard updated — reload</span>
+            </button>
+          ) : null}
+          {info?.updateAvailable && info.latest ? (
+            <Link
+              to="/settings?tab=about"
+              onClick={onNavigate}
+              className="flex items-center gap-2 rounded-lg border border-info/30 bg-info/10 px-2.5 py-2 text-2xs text-info transition-colors hover:bg-info/15"
+            >
+              <ArrowUpCircle className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">Version {info.latest.version} available</span>
+            </Link>
+          ) : null}
+          <a
+            href={sourceUrl ?? "#"}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-disabled={sourceUrl ? undefined : true}
+            onClick={(event) => {
+              if (!sourceUrl) event.preventDefault();
+            }}
+            title={sourceUrl ? "Open the Beacon source repository" : "Beacon version"}
+            className={cn(
+              "flex w-full items-center gap-2.5 rounded-lg border border-border/70 bg-surface-2 px-3 py-2.5 transition-colors",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
+              sourceUrl ? "hover:border-border hover:bg-surface-3" : "cursor-default"
+            )}
           >
-            <RotateCw className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">Dashboard updated — reload</span>
-          </button>
-        ) : null}
-        {info?.updateAvailable && info.latest ? (
-          <Link
-            to="/settings?tab=about"
-            onClick={onNavigate}
-            className="flex items-center gap-2 rounded-lg border border-info/30 bg-info/10 px-2.5 py-2 text-2xs text-info transition-colors hover:bg-info/15"
-          >
-            <ArrowUpCircle className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">Version {info.latest.version} available</span>
-          </Link>
-        ) : null}
-        <a
-          href={sourceUrl ?? "#"}
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-disabled={sourceUrl ? undefined : true}
-          onClick={(event) => {
-            if (!sourceUrl) event.preventDefault();
-          }}
-          title={sourceUrl ? "Open the Beacon source repository" : "Beacon version"}
-          className={cn(
-            "flex w-full items-center gap-2.5 rounded-lg border border-border/70 bg-surface-2 px-3 py-2.5 transition-colors",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
-            sourceUrl ? "hover:border-border hover:bg-surface-3" : "cursor-default"
-          )}
-        >
-          <Tag className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="min-w-0 flex-1 text-left">
-            <span className="block text-2xs uppercase tracking-[0.14em] text-muted-foreground">Version</span>
-            <span className="block truncate text-sm font-semibold tabular text-foreground">v{version}</span>
-          </span>
-          {sourceUrl ? <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : null}
-        </a>
-        <div className="flex items-center gap-2.5">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-xs font-semibold uppercase text-foreground ring-1 ring-inset ring-white/10">
-            {(session?.user.displayName ?? "?").slice(0, 1)}
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-medium text-foreground">{session?.user.displayName}</p>
-            <p className="truncate text-2xs capitalize text-muted-foreground">{session?.user.role}</p>
+            <Tag className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 text-left">
+              <span className="block text-2xs uppercase tracking-[0.14em] text-muted-foreground">Version</span>
+              <span className="block truncate text-sm font-semibold tabular text-foreground">v{version}</span>
+            </span>
+            {sourceUrl ? <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : null}
+          </a>
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-xs font-semibold uppercase text-foreground ring-1 ring-inset ring-white/10">
+              {(session?.user.displayName ?? "?").slice(0, 1)}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-medium text-foreground">{session?.user.displayName}</p>
+              <p className="truncate text-2xs capitalize text-muted-foreground">{session?.user.role}</p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Sign out"
+              onClick={() => void signOut()}
+              className="h-8 w-8 shrink-0"
+            >
+              <LogOut className="h-4 w-4" />
+            </Button>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Sign out"
-            onClick={() => void signOut()}
-            className="h-8 w-8 shrink-0"
-          >
-            <LogOut className="h-4 w-4" />
-          </Button>
         </div>
-      </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The footer of the narrow sidebar: the same notices as icons, the version
+ * shortened to its number, and the account as its initial with sign out below.
+ */
+function CompactFooter({
+  version,
+  sourceUrl,
+  needsReload,
+  latest,
+}: {
+  version: string;
+  sourceUrl: string | null;
+  needsReload: boolean;
+  latest: string | null;
+}) {
+  const { session, signOut } = useAuth();
+  const name = session?.user.displayName ?? "?";
+
+  return (
+    <div className="flex flex-col items-center gap-2 border-t border-border/60 pb-2 pt-3">
+      {needsReload ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => window.location.reload()}
+          aria-label="Dashboard updated, reload"
+          title="Dashboard updated, reload"
+          className="h-8 w-8 text-warning hover:bg-warning/15 hover:text-warning"
+        >
+          <RotateCw className="h-4 w-4" />
+        </Button>
+      ) : null}
+      {latest ? (
+        <Link
+          to="/settings?tab=about"
+          aria-label={`Version ${latest} available`}
+          title={`Version ${latest} available`}
+          className="flex h-8 w-8 items-center justify-center rounded-md text-info transition-colors hover:bg-info/15"
+        >
+          <ArrowUpCircle className="h-4 w-4" />
+        </Link>
+      ) : null}
+      <a
+        href={sourceUrl ?? "#"}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-disabled={sourceUrl ? undefined : true}
+        onClick={(event) => {
+          if (!sourceUrl) event.preventDefault();
+        }}
+        title={sourceUrl ? `Beacon v${version}. Open the source repository` : `Beacon v${version}`}
+        className={cn(
+          "max-w-full truncate rounded-md px-1.5 py-1 text-2xs font-medium tabular text-muted-foreground transition-colors",
+          sourceUrl ? "hover:bg-white/[0.05] hover:text-foreground" : "cursor-default"
+        )}
+      >
+        v{version}
+      </a>
+      <span
+        title={`${name} (${session?.user.role ?? ""})`}
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-xs font-semibold uppercase text-foreground ring-1 ring-inset ring-white/10"
+      >
+        {name.slice(0, 1)}
+      </span>
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label="Sign out"
+        title="Sign out"
+        onClick={() => void signOut()}
+        className="h-8 w-8 shrink-0"
+      >
+        <LogOut className="h-4 w-4" />
+      </Button>
     </div>
   );
 }
@@ -293,8 +438,29 @@ function PageTransition({ scrollRef }: { scrollRef: React.RefObject<HTMLElement>
   );
 }
 
+const COLLAPSED_KEY = "beacon.sidebarCollapsed";
+
+function readCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(COLLAPSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function DashboardLayout() {
   const [open, setOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(readCollapsed);
+
+  const toggleCollapsed = () =>
+    setCollapsed((current) => {
+      try {
+        window.localStorage.setItem(COLLAPSED_KEY, current ? "0" : "1");
+      } catch {
+        /* the choice just will not survive a reload */
+      }
+      return !current;
+    });
   const location = useLocation();
   const mainRef = useRef<HTMLElement>(null);
   // Read once here, so the desktop sidebar and the mobile drawer share it.
@@ -315,8 +481,20 @@ export function DashboardLayout() {
 
   return (
     <div className="flex h-full bg-background">
-      <aside className="hidden w-60 shrink-0 border-r border-border/60 bg-surface/40 pb-[calc(1rem+env(safe-area-inset-bottom))] pl-[calc(0.75rem+env(safe-area-inset-left))] pr-3 pt-[calc(1rem+env(safe-area-inset-top))] lg:block">
-        <SidebarContent scope="desktop" alerts={alerts} />
+      <aside
+        className={cn(
+          "hidden shrink-0 overflow-hidden border-r border-border/60 bg-surface/40 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-[calc(1rem+env(safe-area-inset-top))] transition-[width] duration-200 lg:block",
+          collapsed
+            ? "w-[4.25rem] pl-[calc(0.5rem+env(safe-area-inset-left))] pr-2"
+            : "w-60 pl-[calc(0.75rem+env(safe-area-inset-left))] pr-3"
+        )}
+      >
+        <SidebarContent
+          scope="desktop"
+          alerts={alerts}
+          collapsed={collapsed}
+          onToggleCollapsed={toggleCollapsed}
+        />
       </aside>
 
       {/*
