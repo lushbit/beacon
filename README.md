@@ -211,25 +211,32 @@ only wake Discord for critical alerts. There is a test button next to each.
 Canvas pages show your stats to people without an account, like a status page
 or a wall display. Admins build them under **Canvas** in the sidebar.
 
-A page is a grid of blocks. Drag a block in from the library, or click an empty
-spot on the grid and pick one. Drag blocks to move them and pull their edges to
-resize them. Blocks pack upwards on their own, and a Spacer holds room open
-where you want a gap. The editor saves as you go, and visitors only see a
-change once you press **Publish**. Open copies of the page then update without
-a reload.
+A page is a grid of blocks. Drag a block in from the block list, or click any
+free spot on the grid and pick one. Drag blocks to move them and pull their
+edges to resize them. Blocks can go anywhere, with space between them, and a
+block dropped onto others moves them down to make room. The block list and the
+settings sit in sidebars beside the page, and the page shrinks to fit between
+them, so it keeps the layout visitors will see. Editing needs a computer or a
+tablet. On a phone the editor shows the page and lets you share and publish it.
+
+The editor saves as you go, and visitors only see a change once you press
+**Publish**. Open copies of the page then update without a reload. A new page
+can start from a template: a server overview, a status page or a fleet wall for
+a TV.
 
 | Block | What it shows |
 | --- | --- |
-| **Chart** | Any metric over time, for one machine, a fleet total or one line per machine |
+| **Chart** | Any metric over time, for one machine, a fleet total or one line per machine, in any colour |
 | **Value** | One metric as a big number, with a trend line and colour limits |
-| **Gauge** | One metric as a dial or a bar |
+| **Gauge** | One metric as a dial or a bar, in any colour |
 | **Status** | Whether machines are online, and when they were last seen |
 | **System info** | Operating system, processor, memory, hardware and more |
 | **Volumes, Containers, CPU cores** | The same lists and heatmap as the device page |
 | **Device cards** | A card for every machine, or every machine with a tag |
 | **Uptime history** | Daily availability bars for up to 90 days |
 | **Active alerts** | What is firing right now, or an all clear |
-| **Heading, Text, Divider, Spacer, Clock** | Structure for the page |
+| **Text** | Formatted text with headings, lists, links and colours, edited the way it will look |
+| **Heading, Divider, Spacer, Clock** | Structure for the page |
 
 Every page has its own address, `/p/<name>`, and its own rule for who can open
 it: anyone, only people with a secret link, anyone with a password, or only
