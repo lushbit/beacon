@@ -3,6 +3,7 @@ import {
   CANVAS_BLOCK_INFO,
   CANVAS_COLUMNS,
   canvasMetric,
+  clampBlock,
   defaultThresholds,
   emptyCanvasContent,
   newCanvasBlock,
@@ -60,7 +61,10 @@ export function tidyUp(blocks: CanvasBlock[]): CanvasBlock[] {
   return blocks.map((block) => byId.get(block.id) ?? block);
 }
 
-/** A new block of a type at a spot, cut to fit the page and with room made for it. */
+/**
+ * A new block of a type at a spot, at its usual size. A spot too close to the
+ * right edge moves the block left until it fits, and room is made below.
+ */
 export function placeBlock(
   blocks: CanvasBlock[],
   type: CanvasBlockType,
@@ -68,13 +72,22 @@ export function placeBlock(
   deviceId: string
 ): { blocks: CanvasBlock[]; id: string } {
   const info = CANVAS_BLOCK_INFO[type];
-  const x = at ? Math.min(at.x, CANVAS_COLUMNS - info.minW) : 0;
+  const w = at?.w ?? info.w;
+  const x = at ? Math.max(0, Math.min(at.x, CANVAS_COLUMNS - w)) : 0;
   const y = at ? at.y : bottomOf(blocks);
-  const w = Math.max(info.minW, Math.min(at?.w ?? info.w, CANVAS_COLUMNS - x));
-  const h = Math.max(info.minH, at?.h ?? info.h);
   const id = newBlockId();
-  const block = newCanvasBlock(type, id, { x, y, w, h }, deviceId);
+  const block = clampBlock(newCanvasBlock(type, id, { x, y, w, h: at?.h ?? info.h }, deviceId));
   return { blocks: tidyUp(makeRoom([...blocks, block], id)), id };
+}
+
+/**
+ * Where a block put at a spot ends up once the page packs upwards: as high in
+ * its columns as it can go without landing on anything above it.
+ */
+export function landingSpot(blocks: CanvasBlock[], at: { x: number; y: number; w: number; h: number }) {
+  const spot = { ...at };
+  while (spot.y > 0 && !blocks.some((block) => overlaps({ ...spot, y: spot.y - 1, h: 1 }, block))) spot.y -= 1;
+  return spot;
 }
 
 /* --------------------------------------------------------------- templates */

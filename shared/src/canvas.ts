@@ -443,27 +443,47 @@ export interface CanvasBlockInfo {
   h: number;
   minW: number;
   minH: number;
+  /** The largest a block of this kind may be. Some only make sense small. */
+  maxW: number;
+  maxH: number;
   frame: boolean;
 }
 
+/*
+ * Sizes are in grid cells. The smallest size of each block is the smallest at
+ * which its content still reads, and the largest stops layout blocks such as a
+ * divider from turning into a big empty box.
+ */
 export const CANVAS_BLOCK_INFO: Record<CanvasBlockType, CanvasBlockInfo> = {
-  heading: { label: "Heading", description: "A title to split the page into sections.", group: "Layout", w: 24, h: 2, minW: 2, minH: 1, frame: false },
-  text: { label: "Text", description: "A paragraph, with bold, italics and links.", group: "Layout", w: 12, h: 3, minW: 2, minH: 1, frame: false },
-  divider: { label: "Divider", description: "A line across, with an optional label.", group: "Layout", w: 24, h: 1, minW: 2, minH: 1, frame: false },
-  spacer: { label: "Spacer", description: "Empty room between blocks.", group: "Layout", w: 24, h: 1, minW: 1, minH: 1, frame: false },
-  chart: { label: "Chart", description: "Any metric over time, for one device or many.", group: "Metrics", w: 12, h: 8, minW: 4, minH: 4, frame: true },
-  value: { label: "Value", description: "One metric as a big number, with an optional trend line.", group: "Metrics", w: 4, h: 4, minW: 2, minH: 2, frame: true },
-  gauge: { label: "Gauge", description: "One metric as a dial or a bar.", group: "Metrics", w: 4, h: 5, minW: 2, minH: 2, frame: true },
-  status: { label: "Status", description: "Whether devices are online, and when they were last seen.", group: "Device", w: 6, h: 4, minW: 3, minH: 2, frame: true },
-  info: { label: "System info", description: "Operating system, processor, memory and more.", group: "Device", w: 8, h: 7, minW: 4, minH: 3, frame: true },
-  volumes: { label: "Volumes", description: "How full each volume of a device is.", group: "Device", w: 8, h: 6, minW: 4, minH: 3, frame: true },
-  containers: { label: "Containers", description: "The Docker containers on a device.", group: "Device", w: 10, h: 7, minW: 5, minH: 3, frame: true },
-  cores: { label: "CPU cores", description: "Every core, as a heatmap over time or bars now.", group: "Device", w: 12, h: 7, minW: 4, minH: 3, frame: true },
-  devices: { label: "Device cards", description: "A card for every device, repeated automatically.", group: "Fleet", w: 24, h: 8, minW: 6, minH: 4, frame: true },
-  uptime: { label: "Uptime history", description: "Daily availability bars, like a status page.", group: "Fleet", w: 24, h: 6, minW: 8, minH: 3, frame: true },
-  alerts: { label: "Active alerts", description: "Alerts firing right now, or a calm all clear.", group: "Fleet", w: 8, h: 5, minW: 4, minH: 3, frame: true },
-  clock: { label: "Clock", description: "The current time and date, in any time zone.", group: "Layout", w: 4, h: 3, minW: 2, minH: 2, frame: true },
+  heading: { label: "Heading", description: "A title to split the page into sections.", group: "Layout", w: 24, h: 2, minW: 4, minH: 1, maxW: 24, maxH: 4, frame: false },
+  text: { label: "Text", description: "A paragraph with bold, italics and links.", group: "Layout", w: 12, h: 3, minW: 4, minH: 1, maxW: 24, maxH: 16, frame: false },
+  divider: { label: "Divider", description: "A line across the page. It can carry a label.", group: "Layout", w: 24, h: 1, minW: 4, minH: 1, maxW: 24, maxH: 1, frame: false },
+  spacer: { label: "Spacer", description: "Empty room between blocks.", group: "Layout", w: 24, h: 1, minW: 1, minH: 1, maxW: 24, maxH: 12, frame: false },
+  chart: { label: "Chart", description: "Any metric over time, for one device or many.", group: "Metrics", w: 12, h: 8, minW: 6, minH: 5, maxW: 24, maxH: 30, frame: true },
+  value: { label: "Value", description: "One metric as a big number with a trend line.", group: "Metrics", w: 4, h: 4, minW: 3, minH: 3, maxW: 12, maxH: 10, frame: true },
+  gauge: { label: "Gauge", description: "One metric as a dial or a bar.", group: "Metrics", w: 4, h: 5, minW: 3, minH: 3, maxW: 10, maxH: 12, frame: true },
+  status: { label: "Status", description: "Whether devices are online.", group: "Device", w: 6, h: 4, minW: 4, minH: 3, maxW: 24, maxH: 20, frame: true },
+  info: { label: "System info", description: "Operating system, processor, memory and more.", group: "Device", w: 8, h: 7, minW: 6, minH: 4, maxW: 24, maxH: 16, frame: true },
+  volumes: { label: "Volumes", description: "How full each volume of a device is.", group: "Device", w: 8, h: 6, minW: 5, minH: 3, maxW: 24, maxH: 24, frame: true },
+  containers: { label: "Containers", description: "The Docker containers on a device.", group: "Device", w: 10, h: 7, minW: 7, minH: 4, maxW: 24, maxH: 30, frame: true },
+  cores: { label: "CPU cores", description: "Every core over time or right now.", group: "Device", w: 12, h: 7, minW: 6, minH: 4, maxW: 24, maxH: 24, frame: true },
+  devices: { label: "Device cards", description: "A card for every device, added automatically.", group: "Fleet", w: 24, h: 8, minW: 8, minH: 5, maxW: 24, maxH: 40, frame: true },
+  uptime: { label: "Uptime history", description: "Daily availability bars like on a status page.", group: "Fleet", w: 24, h: 6, minW: 10, minH: 4, maxW: 24, maxH: 40, frame: true },
+  alerts: { label: "Active alerts", description: "Alerts firing right now.", group: "Fleet", w: 8, h: 5, minW: 5, minH: 3, maxW: 24, maxH: 24, frame: true },
+  clock: { label: "Clock", description: "The current time and date in any time zone.", group: "Layout", w: 4, h: 3, minW: 3, minH: 2, maxW: 12, maxH: 8, frame: true },
 };
+
+/**
+ * A block brought within the sizes its kind allows and inside the page. Pages
+ * saved before the limits existed are fixed up this way when they are opened.
+ */
+export function clampBlock<T extends CanvasBlock>(block: T): T {
+  const info = CANVAS_BLOCK_INFO[block.type];
+  const w = Math.max(info.minW, Math.min(info.maxW, CANVAS_COLUMNS, block.w));
+  const h = Math.max(info.minH, Math.min(info.maxH, block.h));
+  const x = Math.max(0, Math.min(block.x, CANVAS_COLUMNS - w));
+  return w === block.w && h === block.h && x === block.x ? block : { ...block, w, h, x };
+}
 
 export function defaultSelector(): CanvasDeviceSelector {
   return { mode: "all", tag: "", ids: [] };

@@ -70,13 +70,14 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<AfterSignIn />} />
       <Route path="/setup" element={<Navigate to="/" replace />} />
+      {/* The editor takes the whole window, so a page is built at the width it will be seen at. */}
+      <Route path="/canvas/:id" element={isAdmin ? <CanvasEditorPage /> : <Navigate to="/" replace />} />
       <Route element={<DashboardLayout />}>
         <Route path="/" element={<OverviewPage />} />
         <Route path="/devices/:id" element={<DeviceDetailPage />} />
         <Route path="/alerts" element={<AlertsPage />} />
         <Route path="/users" element={isAdmin ? <UsersPage /> : <Navigate to="/" replace />} />
         <Route path="/canvas" element={isAdmin ? <CanvasPagesPage /> : <Navigate to="/" replace />} />
-        <Route path="/canvas/:id" element={isAdmin ? <CanvasEditorPage /> : <Navigate to="/" replace />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

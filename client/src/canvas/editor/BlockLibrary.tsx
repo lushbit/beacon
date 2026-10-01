@@ -58,7 +58,7 @@ export function BlockLibrary({
 }) {
   return (
     <div className="space-y-4 p-3">
-      <p className="px-1 text-2xs text-muted-foreground">Drag a block onto the grid, or click it to add it at the bottom.</p>
+      <p className="px-1 text-2xs text-muted-foreground">Drag onto the page or click to add at the bottom.</p>
       {GROUPS.map((group) => (
         <div key={group} className="space-y-1">
           <p className="px-1 text-2xs font-medium uppercase tracking-wide text-muted-foreground">{group}</p>
@@ -110,7 +110,7 @@ export function BlockPicker({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
-        <DialogHeader title="Add a block" description="Pick what this spot on the page should show." />
+        <DialogHeader title="Add a block" description="Choose what to show here." />
         <div className="space-y-4">
           {GROUPS.map((group) => (
             <div key={group}>

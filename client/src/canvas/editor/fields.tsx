@@ -165,7 +165,7 @@ export function SelectorField({
         <p className="text-2xs text-muted-foreground">Every device, including ones added later.</p>
       ) : value.mode === "tag" ? (
         tags.length === 0 ? (
-          <p className="text-2xs text-muted-foreground">No device has a tag yet. Tags are set in each device's settings.</p>
+          <p className="text-2xs text-muted-foreground">No device has a tag yet. Add tags in the device settings.</p>
         ) : (
           <NativeSelect value={value.tag} onChange={(tag) => onChange({ ...value, tag })} label="Tag">
             <option value="">Choose a tag…</option>
@@ -227,8 +227,8 @@ export function ThresholdsField({
           <NumberInput label="Critical at" value={value.crit} onChange={(crit) => onChange({ ...value, crit })} placeholder="Off" />
         </label>
       </div>
-      <Toggle label="Low values are the problem" hint="For things like battery level." checked={value.below} onChange={(below) => onChange({ ...value, below })} />
-      {unit === "bytes" || unit === "rate" ? <p className="text-2xs text-muted-foreground">Enter limits in bytes, for example 1000000 for about 1 MB.</p> : null}
+      <Toggle label="Invert" hint="Low values turn yellow and red." checked={value.below} onChange={(below) => onChange({ ...value, below })} />
+      {unit === "bytes" || unit === "rate" ? <p className="text-2xs text-muted-foreground">Limits are in bytes. 1000000 is about 1 MB.</p> : null}
     </div>
   );
 }

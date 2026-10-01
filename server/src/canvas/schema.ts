@@ -136,6 +136,9 @@ const blockSchema = z
     if (value.w < Math.min(info.minW, CANVAS_COLUMNS) || value.h < info.minH) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: "is smaller than this block allows", path: ["w"] });
     }
+    if (value.w > info.maxW || value.h > info.maxH) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "is larger than this block allows", path: ["w"] });
+    }
   });
 
 function validTimeZone(zone: string): boolean {

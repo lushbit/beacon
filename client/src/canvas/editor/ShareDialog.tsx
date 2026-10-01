@@ -13,10 +13,10 @@ import { cn } from "@/lib/utils";
 import { Row } from "./fields";
 
 const ACCESS: { value: CanvasAccess; title: string; text: string; icon: typeof Globe }[] = [
-  { value: "public", title: "Anyone with the address", text: "Good for status pages and public stats.", icon: Globe },
-  { value: "unlisted", title: "Only with the secret link", text: "The address carries a key nobody can guess.", icon: Link2 },
-  { value: "password", title: "Anyone with the password", text: "Visitors type a password you choose.", icon: KeyRound },
-  { value: "users", title: "Only people signed in to Beacon", text: "Any account on this hub, admin or viewer.", icon: Users },
+  { value: "public", title: "Public", text: "Anyone who knows the address.", icon: Globe },
+  { value: "unlisted", title: "Secret link", text: "Only people with the link. It cannot be guessed.", icon: Link2 },
+  { value: "password", title: "Password", text: "Visitors enter a password you choose.", icon: KeyRound },
+  { value: "users", title: "Beacon accounts", text: "Only people signed in to this Beacon.", icon: Users },
 ];
 
 const EMBED: { value: CanvasEmbed; label: string }[] = [
@@ -73,23 +73,23 @@ export function ShareDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl">
-        <DialogHeader title="Share this page" description="Changes here apply straight away, to the published page." />
+        <DialogHeader title="Sharing" description="Changes apply to the live page immediately." />
         <div className="space-y-6">
           <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-surface/60 p-3">
             <div className="min-w-0">
-              <p className="text-sm font-medium text-foreground">{page.enabled ? "The page is online" : "The page is offline"}</p>
+              <p className="text-sm font-medium text-foreground">{page.enabled ? "Online" : "Offline"}</p>
               <p className="text-2xs text-muted-foreground">
                 {!page.published
-                  ? "Nothing is visible until you publish for the first time."
+                  ? "Publish the page first to make it visible."
                   : page.enabled
-                    ? "Turn it off to take it down without deleting it."
-                    : "Visitors see that the page is not available."}
+                    ? "Turn off to hide the page without deleting it."
+                    : "Visitors see that the page is unavailable."}
               </p>
             </div>
             <Switch checked={page.enabled} disabled={busy} onCheckedChange={(enabled) => void save({ enabled })} />
           </div>
 
-          <Row label="Address" hint="Lowercase letters, digits and dashes.">
+          <Row label="Address" hint="Lowercase letters, numbers and dashes.">
             <div className="flex items-center gap-2">
               <div className="flex min-w-0 flex-1 items-center rounded-md border border-input bg-surface-2 pl-3 focus-within:border-primary/60">
                 <span className="shrink-0 truncate text-sm text-muted-foreground">/p/</span>
@@ -101,14 +101,14 @@ export function ShareDialog({
                   aria-label="Page address"
                 />
               </div>
-              <Button variant="secondary" disabled={busy || !slugValid || slug === page.slug} onClick={() => void save({ slug }, "The address was changed.")}>
+              <Button variant="secondary" disabled={busy || !slugValid || slug === page.slug} onClick={() => void save({ slug }, "The address was saved.")}>
                 Save
               </Button>
             </div>
-            {slug !== page.slug && !slugValid ? <p className="text-2xs text-danger">Use 2 to 48 lowercase letters, digits and dashes.</p> : null}
+            {slug !== page.slug && !slugValid ? <p className="text-2xs text-danger">Use 2 to 48 lowercase letters, numbers and dashes.</p> : null}
           </Row>
 
-          <Row label="Who can open it">
+          <Row label="Access">
             <div className="grid gap-2">
               {ACCESS.map((option) => {
                 const Icon = option.icon;
@@ -147,15 +147,15 @@ export function ShareDialog({
           </Row>
 
           {page.access === "unlisted" ? (
-            <Row label="Secret link" hint="Anyone with this link can open the page. Making a new one stops the old one working.">
+            <Row label="Secret link" hint="A new link replaces the old one.">
               <CommandSteps steps={[{ command: address }]} />
-              <Button variant="ghost" size="sm" disabled={busy} onClick={() => void save({ regenerateKey: true }, "The old link no longer works.")}>
-                <RefreshCw className="h-3.5 w-3.5" /> Make a new link
+              <Button variant="ghost" size="sm" disabled={busy} onClick={() => void save({ regenerateKey: true }, "The old link stopped working.")}>
+                <RefreshCw className="h-3.5 w-3.5" /> New link
               </Button>
             </Row>
           ) : null}
 
-          <Row label="Password" hint={page.hasPassword ? "A password is set. Type a new one to change it." : "At least 6 characters."}>
+          <Row label="Password" hint={page.hasPassword ? "A password is set. Enter a new one to change it." : "At least 6 characters."}>
             <div className="flex items-center gap-2">
               <Input
                 id="canvas-password"
@@ -171,7 +171,7 @@ export function ShareDialog({
                 onClick={async () => {
                   const result = await save(
                     page.access === "password" ? { password } : { password, access: "password" },
-                    "The page now asks for this password."
+                    "The password was saved."
                   );
                   if (result) setPassword("");
                 }}
@@ -186,7 +186,7 @@ export function ShareDialog({
             ) : null}
           </Row>
 
-          <Row label="Show it on other sites" hint="Lets another website show this page, or one block of it, in a frame.">
+          <Row label="Embedding" hint="Allow other websites to embed this page or single blocks.">
             <div className="flex w-full rounded-md border border-border bg-surface-2 p-0.5">
               {EMBED.map((option) => (
                 <button
@@ -216,7 +216,7 @@ export function ShareDialog({
                   variant="secondary"
                   size="sm"
                   disabled={busy}
-                  onClick={() => void save({ embedOrigins: origins.split(/[\s,]+/).filter(Boolean) }, "The list of sites was saved.")}
+                  onClick={() => void save({ embedOrigins: origins.split(/[\s,]+/).filter(Boolean) }, "The sites were saved.")}
                 >
                   Save sites
                 </Button>
@@ -228,11 +228,11 @@ export function ShareDialog({
             <Row label="Embed code">
               <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
                 <input type="checkbox" className="accent-white" checked={transparent} onChange={(event) => setTransparent(event.target.checked)} />
-                See-through background, so the page blends into the site
+                Transparent background
               </label>
               <CommandSteps steps={[{ command: `<iframe src="${embedSrc}" style="width:100%;height:900px;border:0" loading="lazy"></iframe>` }]} />
               {page.access === "users" ? (
-                <p className="text-2xs text-warning">Signed-in pages only show inside a frame on this hub's own address, because browsers keep the sign-in to it.</p>
+                <p className="text-2xs text-warning">Pages for Beacon accounts only work when embedded on this hub's own address.</p>
               ) : null}
             </Row>
           ) : null}
@@ -240,7 +240,7 @@ export function ShareDialog({
           {page.published && page.enabled ? (
             <Button asChild variant="outline" className="w-full">
               <a href={address} target="_blank" rel="noopener noreferrer">
-                <ExternalLink className="h-4 w-4" /> Open the page
+                <ExternalLink className="h-4 w-4" /> Open page
               </a>
             </Button>
           ) : null}

@@ -21,6 +21,7 @@ import {
   CANVAS_RANGES,
   CANVAS_WIDTHS,
   canvasMetric,
+  clampBlock,
   defaultThresholds,
 } from "@beacon/shared";
 import { CommandSteps } from "@/components/CommandSteps";
@@ -137,7 +138,7 @@ function SourceEditor({
           {kind === "chart" ? (
             <Toggle
               label="One line per device"
-              hint="Compare devices instead of adding them up. Shows the first field of the metric."
+              hint="Compares devices instead of combining them."
               checked={target.split}
               onChange={(split) => onChange({ ...source, target: { ...target, split } })}
             />
@@ -290,7 +291,7 @@ function BlockSettings({
         </Row>
       );
     case "spacer":
-      return <p className="text-xs text-muted-foreground">An empty block that holds space. Visitors do not see it.</p>;
+      return <p className="text-xs text-muted-foreground">Keeps space free between blocks. Visitors only see the gap.</p>;
     case "chart": {
       const metric = canvasMetric(block.config.source.metric);
       const single = block.config.source.field !== "" || (metric?.fields.length ?? 1) === 1 || (block.config.source.target.kind === "fleet" && block.config.source.target.split);
@@ -321,9 +322,11 @@ function BlockSettings({
               </div>
             </Row>
           ) : null}
-          <Toggle label="Legend" checked={block.config.legend} onChange={(legend) => set(block, { legend })} />
-          <Toggle label="Current value in the corner" checked={block.config.showValue} onChange={(showValue) => set(block, { showValue })} />
-          <Toggle label="Mark alerts" hint="Draws a line where an alert was raised." checked={block.config.alerts} onChange={(alerts) => set(block, { alerts })} />
+          {!single || (block.config.source.target.kind === "fleet" && block.config.source.target.split) ? (
+            <Toggle label="Legend" hint="Names each line above the chart." checked={block.config.legend} onChange={(legend) => set(block, { legend })} />
+          ) : null}
+          <Toggle label="Current value" hint="Shown in the top corner." checked={block.config.showValue} onChange={(showValue) => set(block, { showValue })} />
+          <Toggle label="Alert markers" hint="A line where an alert started." checked={block.config.alerts} onChange={(alerts) => set(block, { alerts })} />
         </>
       );
     }
@@ -332,7 +335,7 @@ function BlockSettings({
       return (
         <>
           <SourceEditor source={block.config.source} onChange={(source, group) => withSource(block, source, group)} devices={devices} snapshots={snapshots} kind="single" />
-          <Row label="Caption" hint="Under the number. Empty shows the device.">
+          <Row label="Caption" hint="Shown under the number. Empty shows the device name.">
             <Input value={block.config.caption} maxLength={120} placeholder="Automatic" onChange={(event) => set(block, { caption: event.target.value }, "caption")} />
           </Row>
           {metric?.chart ? (
@@ -367,7 +370,7 @@ function BlockSettings({
               ]}
             />
           </Row>
-          <Row label="Full at" hint={metric?.max ? `Empty uses ${metric.max}.` : "The value that fills the gauge. Empty uses 100."}>
+          <Row label="Full at" hint={metric?.max ? `Empty uses ${metric.max}.` : "The value of a full gauge. Empty uses 100."}>
             <NumberInput label="Full at" value={block.config.max} onChange={(max) => set(block, { max: max !== null && max > 0 ? max : null }, "max")} placeholder="Automatic" />
           </Row>
           <Row label="Colour limits">
@@ -388,7 +391,7 @@ function BlockSettings({
           <Row label="Device">
             <DevicePicker devices={devices} value={block.config.deviceId} onChange={(deviceId) => set(block, { deviceId })} />
           </Row>
-          <Row label="Show" hint="The hostname, serial number and addresses are never shown.">
+          <Row label="Show" hint="Hostnames, serial numbers and addresses are never shown.">
             <div className="grid grid-cols-1 gap-1">
               {CANVAS_INFO_FIELDS.map((field) => {
                 const checked = block.config.fields.includes(field);
@@ -416,7 +419,7 @@ function BlockSettings({
       );
     case "volumes":
       return (
-        <Row label="Device" hint="Volumes hidden in the device's own settings stay hidden here.">
+        <Row label="Device" hint="Volumes hidden in the device settings stay hidden.">
           <DevicePicker devices={devices} value={block.config.deviceId} onChange={(deviceId) => set(block, { deviceId })} />
         </Row>
       );
@@ -456,7 +459,7 @@ function BlockSettings({
     case "devices":
       return (
         <>
-          <Row label="Devices" hint="A card for each, added and removed as devices come and go.">
+          <Row label="Devices" hint="New devices get a card automatically.">
             <SelectorField devices={devices} value={block.config.select} onChange={(select) => set(block, { select })} />
           </Row>
           <Row label="On each card">
@@ -491,7 +494,7 @@ function BlockSettings({
           <Row label="Devices">
             <SelectorField devices={devices} value={block.config.select} onChange={(select) => set(block, { select })} />
           </Row>
-          <Row label="Days" hint="How long history is kept is set under Settings, Data retention.">
+          <Row label="Days" hint="History older than the retention setting has no bars.">
             <Segmented
               label="Days"
               value={block.config.days}
@@ -600,16 +603,16 @@ export function BlockInspector({
           {info.description}
         </p>
         {titled ? (
-          <Row label="Title" hint={block.type === "value" || block.type === "gauge" ? "Empty uses the metric's name." : "Empty hides the title row."}>
+          <Row label="Title" hint={block.type === "value" || block.type === "gauge" ? "Empty uses the metric name." : "Empty hides the title."}>
             <Input value={block.title} maxLength={120} placeholder="No title" onChange={(event) => onChange({ ...block, title: event.target.value }, "title")} />
           </Row>
         ) : null}
         <BlockSettings block={block} onChange={onChange} devices={devices} snapshots={snapshots} />
       </Section>
 
-      <Section title="Look and size">
+      <Section title="Appearance">
         {block.type !== "spacer" ? (
-          <Toggle label="Show as a card" hint="Off draws the block straight onto the page." checked={block.frame} onChange={(frame) => onChange({ ...block, frame })} />
+          <Toggle label="Card background" hint="Off places the block directly on the page." checked={block.frame} onChange={(frame) => onChange({ ...block, frame })} />
         ) : null}
         <div className="grid grid-cols-2 gap-2">
           <label className="space-y-1">
@@ -618,8 +621,8 @@ export function BlockInspector({
               label="Width"
               value={block.w}
               min={info.minW}
-              max={CANVAS_COLUMNS - block.x}
-              onChange={(value) => onChange({ ...block, w: Math.max(info.minW, Math.min(CANVAS_COLUMNS - block.x, Math.round(value ?? block.w))) }, "w")}
+              max={Math.min(info.maxW, CANVAS_COLUMNS)}
+              onChange={(value) => onChange(clampBlock({ ...block, w: Math.round(value ?? block.w) }), "w")}
             />
           </label>
           <label className="space-y-1">
@@ -628,21 +631,25 @@ export function BlockInspector({
               label="Height"
               value={block.h}
               min={info.minH}
-              max={60}
-              onChange={(value) => onChange({ ...block, h: Math.max(info.minH, Math.min(60, Math.round(value ?? block.h))) }, "h")}
+              max={info.maxH}
+              onChange={(value) => onChange(clampBlock({ ...block, h: Math.round(value ?? block.h) }), "h")}
             />
           </label>
         </div>
-        <p className="text-2xs text-muted-foreground">Drag a block to move it and pull its edges to resize. Arrow keys nudge it.</p>
+        <p className="text-2xs text-muted-foreground">
+          {info.minW === info.maxW && info.minH === info.maxH
+            ? "This block has a fixed size."
+            : `Fits ${info.minW} to ${Math.min(info.maxW, CANVAS_COLUMNS)} wide and ${info.minH} to ${info.maxH} high. Drag the edges to resize.`}
+        </p>
       </Section>
 
       {embedUrl && block.type !== "spacer" ? (
-        <Section title="Use it elsewhere">
-          <p className="text-2xs text-muted-foreground">Show just this block on another site. Embedding has to be allowed under Share.</p>
+        <Section title="Embed">
+          <p className="text-2xs text-muted-foreground">Embeds only this block. Allow embedding under Share first.</p>
           <CommandSteps steps={[{ command: `<iframe src="${embedUrl}" style="width:100%;height:${Math.max(160, block.h * 40)}px;border:0" loading="lazy"></iframe>` }]} />
           {badgeUrl ? (
             <>
-              <p className="pt-1 text-2xs text-muted-foreground">A live badge image, for a README or a forum post.</p>
+              <p className="pt-1 text-2xs text-muted-foreground">Live badge image for a README or forum post.</p>
               <img src={badgeUrl} alt="" className="h-5" />
               <CommandSteps steps={[{ command: `![${block.title || "status"}](${badgeUrl})` }]} />
             </>
@@ -668,14 +675,14 @@ export function PageInspector({
         <Row label="Title">
           <Input value={content.title} maxLength={120} onChange={(event) => onChange({ ...content, title: event.target.value }, "page-title")} />
         </Row>
-        <Row label="Description" hint="Shown under the title.">
+        <Row label="Description" hint="Shown below the title.">
           <Textarea rows={3} maxLength={500} value={content.description} onChange={(event) => onChange({ ...content, description: event.target.value }, "page-description")} />
         </Row>
-        <Toggle label="Show the title bar" hint="Title, description, range buttons and the live mark." checked={options.showHeader} onChange={(showHeader) => setOptions({ showHeader })} />
-        <Toggle label="Show when it last updated" checked={options.showUpdated} onChange={(showUpdated) => setOptions({ showUpdated })} />
+        <Toggle label="Title bar" hint="Title, description and time range buttons." checked={options.showHeader} onChange={(showHeader) => setOptions({ showHeader })} />
+        <Toggle label="Live indicator" hint="A green dot with the time of the last update." checked={options.showUpdated} onChange={(showUpdated) => setOptions({ showUpdated })} />
       </Section>
       <Section title="Time">
-        <Row label="Charts open on">
+        <Row label="Default time range">
           <NativeSelect value={String(options.defaultRange)} onChange={(value) => setOptions({ defaultRange: Number(value) })} label="Default range">
             {CANVAS_RANGES.map((range) => (
               <option key={range.seconds} value={range.seconds}>
@@ -684,7 +691,7 @@ export function PageInspector({
             ))}
           </NativeSelect>
         </Row>
-        <Row label="Visitors can switch to" hint="Leave all off to hide the range buttons.">
+        <Row label="Available time ranges" hint="Visitors switch between these. None hides the buttons.">
           <div className="flex flex-wrap gap-1.5">
             {CANVAS_RANGES.map((range) => {
               const on = options.visitorRanges.includes(range.seconds);
@@ -712,8 +719,8 @@ export function PageInspector({
           </div>
         </Row>
       </Section>
-      <Section title="Layout and units">
-        <Row label="Page width" hint="On phones the blocks flow into two columns.">
+      <Section title="Layout">
+        <Row label="Page width" hint="Phones always get two columns.">
           <NativeSelect value={String(options.maxWidth)} onChange={(value) => setOptions({ maxWidth: Number(value) })} label="Page width">
             {CANVAS_WIDTHS.map((width) => (
               <option key={width} value={width}>
@@ -745,7 +752,7 @@ export function PageInspector({
           />
         </Row>
       </Section>
-      <p className="px-4 pb-4 text-2xs text-muted-foreground">Select a block on the grid to change it.</p>
+      <p className="px-4 pb-4 text-2xs text-muted-foreground">Click a block to change it.</p>
     </div>
   );
 }

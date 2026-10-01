@@ -9,13 +9,13 @@ import type {
   CanvasUptimeDto,
   PublicCanvasDto,
 } from "@beacon/shared";
-import { CANVAS_RANGES, canvasRangeLabel } from "@beacon/shared";
-import { RelativeTime } from "@/components/RelativeTime";
+import { CANVAS_RANGES } from "@beacon/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { noteServerTime } from "@/lib/clock";
 import { cn } from "@/lib/utils";
 import { BlockView } from "./BlockView";
+import { CanvasHeader, PAGE_COLUMN, pageColumnStyle } from "./CanvasHeader";
 import { CanvasView } from "./CanvasView";
 import { CanvasDataProvider, type CanvasDataValue } from "./data";
 
@@ -358,53 +358,13 @@ export default function PublicCanvasApp() {
     );
   }
 
-  const ranges = Array.from(new Set([options.defaultRange, ...options.visitorRanges])).sort((a, b) => a - b);
   const showHeader = options.showHeader && !where.kiosk;
 
   return (
     <CanvasDataProvider value={data}>
       <div className="scroll-slim h-full overflow-y-auto overflow-x-hidden">
-        <div
-          className={cn("mx-auto w-full px-3 sm:px-5", where.kiosk ? "py-3" : "py-5 sm:py-8")}
-          style={{ maxWidth: options.maxWidth ? options.maxWidth + 40 : undefined }}
-        >
-          {showHeader ? (
-            <header className="mb-5 flex flex-wrap items-end justify-between gap-x-6 gap-y-3 sm:mb-7">
-              <div className="min-w-0">
-                <h1 className="truncate text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">{page.content.title}</h1>
-                {page.content.description ? <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{page.content.description}</p> : null}
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                {options.showUpdated ? (
-                  <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span className="relative flex h-2 w-2">
-                      <span className="absolute inline-flex h-full w-full animate-pulse-ring rounded-full bg-success/70" />
-                      <span className="relative inline-flex h-2 w-2 rounded-full bg-success" />
-                    </span>
-                    Updated <RelativeTime value={updatedAt} />
-                  </span>
-                ) : null}
-                {ranges.length > 1 ? (
-                  <div className="flex rounded-md border border-border bg-surface p-0.5" role="group" aria-label="Time range">
-                    {ranges.map((seconds) => (
-                      <button
-                        key={seconds}
-                        type="button"
-                        onClick={() => setRange(seconds)}
-                        aria-pressed={seconds === activeRange}
-                        className={cn(
-                          "rounded px-2.5 py-1 text-xs font-medium transition-colors",
-                          seconds === activeRange ? "bg-surface-3 text-foreground" : "text-muted-foreground hover:text-foreground"
-                        )}
-                      >
-                        {canvasRangeLabel(seconds)}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            </header>
-          ) : null}
+        <div className={cn(PAGE_COLUMN, where.kiosk ? "py-3" : "py-5 sm:py-8")} style={pageColumnStyle(options.maxWidth)}>
+          {showHeader ? <CanvasHeader content={page.content} range={activeRange} onRange={setRange} updatedAt={updatedAt} /> : null}
           <CanvasView blocks={page.content.blocks} />
           {where.kiosk ? null : (
             <footer className="mt-8 text-center text-2xs text-muted-foreground/70">Made with Beacon Canvas</footer>

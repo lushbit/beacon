@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Activity, Gauge as GaugeIcon, LineChart } from "lucide-react";
 import type { CanvasBlockOf, CanvasMetric, CanvasSeriesDto } from "@beacon/shared";
 import { canvasMetric, canvasRangeLabel, sourceField, sourceValue, thresholdLevel } from "@beacon/shared";
@@ -213,6 +213,12 @@ export function GaugeBlock({ block }: { block: CanvasBlockOf<"gauge"> }) {
   const value = sourceValue(source, ids, data.devices);
   const max = block.config.max ?? metric?.max ?? 100;
   const share = value === null ? 0 : Math.max(0, Math.min(1, value / max));
+  // Starts empty and fills up to the reading, then follows it from there.
+  const [shown, setShown] = useState(0);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setShown(share));
+    return () => cancelAnimationFrame(frame);
+  }, [share]);
   const level = thresholdLevel(value, block.config.thresholds);
   const fill = LEVEL_FILL[level];
   const text = metric ? formatValue(value, metric.unit, data.options) : "—";
@@ -245,7 +251,7 @@ export function GaugeBlock({ block }: { block: CanvasBlockOf<"gauge"> }) {
           aria-valuemax={100}
           aria-label={label}
         >
-          <div className="h-full rounded-full transition-[width] duration-500 ease-out" style={{ width: `${share * 100}%`, background: fill }} />
+          <div className="h-full rounded-full transition-[width] duration-700 ease-out" style={{ width: `${shown * 100}%`, background: fill }} />
         </div>
         {caption ? <p className="truncate text-2xs text-muted-foreground">{caption}</p> : null}
       </BlockFrame>
@@ -260,16 +266,20 @@ export function GaugeBlock({ block }: { block: CanvasBlockOf<"gauge"> }) {
       <div className="min-h-0 flex-1">
         <svg viewBox="0 0 100 86" className="h-full w-full" role="meter" aria-label={label} aria-valuenow={Math.round(share * 100)}>
           <path d={arc(50, 50, 38, start, end)} fill="none" stroke={`color-mix(in srgb, ${fill} 22%, hsl(var(--surface-2)))`} strokeWidth={9} strokeLinecap="round" />
-          {share > 0 ? (
-            <path
-              d={arc(50, 50, 38, start, start + (end - start) * Math.max(share, 0.004))}
-              fill="none"
-              stroke={fill}
-              strokeWidth={9}
-              strokeLinecap="round"
-              style={{ transition: "d 500ms ease-out" }}
-            />
-          ) : null}
+          {/* The same arc, drawn only as far as the reading. Moving the end of
+              the dash fills the dial like a bar charging up, where changing
+              the arc itself made it swing round. */}
+          <path
+            d={arc(50, 50, 38, start, end)}
+            fill="none"
+            stroke={fill}
+            strokeWidth={9}
+            strokeLinecap="round"
+            pathLength={100}
+            strokeDasharray={`${shown * 100} 100`}
+            opacity={shown > 0 ? 1 : 0}
+            style={{ transition: "stroke-dasharray 700ms ease-out, stroke 300ms" }}
+          />
           <text x={50} y={55} textAnchor="middle" className="tabular" style={{ fontSize: 15, fontWeight: 600, fill: LEVEL_TEXT[level] }}>
             {text}
           </text>

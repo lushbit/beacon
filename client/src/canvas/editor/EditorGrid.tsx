@@ -6,14 +6,14 @@ import type { CanvasBlock, CanvasBlockType } from "@beacon/shared";
 import { CANVAS_BLOCK_INFO, CANVAS_COLUMNS, CANVAS_GAP, CANVAS_ROW_HEIGHT } from "@beacon/shared";
 import { cn } from "@/lib/utils";
 import { BlockView } from "../BlockView";
-import { bottomOf, overlaps } from "../layout";
+import { bottomOf, landingSpot, overlaps } from "../layout";
 import { useBoxSize } from "../useBoxSize";
 import { BLOCK_ICONS } from "./BlockLibrary";
 
 const DROPPING_ID = "__dropping__";
 /** Empty rows kept under the last block, so there is always room to add more. */
 const SPARE_ROWS = 8;
-/** The size the + on an empty spot offers, before it is cut to the space free there. */
+/** The size the + on an empty spot always shows. The block picked keeps its own size. */
 const GHOST = { w: 6, h: 4 };
 
 interface EditorGridProps {
@@ -55,24 +55,27 @@ export function EditorGrid({ blocks, selectedId, dragType, onSelect, onLayout, o
     () =>
       blocks.map((block) => {
         const info = CANVAS_BLOCK_INFO[block.type];
-        return { i: block.id, x: block.x, y: block.y, w: block.w, h: block.h, minW: info.minW, minH: info.minH };
+        return { i: block.id, x: block.x, y: block.y, w: block.w, h: block.h, minW: info.minW, minH: info.minH, maxW: info.maxW, maxH: info.maxH };
       }),
     [blocks]
   );
 
-  /** The free spot under the pointer, as big as fits up to the default size. */
+  /**
+   * The + for the free cell under the pointer. It is always the same size and
+   * sits where a new block would really end up, since the page packs upwards.
+   */
   const spotAt = (clientX: number, clientY: number, element: HTMLElement) => {
     const rect = element.getBoundingClientRect();
     const col = Math.floor((clientX - rect.left) / (colWidth + CANVAS_GAP));
     const row = Math.floor((clientY - rect.top) / (CANVAS_ROW_HEIGHT + CANVAS_GAP));
     if (col < 0 || col >= CANVAS_COLUMNS || row < 0) return null;
-    const free = (x: number, y: number, w: number, h: number) => !blocks.some((block) => overlaps({ x, y, w, h }, block));
-    if (!free(col, row, 1, 1)) return null;
-    let w = 1;
-    while (w < GHOST.w && col + w < CANVAS_COLUMNS && free(col, row, w + 1, 1)) w += 1;
-    let h = 1;
-    while (h < GHOST.h && free(col, row, w, h + 1)) h += 1;
-    return { x: col, y: row, w, h };
+    if (blocks.some((block) => overlaps({ x: col, y: row, w: 1, h: 1 }, block))) return null;
+    // Slides left until it fits beside whatever is to its right.
+    for (let x = Math.min(col, CANVAS_COLUMNS - GHOST.w); x >= Math.max(0, col - GHOST.w + 1); x -= 1) {
+      const spot = landingSpot(blocks, { x, y: row, w: GHOST.w, h: GHOST.h });
+      if (!blocks.some((block) => overlaps(spot, block))) return spot;
+    }
+    return null;
   };
 
   const onBackground = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -88,16 +91,22 @@ export function EditorGrid({ blocks, selectedId, dragType, onSelect, onLayout, o
     );
   };
 
-  const columnStripes =
+  // A dot where each row and column meet, so the grid is there without
+  // competing with the blocks on it.
+  const dots =
     colWidth > 0
-      ? `repeating-linear-gradient(to right, hsl(0 0% 100% / 0.022) 0 ${colWidth}px, transparent ${colWidth}px ${colWidth + CANVAS_GAP}px)`
-      : undefined;
+      ? {
+          backgroundImage: "radial-gradient(circle, hsl(0 0% 100% / 0.16) 1.2px, transparent 1.6px)",
+          backgroundSize: `${colWidth + CANVAS_GAP}px ${CANVAS_ROW_HEIGHT + CANVAS_GAP}px`,
+          backgroundPosition: `${-CANVAS_GAP / 2 - (colWidth + CANVAS_GAP) / 2}px ${-CANVAS_GAP / 2 - (CANVAS_ROW_HEIGHT + CANVAS_GAP) / 2}px`,
+        }
+      : {};
 
   return (
     <div
       ref={ref}
       className="canvas-editor canvas-grid-surface relative w-full"
-      style={{ minHeight: height, backgroundImage: columnStripes }}
+      style={{ minHeight: height, ...dots }}
       onPointerMove={onBackground}
       onPointerLeave={() => setGhost(null)}
       onClick={(event) => {
@@ -123,7 +132,7 @@ export function EditorGrid({ blocks, selectedId, dragType, onSelect, onLayout, o
           onPointerMove={(event) => event.stopPropagation()}
         >
           <Plus className="h-4 w-4" />
-          {ghost.w >= 3 ? "Add block" : null}
+          Add block
         </button>
       ) : null}
 

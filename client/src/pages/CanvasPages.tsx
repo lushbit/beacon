@@ -77,7 +77,7 @@ function NewPageDialog({
       <DialogContent className="max-w-xl">
         <DialogHeader
           title={imported ? "Import a page" : "New page"}
-          description={imported ? "The imported page is saved as a draft. Nothing is public until you publish it." : "Pick a starting point. Every block can be changed afterwards."}
+          description={imported ? "The page is saved as a draft until you publish it." : "Choose a starting point. You can change every block later."}
         />
         <div className="space-y-4">
           <Field label="Title" htmlFor="canvas-title">
@@ -93,7 +93,7 @@ function NewPageDialog({
               }}
             />
           </Field>
-          <Field label="Address" htmlFor="canvas-slug" hint={`The page will live at ${window.location.origin}/p/${slug || "…"}`}>
+          <Field label="Address" htmlFor="canvas-slug" hint={`The page will be running at ${window.location.origin}/p/${slug || "…"}`}>
             <Input
               id="canvas-slug"
               value={slug}
@@ -105,7 +105,7 @@ function NewPageDialog({
               }}
             />
           </Field>
-          {slug && !CANVAS_SLUG_PATTERN.test(slug) ? <p className="-mt-2 text-2xs text-danger">Use 2 to 48 lowercase letters, digits and dashes.</p> : null}
+          {slug && !CANVAS_SLUG_PATTERN.test(slug) ? <p className="-mt-2 text-2xs text-danger">Use 2 to 48 lowercase letters, numbers and dashes.</p> : null}
 
           {imported ? null : (
             <div className="space-y-1.5">
@@ -222,7 +222,7 @@ export function CanvasPagesPage() {
     <div>
       <PageHeader
         title="Canvas"
-        description="Build pages from your devices' stats and share them with anyone, or show them on another site."
+        description="Build pages from your device stats and share or embed them."
         actions={
           <>
             <input
@@ -263,7 +263,7 @@ export function CanvasPagesPage() {
             <EmptyState
               icon={LayoutDashboard}
               title="No pages yet"
-              description="A page is a grid of blocks: charts, numbers, gauges, status and more, from any of your devices. Publish it at its own address, protect it with a password, or embed it in another site."
+              description="Pages are grids of charts, numbers, gauges and status blocks. Publish them at their own address or embed them in other sites."
               action={
                 <Button variant="primary" onClick={() => setCreating(true)}>
                   <Plus className="h-4 w-4" /> Create your first page
@@ -343,7 +343,7 @@ export function CanvasPagesPage() {
         <DialogContent>
           <DialogHeader
             title="Delete this page?"
-            description={`"${deleting?.title ?? ""}" and its address stop working for everyone, including any site that shows it. This cannot be undone.`}
+            description={`"${deleting?.title ?? ""}" stops working everywhere, also where it is embedded. This cannot be undone.`}
           />
           <DialogFooter>
             <Button variant="ghost" onClick={() => setDeleting(null)}>

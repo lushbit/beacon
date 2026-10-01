@@ -9,6 +9,7 @@ import { StatusDot } from "@/components/ui/misc";
 import { formatBytes, formatDateTime, formatDuration, formatPercent, platformName } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useBlockDevices, useBlockRange, useBlockSeries, useCanvasData } from "../data";
+import { useBoxSize } from "../useBoxSize";
 import { BlockFrame, BlockNote } from "./BlockFrame";
 
 function useNoDevice(ids: string[]): string | null {
@@ -139,20 +140,37 @@ export function InfoBlock({ block }: { block: CanvasBlockOf<"info"> }) {
   const { ids, snapshots } = useBlockDevices(block);
   const missing = useNoDevice(ids);
   const device = snapshots[0];
+  const [ref, size] = useBoxSize<HTMLDivElement>();
+  // Too narrow for a label and a value side by side, each fact takes two lines
+  // instead of cutting the value short.
+  const stacked = size.width > 0 && size.width < 300;
   return (
     <BlockFrame block={block} bodyClassName="overflow-y-auto scroll-slim">
-      {missing || !device ? (
-        <BlockNote icon={Info} text={missing ?? "No device to show."} />
-      ) : (
-        <dl className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
-          {block.config.fields.map((field) => (
-            <div key={field} className="contents">
-              <dt className="truncate text-muted-foreground">{CANVAS_INFO_LABELS[field]}</dt>
-              <dd className="truncate text-right text-foreground tabular">{infoValue(field, device) ?? "—"}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
+      <div ref={ref} className="h-full">
+        {missing || !device ? (
+          <BlockNote icon={Info} text={missing ?? "No device to show."} />
+        ) : stacked ? (
+          <dl className="space-y-2 text-sm">
+            {block.config.fields.map((field) => (
+              <div key={field} className="min-w-0">
+                <dt className="truncate text-2xs text-muted-foreground">{CANVAS_INFO_LABELS[field]}</dt>
+                <dd className="break-words text-foreground tabular">{infoValue(field, device) ?? "—"}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : (
+          <dl className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
+            {block.config.fields.map((field) => (
+              <div key={field} className="contents">
+                <dt className="truncate text-muted-foreground">{CANVAS_INFO_LABELS[field]}</dt>
+                <dd className="truncate text-right text-foreground tabular" title={typeof infoValue(field, device) === "string" ? (infoValue(field, device) as string) : undefined}>
+                  {infoValue(field, device) ?? "—"}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        )}
+      </div>
     </BlockFrame>
   );
 }
