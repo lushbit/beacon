@@ -6,6 +6,8 @@ import {
   ExternalLink,
   LayoutDashboard,
   Pencil,
+  Blocks,
+  Monitor,
   Plus,
   Redo2,
   Share2,
@@ -24,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState, Skeleton } from "@/components/ui/misc";
 import { useLive } from "@/context/LiveContext";
 import { useToast } from "@/context/ToastContext";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { CanvasHeader, PAGE_COLUMN } from "@/canvas/CanvasHeader";
@@ -117,7 +120,12 @@ function Editor({ initial, devices }: { initial: CanvasPageDto; devices: CanvasD
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dragType, setDragType] = useState<CanvasBlockType | null>(null);
   const [picker, setPicker] = useState<{ col: number; row: number } | null | false>(false);
-  const [preview, setPreview] = useState(false);
+  const [previewing, setPreview] = useState(false);
+  // Dragging blocks on a 24 column grid does not work with a finger on a
+  // small screen, so phones and small tablets get the page to look at, share
+  // and publish, and the editing waits for a larger screen.
+  const canEdit = useMediaQuery("(min-width: 1024px)");
+  const preview = previewing || !canEdit;
   const [previewRange, setPreviewRange] = useState<number | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(() => sidebarDefault(LIBRARY_KEY, 1700));
@@ -419,10 +427,12 @@ function Editor({ initial, devices }: { initial: CanvasPageDto; devices: CanvasD
                 </Button>
               </>
             ) : null}
-            <Button variant="secondary" size="sm" onClick={() => setPreview(!preview)}>
-              {preview ? <Pencil className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-              {preview ? "Edit" : "Preview"}
-            </Button>
+            {canEdit ? (
+              <Button variant="secondary" size="sm" onClick={() => setPreview(!previewing)}>
+                {previewing ? <Pencil className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                {previewing ? "Edit" : "Preview"}
+              </Button>
+            ) : null}
             <Button variant="secondary" size="sm" onClick={() => setShareOpen(true)}>
               <Share2 className="h-3.5 w-3.5" /> Share
             </Button>
@@ -445,9 +455,15 @@ function Editor({ initial, devices }: { initial: CanvasPageDto; devices: CanvasD
           </div>
         </div>
 
+        {!canEdit ? (
+          <div className="flex shrink-0 items-center gap-2.5 border-b border-border/60 bg-surface/60 px-4 py-2.5 text-xs text-muted-foreground">
+            <Monitor className="h-4 w-4 shrink-0" />
+            Editing needs a larger screen. Here you can look at the page, share it and publish it.
+          </div>
+        ) : null}
         <div className="flex min-h-0 flex-1">
           {!preview ? (
-            <Sidebar side="left" open={libraryOpen} onToggle={() => toggleLibrary(!libraryOpen)} label="block list" railIcon={Plus} header="Blocks">
+            <Sidebar side="left" open={libraryOpen} onToggle={() => toggleLibrary(!libraryOpen)} label="block list" railIcon={Blocks} header="Blocks">
               <BlockLibrary onAdd={(type) => addBlock(type, null)} onDragType={setDragType} />
             </Sidebar>
           ) : null}

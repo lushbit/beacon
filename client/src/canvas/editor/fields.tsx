@@ -1,6 +1,9 @@
-import type { ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
+import { Check, Copy } from "lucide-react";
 import type { CanvasDeviceMeta, CanvasDeviceSelector, CanvasThresholds, CanvasUnit } from "@beacon/shared";
 import { Switch } from "@/components/ui/switch";
+import { useToast } from "@/context/ToastContext";
+import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 
 /** A labelled row in the settings panel. */
@@ -242,5 +245,41 @@ export function Section({ title, children, action }: { title: string; children: 
       </div>
       {children}
     </section>
+  );
+}
+
+/**
+ * A line of code to copy, such as an embed snippet: one row, cut short with
+ * an ellipsis, and a copy button inside the field. The full text is copied
+ * and shown on hover.
+ */
+export function CopyField({ value, label }: { value: string; label: string }) {
+  const { notify } = useToast();
+  const [copied, setCopied] = useState(false);
+  const field = useRef<HTMLSpanElement>(null);
+  const copy = async () => {
+    const result = await copyText(value, field.current);
+    if (result === "copied") {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } else {
+      notify("This browser blocked the copy. The text is selected, so copy it from there.", "info");
+    }
+  };
+  return (
+    <div className="flex h-9 items-center gap-1 rounded-md border border-input bg-surface-2 pl-3 pr-1">
+      <span ref={field} title={value} className="min-w-0 flex-1 truncate font-mono text-2xs text-foreground">
+        {value}
+      </span>
+      <button
+        type="button"
+        onClick={() => void copy()}
+        aria-label={`Copy the ${label}`}
+        title={copied ? "Copied" : "Copy"}
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-surface-3 hover:text-foreground"
+      >
+        {copied ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
+      </button>
+    </div>
   );
 }

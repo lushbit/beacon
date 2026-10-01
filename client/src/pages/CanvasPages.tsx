@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Copy, Download, ExternalLink, FileUp, Globe, KeyRound, LayoutDashboard, Link2, Pencil, Plus, Trash2, Users } from "lucide-react";
-import type { CanvasAccess, CanvasContent, CanvasDeviceMeta, CanvasPageSummaryDto } from "@beacon/shared";
+import { Copy, Download, ExternalLink, FileUp, Globe, KeyRound, LayoutDashboard, Link2, Pencil, Plus, Share2, Trash2, Users } from "lucide-react";
+import type { CanvasAccess, CanvasContent, CanvasDeviceMeta, CanvasPageDto, CanvasPageSummaryDto } from "@beacon/shared";
 import { CANVAS_SLUG_PATTERN, slugify } from "@beacon/shared";
 import { PageHeader } from "@/components/DashboardLayout";
 import { RelativeTime } from "@/components/RelativeTime";
@@ -16,6 +16,7 @@ import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { CANVAS_TEMPLATES, templateContent, type CanvasTemplateId } from "@/canvas/layout";
 import { selectClass } from "@/canvas/editor/fields";
+import { ShareDialog } from "@/canvas/editor/ShareDialog";
 
 const ACCESS_LABEL: Record<CanvasAccess, { label: string; icon: typeof Globe }> = {
   public: { label: "Public", icon: Globe },
@@ -164,6 +165,13 @@ export function CanvasPagesPage() {
   const [creating, setCreating] = useState(false);
   const [imported, setImported] = useState<CanvasContent | null>(null);
   const [deleting, setDeleting] = useState<CanvasPageSummaryDto | null>(null);
+  const [sharing, setSharing] = useState<CanvasPageDto | null>(null);
+
+  // Sharing needs the page's own settings, which the list does not carry.
+  const share = async (summary: CanvasPageSummaryDto) => {
+    const page = await attempt(() => api.canvasPage(summary.id));
+    if (page) setSharing(page);
+  };
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = async () => {
@@ -312,6 +320,9 @@ export function CanvasPagesPage() {
                         <Pencil className="h-3.5 w-3.5" /> Edit
                       </Link>
                     </Button>
+                    <Button variant="ghost" size="sm" onClick={() => void share(page)}>
+                      <Share2 className="h-3.5 w-3.5" /> Share
+                    </Button>
                     {live && page.access !== "unlisted" ? (
                       <Button asChild variant="ghost" size="sm">
                         <a href={`/p/${page.slug}`} target="_blank" rel="noopener noreferrer">
@@ -336,6 +347,26 @@ export function CanvasPagesPage() {
           </ul>
         )}
       </div>
+
+      {sharing ? (
+        <ShareDialog
+          page={sharing}
+          open
+          onOpenChange={(open) => {
+            if (!open) setSharing(null);
+          }}
+          onPage={(next) => {
+            setSharing(next);
+            setPages((current) =>
+              current?.map((entry) =>
+                entry.id === next.id
+                  ? { ...entry, slug: next.slug, access: next.access, enabled: next.enabled, published: next.published, updatedAt: next.updatedAt }
+                  : entry
+              ) ?? null
+            );
+          }}
+        />
+      ) : null}
 
       <NewPageDialog open={creating} onOpenChange={setCreating} imported={imported} devices={devices} />
 

@@ -470,7 +470,7 @@ export interface CanvasBlockInfo {
  * divider from turning into a big empty box.
  */
 export const CANVAS_BLOCK_INFO: Record<CanvasBlockType, CanvasBlockInfo> = {
-  heading: { label: "Heading", description: "A title to split the page into sections.", group: "Layout", w: 24, h: 2, minW: 4, minH: 1, maxW: 24, maxH: 4, frame: false },
+  heading: { label: "Heading", description: "A title to split the page into sections.", group: "Layout", w: 24, h: 1, minW: 4, minH: 1, maxW: 24, maxH: 4, frame: false },
   text: { label: "Text", description: "A paragraph with bold, italics and links.", group: "Layout", w: 12, h: 3, minW: 4, minH: 1, maxW: 24, maxH: 16, frame: false },
   divider: { label: "Divider", description: "A line across the page. It can carry a label.", group: "Layout", w: 24, h: 1, minW: 4, minH: 1, maxW: 24, maxH: 1, frame: false },
   spacer: { label: "Spacer", description: "Empty room between blocks.", group: "Layout", w: 24, h: 1, minW: 1, minH: 1, maxW: 24, maxH: 12, frame: false },
@@ -537,7 +537,7 @@ export function newCanvasBlock(
   };
   switch (type) {
     case "heading":
-      return { ...base, type, config: { text: "Section title", subtitle: "", size: "lg", align: "left" } };
+      return { ...base, type, config: { text: "Section title", subtitle: "", size: "md", align: "left" } };
     case "text":
       return { ...base, type, config: { text: "Write something about this page.", size: "md", align: "left" } };
     case "divider":

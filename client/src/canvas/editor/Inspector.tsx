@@ -22,7 +22,6 @@ import {
   clampBlock,
   defaultThresholds,
 } from "@beacon/shared";
-import { CommandSteps } from "@/components/CommandSteps";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -30,7 +29,7 @@ import { pickerColor } from "../format";
 import { RichTextEditor } from "./RichTextEditor";
 import { ColorPicker } from "@/components/ColorPicker";
 import { BLOCK_ICONS } from "./BlockLibrary";
-import { DevicePicker, NativeSelect, NumberInput, Row, Section, SelectorField, Segmented, ThresholdsField, Toggle } from "./fields";
+import { CopyField, DevicePicker, NativeSelect, NumberInput, Row, Section, SelectorField, Segmented, ThresholdsField, Toggle } from "./fields";
 
 type Change = (block: CanvasBlock, group?: string) => void;
 
@@ -632,14 +631,21 @@ export function BlockInspector({
 
       {embedUrl && block.type !== "spacer" ? (
         <Section title="Embed">
-          <p className="text-2xs text-muted-foreground">Embeds only this block. Allow embedding under Share first.</p>
-          <CommandSteps steps={[{ command: `<iframe src="${embedUrl}" style="width:100%;height:${Math.max(160, block.h * 40)}px;border:0" loading="lazy"></iframe>` }]} />
+          <Row label="Embed code" hint="Shows only this block on another site. Allow embedding under Share first.">
+            <CopyField
+              label="embed code"
+              value={`<iframe src="${embedUrl}" style="width:100%;height:${Math.max(160, block.h * 40)}px;border:0" loading="lazy"></iframe>`}
+            />
+          </Row>
           {badgeUrl ? (
-            <>
-              <p className="pt-1 text-2xs text-muted-foreground">Live badge image for a README or forum post.</p>
-              <img src={badgeUrl} alt="" className="h-5" />
-              <CommandSteps steps={[{ command: `![${block.title || "status"}](${badgeUrl})` }]} />
-            </>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">Badge</p>
+                <img src={badgeUrl} alt="" className="h-5" />
+              </div>
+              <CopyField label="badge" value={`![${block.title || "status"}](${badgeUrl})`} />
+              <p className="text-2xs text-muted-foreground">A live image for a README or a forum post.</p>
+            </div>
           ) : null}
         </Section>
       ) : null}
@@ -707,7 +713,7 @@ export function PageInspector({
         </Row>
       </Section>
       <Section title="Layout">
-        <Row label="Page width" hint="Phones always get two columns.">
+        <Row label="Page width">
           <NativeSelect value={String(options.maxWidth)} onChange={(value) => setOptions({ maxWidth: Number(value) })} label="Page width">
             {CANVAS_WIDTHS.map((width) => (
               <option key={width} value={width}>
@@ -739,7 +745,6 @@ export function PageInspector({
           />
         </Row>
       </Section>
-      <p className="px-4 pb-4 text-2xs text-muted-foreground">Click a block to change it.</p>
     </div>
   );
 }

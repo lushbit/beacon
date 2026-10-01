@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Lock, LogIn, RadioTower, SearchX } from "lucide-react";
+import { Github, Lock, LogIn, RadioTower, SearchX } from "lucide-react";
 import type {
   CanvasAlertsDto,
   CanvasBlock,
@@ -151,6 +151,32 @@ function Notice({ icon: Icon, title, text, action }: { icon: typeof Lock; title:
         {action ? <div className="mt-5">{action}</div> : null}
       </div>
     </Centered>
+  );
+}
+
+/** Where Beacon itself lives, for the footer. */
+const PROJECT_URL = "https://github.com/lushbit/beacon";
+
+/**
+ * The line under every page: what made it, who made that, where to find the
+ * project, and the hub the page is served from.
+ */
+function PageFooter() {
+  const link = "text-muted-foreground transition-colors hover:text-foreground";
+  return (
+    <footer className="mt-10 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-t border-border/50 pt-5 text-2xs text-muted-foreground/80">
+      <span>
+        Made with <span className="font-medium text-muted-foreground">Beacon Canvas</span> by Lushbit
+      </span>
+      <span aria-hidden>·</span>
+      <a href={PROJECT_URL} target="_blank" rel="noopener noreferrer" className={cn("inline-flex items-center gap-1", link)}>
+        <Github className="h-3 w-3" /> GitHub
+      </a>
+      <span aria-hidden>·</span>
+      <a href="/" target={window.top !== window ? "_blank" : undefined} rel="noopener" className={link}>
+        {window.location.host}
+      </a>
+    </footer>
   );
 }
 
@@ -366,9 +392,7 @@ export default function PublicCanvasApp() {
         <div className={cn(PAGE_COLUMN, where.kiosk ? "py-3" : "py-5 sm:py-8")} style={pageColumnStyle(options.maxWidth)}>
           {showHeader ? <CanvasHeader content={page.content} range={activeRange} onRange={setRange} updatedAt={updatedAt} /> : null}
           <CanvasView blocks={page.content.blocks} />
-          {where.kiosk ? null : (
-            <footer className="mt-8 text-center text-2xs text-muted-foreground/70">Made with Beacon Canvas</footer>
-          )}
+          {where.kiosk ? null : <PageFooter />}
         </div>
       </div>
     </CanvasDataProvider>

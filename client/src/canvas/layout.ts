@@ -179,19 +179,19 @@ export function templateContent(template: CanvasTemplateId, title: string, devic
   };
 
   if (template === "server") {
-    add("heading", { x: 0, y: 0, w: 24, h: 2 }, (block) => {
+    add("heading", { x: 0, y: 0, w: 24, h: 1 }, (block) => {
       if (block.type === "heading") block.config.text = device?.name ?? "Server";
     });
-    add("status", { x: 0, y: 2, w: 6, h: 4 }, (block) => (block.title = ""));
-    add("value", { x: 6, y: 2, w: 6, h: 4 }, (block) => metric(block, "cpu", "CPU"));
-    add("value", { x: 12, y: 2, w: 6, h: 4 }, (block) => metric(block, "memory", "Memory"));
-    add("value", { x: 18, y: 2, w: 6, h: 4 }, (block) => metric(block, "diskSpace", "Disk"));
-    add("chart", { x: 0, y: 6, w: 12, h: 8 }, (block) => metric(block, "cpu", "CPU usage"));
-    add("chart", { x: 12, y: 6, w: 12, h: 8 }, (block) => metric(block, "memory", "Memory usage"));
-    add("chart", { x: 0, y: 14, w: 12, h: 8 }, (block) => metric(block, "network", "Network"));
-    add("chart", { x: 12, y: 14, w: 12, h: 8 }, (block) => metric(block, "load", "Load average"));
-    add("info", { x: 0, y: 22, w: 12, h: 7 });
-    add("volumes", { x: 12, y: 22, w: 12, h: 7 });
+    add("status", { x: 0, y: 1, w: 6, h: 4 }, (block) => (block.title = ""));
+    add("value", { x: 6, y: 1, w: 6, h: 4 }, (block) => metric(block, "cpu", "CPU"));
+    add("value", { x: 12, y: 1, w: 6, h: 4 }, (block) => metric(block, "memory", "Memory"));
+    add("value", { x: 18, y: 1, w: 6, h: 4 }, (block) => metric(block, "diskSpace", "Disk"));
+    add("chart", { x: 0, y: 5, w: 12, h: 8 }, (block) => metric(block, "cpu", "CPU usage"));
+    add("chart", { x: 12, y: 5, w: 12, h: 8 }, (block) => metric(block, "memory", "Memory usage"));
+    add("chart", { x: 0, y: 13, w: 12, h: 8 }, (block) => metric(block, "network", "Network"));
+    add("chart", { x: 12, y: 13, w: 12, h: 8 }, (block) => metric(block, "load", "Load average"));
+    add("info", { x: 0, y: 21, w: 12, h: 7 });
+    add("volumes", { x: 12, y: 21, w: 12, h: 7 });
   } else if (template === "status") {
     // The page's own title bar carries the name, so the blocks start straight away.
     content.description = "Live availability of our machines.";
