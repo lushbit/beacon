@@ -16,7 +16,7 @@ import { RangePicker } from "@/components/device/RangePicker";
 import { StatusDot } from "@/components/ui/misc";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useSeries } from "@/hooks/useSeries";
-import { SERIES, LEVEL_FILL, deviceColor, levelOf } from "@/lib/colors";
+import { SERIES, LEVEL_FILL, deviceColorHex, levelOf } from "@/lib/colors";
 import { RelativeTime } from "@/components/RelativeTime";
 import { formatDuration, formatPercent, formatRate, formatTemperature, platformName } from "@/lib/format";
 import type { UnitBase } from "@/lib/format";
@@ -240,7 +240,9 @@ function DeviceMarkers({
 
 /** The device's colour, as a stripe down the left edge of its row. */
 function ColorBar({ color }: { color: string }) {
-  return <span className="absolute inset-y-0 left-0 w-1" style={{ background: deviceColor(color) }} aria-hidden />;
+  const hex = deviceColorHex(color);
+  if (!hex) return null;
+  return <span className="absolute inset-y-0 left-0 w-1" style={{ background: hex }} aria-hidden />;
 }
 
 /** The hostname, when the device has been given a different name to show. */

@@ -195,10 +195,18 @@ async function main() {
   const tokenResponse = await fetch(`${BASE}/api/enroll-tokens`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Cookie: cookie },
-    body: JSON.stringify({ label: "test", expiresInHours: 1, maxUses: 1 }),
+    body: JSON.stringify({ label: "test", color: "#3B82F6", expiresInHours: 1, maxUses: 1 }),
   });
   const enrollment = await tokenResponse.json();
   check(Boolean(enrollment.token), "enrollment token is issued");
+  check(enrollment.color === "#3b82f6", "enrollment token keeps its colour");
+
+  const badColour = await fetch(`${BASE}/api/enroll-tokens`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: cookie },
+    body: JSON.stringify({ label: "bad", color: "red; drop", expiresInHours: 1, maxUses: 1 }),
+  });
+  check(badColour.status === 400, "an enrollment token with a bad colour is refused");
 
   console.log("Connecting the agent…");
   const agent = new WebSocket(`ws://127.0.0.1:${PORT}/agent`);
@@ -325,6 +333,17 @@ async function main() {
   await wait(250);
   const device = await (await fetch(`${BASE}/api/devices/${ack.deviceId}`, { headers: { Cookie: cookie } })).json();
   check(device.capabilities?.temperatures === true, "capabilities sent after the hello are stored");
+  check(device.color === "#3b82f6", "a new device starts with its token's colour");
+
+  console.log("Reading the full update history…");
+  {
+    const history = await (
+      await fetch(`${BASE}/api/devices/${ack.deviceId}/os-updates/history`, { headers: { Cookie: cookie } })
+    ).json();
+    check(Array.isArray(history.jobs) && history.more === false, "the update history answers with a page");
+    const updates = await (await fetch(`${BASE}/api/devices/${ack.deviceId}/os-updates`, { headers: { Cookie: cookie } })).json();
+    check(typeof updates.historyTotal === "number", "the updates tab is told how many runs there are");
+  }
 
   console.log("Keeping alerts reachable when their rule changes…");
   {

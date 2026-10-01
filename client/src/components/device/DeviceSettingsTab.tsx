@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { AlertTriangle, KeyRound, RefreshCw, Save, ShieldAlert, Trash2 } from "lucide-react";
 import { UPDATE_POLICIES, UPDATE_POLICY_LABELS } from "@beacon/shared";
 import type { DeviceDto, DeviceSettingsDto, UpdatePolicy } from "@beacon/shared";
+import { ColorPicker } from "@/components/ColorPicker";
 import { RemoveAgentDialog } from "@/components/device/RemoveAgentDialog";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
@@ -13,7 +14,6 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/context/ToastContext";
 import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
-import { DEVICE_COLORS, deviceColor } from "@/lib/colors";
 import { gpuName } from "@/lib/gpu";
 import { cn } from "@/lib/utils";
 
@@ -176,22 +176,7 @@ export function DeviceSettingsTab({ device, onSaved }: Props) {
             <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={60} />
           </Field>
           <Field label="Accent" hint="Shown as a coloured bar on the left of this device in the overview list.">
-            <div className="flex flex-wrap gap-2">
-              {DEVICE_COLORS.map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  onClick={() => setColor(option.id)}
-                  aria-label={option.label}
-                  aria-pressed={color === option.id}
-                  className={cn(
-                    "h-7 w-7 rounded-full ring-offset-2 ring-offset-card transition-shadow",
-                    color === option.id ? "ring-2 ring-foreground/70" : "ring-1 ring-border"
-                  )}
-                  style={{ background: deviceColor(option.id) }}
-                />
-              ))}
-            </div>
+            <ColorPicker value={color} onChange={setColor} />
           </Field>
           <Field label="Tags" hint="Separate them with commas. Typing a tag into the overview filter shows every device that has it.">
             <Input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="office, linux" />

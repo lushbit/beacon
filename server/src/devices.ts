@@ -121,6 +121,7 @@ export function updateDeviceCapabilities(id: string, capabilities: DeviceCapabil
 export function createDevice(input: {
   installId: string;
   name: string;
+  color: string;
   staticInfo: DeviceStaticInfo;
   capabilities: DeviceCapabilities;
   enrolledBy: string | null;
@@ -130,7 +131,7 @@ export function createDevice(input: {
   db.prepare(
     `INSERT INTO devices (id, install_id, name, hostname, platform, os, arch, token_hash,
                           color, tags, notes, capabilities, static_info, settings, created_at, enrolled_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'slate', '[]', '', ?, ?, '{}', ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', ?, ?, '{}', ?, ?)`
   ).run(
     id,
     input.installId,
@@ -140,6 +141,7 @@ export function createDevice(input: {
     [input.staticInfo.distro, input.staticInfo.release].filter(Boolean).join(" ").trim(),
     input.staticInfo.arch,
     hashToken(token),
+    input.color,
     JSON.stringify(input.capabilities),
     JSON.stringify(input.staticInfo),
     Date.now(),
@@ -273,6 +275,7 @@ export interface EnrollTokenRow {
   id: string;
   token_hash: string;
   label: string;
+  color: string;
   created_by: string | null;
   created_at: number;
   expires_at: number | null;
@@ -283,6 +286,7 @@ export interface EnrollTokenRow {
 
 export function createEnrollToken(input: {
   label: string;
+  color: string;
   createdBy: string | null;
   expiresAt: number | null;
   maxUses: number;
@@ -290,9 +294,9 @@ export function createEnrollToken(input: {
   const token = newToken(24);
   const id = newId();
   db.prepare(
-    `INSERT INTO enroll_tokens (id, token_hash, label, created_by, created_at, expires_at, max_uses, uses)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 0)`
-  ).run(id, hashToken(token), input.label, input.createdBy, Date.now(), input.expiresAt, input.maxUses);
+    `INSERT INTO enroll_tokens (id, token_hash, label, color, created_by, created_at, expires_at, max_uses, uses)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`
+  ).run(id, hashToken(token), input.label, input.color, input.createdBy, Date.now(), input.expiresAt, input.maxUses);
   const row = db.prepare("SELECT * FROM enroll_tokens WHERE id = ?").get(id) as EnrollTokenRow;
   return { row, token };
 }
@@ -352,6 +356,7 @@ export function toEnrollTokenDto(row: EnrollTokenRow, token?: string): EnrollTok
   return {
     id: row.id,
     label: row.label,
+    color: row.color,
     createdAt: row.created_at,
     expiresAt: row.expires_at,
     uses: row.uses,

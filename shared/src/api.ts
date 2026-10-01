@@ -216,6 +216,8 @@ export interface MetricSeriesDto {
 export interface EnrollTokenDto {
   id: string;
   label: string;
+  /** The accent a device enrolled with this token starts out with. */
+  color: string;
   createdAt: number;
   expiresAt: number | null;
   uses: number;

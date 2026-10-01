@@ -57,6 +57,8 @@ const ADDED_COLUMNS: { table: string; column: string; definition: string }[] = [
   // "above the limit for 12m" rather than guessing from a reading that has
   // since crossed back.
   { table: "alerts", column: "operator", definition: "TEXT NOT NULL DEFAULT 'gt'" },
+  // The accent a device enrolled with this token starts out with.
+  { table: "enroll_tokens", column: "color", definition: "TEXT NOT NULL DEFAULT 'slate'" },
 ];
 
 /**

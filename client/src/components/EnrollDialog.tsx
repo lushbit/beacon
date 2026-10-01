@@ -10,6 +10,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import type { EnrollStatusDto, EnrollTokenDto } from "@beacon/shared";
+import { ColorPicker } from "@/components/ColorPicker";
 import { CommandSteps, type Step } from "@/components/CommandSteps";
 import { SelfSignedToggle } from "@/components/SelfSignedToggle";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/context/ToastContext";
 import { api } from "@/lib/api";
+import { DEVICE_COLORS } from "@/lib/colors";
 import { shellScriptDownload, windowsScriptCommand } from "@/lib/installCommands";
 
 /** How long to watch for the device before offering to stop. */
@@ -98,6 +100,7 @@ export function EnrollDialog({
 }) {
   const { attempt } = useToast();
   const [label, setLabel] = useState("");
+  const [color, setColor] = useState<string>(DEVICE_COLORS[0].hex);
   const [expiry, setExpiry] = useState("24");
   const [maxUses, setMaxUses] = useState("1");
   const [created, setCreated] = useState<EnrollTokenDto | null>(null);
@@ -197,6 +200,7 @@ export function EnrollDialog({
     const result = await attempt(() =>
       api.createEnrollToken({
         label: label.trim(),
+        color,
         expiresInHours: expiry === "never" ? null : Number(expiry),
         maxUses: Number(maxUses) || 1,
       })
@@ -217,6 +221,7 @@ export function EnrollDialog({
   const reset = () => {
     setCreated(null);
     setLabel("");
+    setColor(DEVICE_COLORS[0].hex);
     setWaiting(false);
     setStatus(null);
     setGaveUp(false);
@@ -334,6 +339,9 @@ export function EnrollDialog({
                 placeholder="Office laptop"
                 maxLength={60}
               />
+            </Field>
+            <Field label="Accent" hint="Shown as a coloured bar on the left of this device in the overview list.">
+              <ColorPicker value={color} onChange={setColor} />
             </Field>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Expires">

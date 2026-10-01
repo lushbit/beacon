@@ -311,6 +311,7 @@ function handleHello(connection: AgentConnection, message: AgentMessage, remote:
       const created = createDevice({
         installId: message.installId,
         name,
+        color: enrollment.color,
         staticInfo: message.staticInfo,
         capabilities: message.capabilities,
         enrolledBy: enrollment.created_by,

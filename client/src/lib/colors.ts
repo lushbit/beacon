@@ -34,17 +34,34 @@ export const LEVEL_FILL: Record<SeverityLevel, string> = {
   critical: "hsl(var(--danger))",
 };
 
-/** Optional per-device accent, used only as a stripe down the left edge of the device's row. */
+/**
+ * Optional per-device accent, used only as a stripe down the left edge of the
+ * device's row. Stored as `#rrggbb`, or as an empty string for no accent. The
+ * named ids are what devices were given before any colour could be picked, so
+ * they still resolve to the same colour they always had.
+ */
 export const DEVICE_COLORS = [
-  { id: "slate", label: "Slate", value: "0 0% 62%" },
-  { id: "blue", label: "Blue", value: "212 92% 60%" },
-  { id: "aqua", label: "Aqua", value: "163 72% 42%" },
-  { id: "amber", label: "Amber", value: "38 95% 58%" },
-  { id: "rose", label: "Rose", value: "340 70% 58%" },
-  { id: "violet", label: "Violet", value: "262 84% 66%" },
+  { id: "slate", label: "Slate", hex: "#9e9e9e" },
+  { id: "blue", label: "Blue", hex: "#3b93f7" },
+  { id: "aqua", label: "Aqua", hex: "#1eb88d" },
+  { id: "amber", label: "Amber", hex: "#faaf2e" },
+  { id: "rose", label: "Rose", hex: "#df497b" },
+  { id: "violet", label: "Violet", hex: "#955ff1" },
 ] as const;
 
-export function deviceColor(id: string): string {
-  const found = DEVICE_COLORS.find((color) => color.id === id);
-  return `hsl(${found ? found.value : DEVICE_COLORS[0].value})`;
+const HEX = /^#[0-9a-f]{6}$/i;
+
+/** The stored accent as `#rrggbb`, or null when the device has none. */
+export function deviceColorHex(value: string): string | null {
+  if (!value) return null;
+  if (HEX.test(value)) return value.toLowerCase();
+  const preset = DEVICE_COLORS.find((color) => color.id === value);
+  return preset ? preset.hex : DEVICE_COLORS[0].hex;
+}
+
+/** Accepts `3b82f6`, `#3B82F6` or `#38f` and returns `#3b82f6`, or null. */
+export function parseHexColor(input: string): string | null {
+  let text = input.trim().replace(/^#/, "").toLowerCase();
+  if (/^[0-9a-f]{3}$/.test(text)) text = [...text].map((digit) => digit + digit).join("");
+  return /^[0-9a-f]{6}$/.test(text) ? `#${text}` : null;
 }

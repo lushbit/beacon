@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS enroll_tokens (
   id           TEXT PRIMARY KEY,
   token_hash   TEXT NOT NULL UNIQUE,
   label        TEXT NOT NULL DEFAULT '',
+  color        TEXT NOT NULL DEFAULT 'slate',
   created_by   TEXT,
   created_at   INTEGER NOT NULL,
   expires_at   INTEGER,
