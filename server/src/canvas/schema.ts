@@ -11,6 +11,7 @@ import {
   CANVAS_WIDTHS,
   canvasMetric,
   sanitizeRichDoc,
+  upgradeCanvasContent,
 } from "@beacon/shared";
 import type { CanvasContent } from "@beacon/shared";
 
@@ -72,6 +73,8 @@ const source = z
 const align = z.enum(["left", "center", "right"]);
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/).transform((value) => value.toLowerCase());
 const deviceRef = z.union([id, z.literal("")]);
+/** A block colour. Optional, since pages from before 1.4.1 have none. */
+const color = z.union([hexColor, z.literal("")]).optional();
 
 function block<T extends string, C extends z.ZodTypeAny>(type: T, config: C) {
   return z.object({
@@ -89,7 +92,7 @@ function block<T extends string, C extends z.ZodTypeAny>(type: T, config: C) {
 
 const blockSchema = z
   .discriminatedUnion("type", [
-    block("heading", z.object({ text: text(200), subtitle: text(300), size: z.enum(["sm", "md", "lg", "xl"]), align })),
+    block("heading", z.object({ text: text(200), subtitle: text(300), size: z.enum(["sm", "md", "lg", "xl"]), align, color })),
     block(
       "text",
       z.object({
@@ -100,7 +103,7 @@ const blockSchema = z
         align,
       })
     ),
-    block("divider", z.object({ label: text(80) })),
+    block("divider", z.object({ label: text(80), color })),
     block("spacer", z.object({}).strict()),
     block(
       "chart",
@@ -113,7 +116,7 @@ const blockSchema = z
         alerts: z.boolean(),
       })
     ),
-    block("value", z.object({ source, sparkline: z.boolean(), range: optionalRange, thresholds, caption: text(120) })),
+    block("value", z.object({ source, sparkline: z.boolean(), range: optionalRange, thresholds, caption: text(120), color })),
     block(
       "gauge",
       z.object({
@@ -121,17 +124,17 @@ const blockSchema = z
         style: z.enum(["ring", "bar"]),
         thresholds,
         max: z.number().finite().positive().nullable(),
-        color: z.union([hexColor, z.literal("")]).optional(),
+        color,
       })
     ),
     block("status", z.object({ select: selector })),
     block("info", z.object({ deviceId: deviceRef, fields: z.array(z.enum(CANVAS_INFO_FIELDS)).max(CANVAS_INFO_FIELDS.length) })),
-    block("volumes", z.object({ deviceId: deviceRef })),
+    block("volumes", z.object({ deviceId: deviceRef, color })),
     block("containers", z.object({ deviceId: deviceRef, runningOnly: z.boolean() })),
-    block("cores", z.object({ deviceId: deviceRef, style: z.enum(["heatmap", "bars"]), range: optionalRange })),
+    block("cores", z.object({ deviceId: deviceRef, style: z.enum(["heatmap", "bars"]), range: optionalRange, color })),
     block(
       "devices",
-      z.object({ select: selector, metrics: z.array(z.enum(CANVAS_CARD_METRICS)).max(CANVAS_CARD_METRICS.length) })
+      z.object({ select: selector, metrics: z.array(z.enum(CANVAS_CARD_METRICS)).max(CANVAS_CARD_METRICS.length), color })
     ),
     block("uptime", z.object({ select: selector, days: z.union([z.literal(30), z.literal(60), z.literal(90)]) })),
     block("alerts", z.object({ select: selector, limit: z.number().int().min(1).max(50) })),
@@ -142,6 +145,7 @@ const blockSchema = z
         hour12: z.boolean(),
         seconds: z.boolean(),
         showDate: z.boolean(),
+        color,
       })
     ),
   ])
@@ -169,6 +173,7 @@ function validTimeZone(zone: string): boolean {
 
 export const contentSchema = z
   .object({
+    grid: z.literal(CANVAS_COLUMNS),
     title: text(120).transform((value) => value.trim() || "Untitled page"),
     description: text(500),
     options: z.object({
@@ -197,7 +202,12 @@ export const contentSchema = z
   });
 
 export function parseContent(input: unknown): { ok: true; content: CanvasContent } | { ok: false; error: string } {
-  const result = contentSchema.safeParse(input);
+  // An editor still open from before the grid changed saves on 24 columns.
+  const upgraded =
+    input && typeof input === "object" && Array.isArray((input as { blocks?: unknown }).blocks)
+      ? upgradeCanvasContent(input as { grid?: number; blocks: { x: number; w: number }[] })
+      : input;
+  const result = contentSchema.safeParse(upgraded);
   if (result.success) return { ok: true, content: result.data as CanvasContent };
   const first = result.error.issues[0];
   return { ok: false, error: first ? `${first.path.join(".") || "page"}: ${first.message}` : "The page is not valid." };

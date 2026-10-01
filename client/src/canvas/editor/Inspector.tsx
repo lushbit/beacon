@@ -261,6 +261,9 @@ function BlockSettings({
           <Row label="Alignment">
             <Segmented label="Alignment" value={block.config.align} onChange={(align) => set(block, { align })} options={ALIGN_OPTIONS} />
           </Row>
+          <Row label="Colour" hint="No colour draws the heading in white.">
+            <ColorPicker value={pickerColor(block.config.color)} onChange={(color) => set(block, { color }, "color")} />
+          </Row>
         </>
       );
     case "text":
@@ -288,9 +291,14 @@ function BlockSettings({
       );
     case "divider":
       return (
-        <Row label="Label">
-          <Input value={block.config.label} maxLength={80} placeholder="Optional" onChange={(event) => set(block, { label: event.target.value }, "label")} />
-        </Row>
+        <>
+          <Row label="Label">
+            <Input value={block.config.label} maxLength={80} placeholder="Optional" onChange={(event) => set(block, { label: event.target.value }, "label")} />
+          </Row>
+          <Row label="Colour" hint="No colour draws a faint grey line.">
+            <ColorPicker value={pickerColor(block.config.color)} onChange={(color) => set(block, { color }, "color")} />
+          </Row>
+        </>
       );
     case "spacer":
       return <p className="text-xs text-muted-foreground">Keeps space free between blocks. Visitors only see the gap.</p>;
@@ -334,6 +342,9 @@ function BlockSettings({
               ) : null}
             </>
           ) : null}
+          <Row label="Colour" hint="Past a limit the number still turns yellow or red.">
+            <ColorPicker value={pickerColor(block.config.color)} onChange={(color) => set(block, { color }, "color")} />
+          </Row>
           <Row label="Colour limits">
             <ThresholdsField value={block.config.thresholds} onChange={(thresholds) => set(block, { thresholds }, "thresholds")} unit={metric?.unit} />
           </Row>
@@ -408,9 +419,14 @@ function BlockSettings({
       );
     case "volumes":
       return (
-        <Row label="Device" hint="Volumes hidden in the device settings stay hidden.">
-          <DevicePicker devices={devices} value={block.config.deviceId} onChange={(deviceId) => set(block, { deviceId })} />
-        </Row>
+        <>
+          <Row label="Device" hint="Volumes hidden in the device settings stay hidden.">
+            <DevicePicker devices={devices} value={block.config.deviceId} onChange={(deviceId) => set(block, { deviceId })} />
+          </Row>
+          <Row label="Colour" hint="Above 75% a bar still turns yellow, above 90% red.">
+            <ColorPicker value={pickerColor(block.config.color)} onChange={(color) => set(block, { color }, "color")} />
+          </Row>
+        </>
       );
     case "containers":
       return (
@@ -443,6 +459,9 @@ function BlockSettings({
               <RangeSelect value={block.config.range} onChange={(range) => set(block, { range })} followLabel="Follow the page" />
             </Row>
           ) : null}
+          <Row label="Colour" hint="No colour draws in white.">
+            <ColorPicker value={pickerColor(block.config.color)} onChange={(color) => set(block, { color }, "color")} />
+          </Row>
         </>
       );
     case "devices":
@@ -474,6 +493,9 @@ function BlockSettings({
                 );
               })}
             </div>
+          </Row>
+          <Row label="Colour" hint="Above 75% a bar still turns yellow, above 90% red.">
+            <ColorPicker value={pickerColor(block.config.color)} onChange={(color) => set(block, { color }, "color")} />
           </Row>
         </>
       );
@@ -535,6 +557,9 @@ function BlockSettings({
           <Toggle label="12-hour clock" checked={block.config.hour12} onChange={(hour12) => set(block, { hour12 })} />
           <Toggle label="Seconds" checked={block.config.seconds} onChange={(seconds) => set(block, { seconds })} />
           <Toggle label="Date" checked={block.config.showDate} onChange={(showDate) => set(block, { showDate })} />
+          <Row label="Colour" hint="No colour draws the time in white.">
+            <ColorPicker value={pickerColor(block.config.color)} onChange={(color) => set(block, { color }, "color")} />
+          </Row>
         </>
       );
     }

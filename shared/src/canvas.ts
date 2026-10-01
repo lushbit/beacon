@@ -14,8 +14,11 @@ import type { DeviceStaticInfo, MetricSample, MetricSummary } from "./metrics.js
 
 /* ------------------------------------------------------------------ the grid */
 
-/** Columns across the page. Blocks are placed and sized in these. */
-export const CANVAS_COLUMNS = 24;
+/**
+ * Columns across the page. Blocks are placed and sized in these. Pages saved
+ * before 1.4.1 used 24 and are doubled up when read (`upgradeCanvasContent`).
+ */
+export const CANVAS_COLUMNS = 48;
 /** Height of one grid row in pixels. */
 export const CANVAS_ROW_HEIGHT = 28;
 /** Space between blocks in pixels, both ways. */
@@ -353,7 +356,14 @@ export const CANVAS_CARD_METRICS = ["cpu", "memory", "disk", "network", "tempera
 export type CanvasCardMetric = (typeof CANVAS_CARD_METRICS)[number];
 
 export interface CanvasBlockConfigs {
-  heading: { text: string; subtitle: string; size: "sm" | "md" | "lg" | "xl"; align: "left" | "center" | "right" };
+  heading: {
+    text: string;
+    subtitle: string;
+    size: "sm" | "md" | "lg" | "xl";
+    align: "left" | "center" | "right";
+    /** `#rrggbb` for the heading text, or empty for white. */
+    color?: string;
+  };
   text: {
     /** Plain text. What older pages hold, and what shows where a rich document cannot. */
     text: string;
@@ -362,7 +372,7 @@ export interface CanvasBlockConfigs {
     size: "sm" | "md" | "lg";
     align: "left" | "center" | "right";
   };
-  divider: { label: string };
+  divider: { label: string; color?: string };
   spacer: Record<string, never>;
   chart: {
     source: CanvasSource;
@@ -381,6 +391,8 @@ export interface CanvasBlockConfigs {
     range: number | null;
     thresholds: CanvasThresholds;
     caption: string;
+    /** `#rrggbb` for the number and trend line while within limits, or empty for white. */
+    color?: string;
   };
   gauge: {
     source: CanvasSource;
@@ -392,13 +404,14 @@ export interface CanvasBlockConfigs {
   };
   status: { select: CanvasDeviceSelector };
   info: { deviceId: string; fields: CanvasInfoField[] };
-  volumes: { deviceId: string };
+  /** `color` fills the bars while a volume is below its limits. */
+  volumes: { deviceId: string; color?: string };
   containers: { deviceId: string; runningOnly: boolean };
-  cores: { deviceId: string; style: "heatmap" | "bars"; range: number | null };
-  devices: { select: CanvasDeviceSelector; metrics: CanvasCardMetric[] };
+  cores: { deviceId: string; style: "heatmap" | "bars"; range: number | null; color?: string };
+  devices: { select: CanvasDeviceSelector; metrics: CanvasCardMetric[]; color?: string };
   uptime: { select: CanvasDeviceSelector; days: 30 | 60 | 90 };
   alerts: { select: CanvasDeviceSelector; limit: number };
-  clock: { timeZone: string; hour12: boolean; seconds: boolean; showDate: boolean };
+  clock: { timeZone: string; hour12: boolean; seconds: boolean; showDate: boolean; color?: string };
 }
 
 interface CanvasBlockBase<T extends CanvasBlockType> {
@@ -433,6 +446,8 @@ export interface CanvasOptions {
 
 /** What the editor changes and publishing copies: the page as visitors see it. */
 export interface CanvasContent {
+  /** Columns the blocks are placed in. Missing on pages saved with 24. */
+  grid?: typeof CANVAS_COLUMNS;
   title: string;
   description: string;
   options: CanvasOptions;
@@ -470,23 +485,37 @@ export interface CanvasBlockInfo {
  * divider from turning into a big empty box.
  */
 export const CANVAS_BLOCK_INFO: Record<CanvasBlockType, CanvasBlockInfo> = {
-  heading: { label: "Heading", description: "A title to split the page into sections.", group: "Layout", w: 24, h: 1, minW: 4, minH: 1, maxW: 24, maxH: 4, frame: false },
-  text: { label: "Text", description: "A paragraph with bold, italics and links.", group: "Layout", w: 12, h: 3, minW: 4, minH: 1, maxW: 24, maxH: 16, frame: false },
-  divider: { label: "Divider", description: "A line across the page. It can carry a label.", group: "Layout", w: 24, h: 1, minW: 4, minH: 1, maxW: 24, maxH: 1, frame: false },
-  spacer: { label: "Spacer", description: "Empty room between blocks.", group: "Layout", w: 24, h: 1, minW: 1, minH: 1, maxW: 24, maxH: 12, frame: false },
-  chart: { label: "Chart", description: "Any metric over time, for one device or many.", group: "Metrics", w: 12, h: 8, minW: 6, minH: 5, maxW: 24, maxH: 30, frame: true },
-  value: { label: "Value", description: "One metric as a big number with a trend line.", group: "Metrics", w: 4, h: 4, minW: 3, minH: 3, maxW: 12, maxH: 10, frame: true },
-  gauge: { label: "Gauge", description: "One metric as a dial or a bar.", group: "Metrics", w: 4, h: 5, minW: 3, minH: 3, maxW: 10, maxH: 12, frame: true },
-  status: { label: "Status", description: "Whether devices are online.", group: "Device", w: 6, h: 4, minW: 4, minH: 3, maxW: 24, maxH: 20, frame: true },
-  info: { label: "System info", description: "Operating system, processor, memory and more.", group: "Device", w: 8, h: 7, minW: 6, minH: 4, maxW: 24, maxH: 16, frame: true },
-  volumes: { label: "Volumes", description: "How full each volume of a device is.", group: "Device", w: 8, h: 6, minW: 5, minH: 3, maxW: 24, maxH: 24, frame: true },
-  containers: { label: "Containers", description: "The Docker containers on a device.", group: "Device", w: 10, h: 7, minW: 7, minH: 4, maxW: 24, maxH: 30, frame: true },
-  cores: { label: "CPU cores", description: "Every core over time or right now.", group: "Device", w: 12, h: 7, minW: 6, minH: 4, maxW: 24, maxH: 24, frame: true },
-  devices: { label: "Device cards", description: "A card for every device, added automatically.", group: "Fleet", w: 24, h: 8, minW: 8, minH: 5, maxW: 24, maxH: 40, frame: true },
-  uptime: { label: "Uptime history", description: "Daily availability bars like on a status page.", group: "Fleet", w: 24, h: 6, minW: 10, minH: 4, maxW: 24, maxH: 40, frame: true },
-  alerts: { label: "Active alerts", description: "Alerts firing right now.", group: "Fleet", w: 8, h: 5, minW: 5, minH: 3, maxW: 24, maxH: 24, frame: true },
-  clock: { label: "Clock", description: "The current time and date in any time zone.", group: "Layout", w: 4, h: 3, minW: 3, minH: 2, maxW: 12, maxH: 8, frame: true },
+  heading: { label: "Heading", description: "A title to split the page into sections.", group: "Layout", w: 48, h: 1, minW: 6, minH: 1, maxW: 48, maxH: 4, frame: false },
+  text: { label: "Text", description: "A paragraph with bold, italics and links.", group: "Layout", w: 20, h: 3, minW: 6, minH: 1, maxW: 48, maxH: 16, frame: false },
+  divider: { label: "Divider", description: "A line across the page. It can carry a label.", group: "Layout", w: 48, h: 1, minW: 6, minH: 1, maxW: 48, maxH: 1, frame: false },
+  spacer: { label: "Spacer", description: "Empty room between blocks.", group: "Layout", w: 48, h: 1, minW: 1, minH: 1, maxW: 48, maxH: 12, frame: false },
+  chart: { label: "Chart", description: "Any metric over time, for one device or many.", group: "Metrics", w: 16, h: 7, minW: 8, minH: 4, maxW: 48, maxH: 30, frame: true },
+  value: { label: "Value", description: "One metric as a big number with a trend line.", group: "Metrics", w: 6, h: 4, minW: 4, minH: 3, maxW: 24, maxH: 10, frame: true },
+  gauge: { label: "Gauge", description: "One metric as a dial or a bar.", group: "Metrics", w: 6, h: 4, minW: 4, minH: 3, maxW: 20, maxH: 12, frame: true },
+  status: { label: "Status", description: "Whether devices are online.", group: "Device", w: 8, h: 3, minW: 6, minH: 2, maxW: 48, maxH: 20, frame: true },
+  info: { label: "System info", description: "Operating system, processor, memory and more.", group: "Device", w: 12, h: 6, minW: 8, minH: 4, maxW: 48, maxH: 16, frame: true },
+  volumes: { label: "Volumes", description: "How full each volume of a device is.", group: "Device", w: 12, h: 5, minW: 8, minH: 3, maxW: 48, maxH: 24, frame: true },
+  containers: { label: "Containers", description: "The Docker containers on a device.", group: "Device", w: 16, h: 6, minW: 12, minH: 4, maxW: 48, maxH: 30, frame: true },
+  cores: { label: "CPU cores", description: "Every core over time or right now.", group: "Device", w: 16, h: 6, minW: 8, minH: 4, maxW: 48, maxH: 24, frame: true },
+  devices: { label: "Device cards", description: "A card for every device, added automatically.", group: "Fleet", w: 48, h: 8, minW: 12, minH: 5, maxW: 48, maxH: 40, frame: true },
+  uptime: { label: "Uptime history", description: "Daily availability bars like on a status page.", group: "Fleet", w: 48, h: 6, minW: 16, minH: 4, maxW: 48, maxH: 40, frame: true },
+  alerts: { label: "Active alerts", description: "Alerts firing right now.", group: "Fleet", w: 12, h: 5, minW: 8, minH: 3, maxW: 48, maxH: 24, frame: true },
+  clock: { label: "Clock", description: "The current time and date in any time zone.", group: "Layout", w: 6, h: 3, minW: 4, minH: 2, maxW: 24, maxH: 8, frame: true },
 };
+
+/**
+ * A page on the current grid. Pages saved before the grid went to 48 columns
+ * carry no `grid` and have every column doubled, which keeps each block at
+ * exactly the same size and place on screen.
+ */
+export function upgradeCanvasContent<T extends { grid?: number; blocks: { x: number; w: number }[] }>(content: T): T {
+  if (content.grid === CANVAS_COLUMNS) return content;
+  return {
+    ...content,
+    grid: CANVAS_COLUMNS,
+    blocks: content.blocks.map((block) => ({ ...block, x: block.x * 2, w: block.w * 2 })),
+  };
+}
 
 /**
  * A block brought within the sizes its kind allows and inside the page. Pages
@@ -598,7 +627,7 @@ export function newCanvasBlock(
 }
 
 export function emptyCanvasContent(title: string): CanvasContent {
-  return { title, description: "", options: { ...DEFAULT_CANVAS_OPTIONS }, blocks: [] };
+  return { grid: CANVAS_COLUMNS, title, description: "", options: { ...DEFAULT_CANVAS_OPTIONS }, blocks: [] };
 }
 
 /* ------------------------------------------------------------------- pages */

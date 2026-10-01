@@ -7,6 +7,7 @@ import { StatusDot } from "@/components/ui/misc";
 import { formatDuration, formatPercent, formatRate, formatTemperature } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useBlockDevices, useBlockPoll, useCanvasData } from "../data";
+import { pickerColor } from "../format";
 import { BlockFrame, BlockNote } from "./BlockFrame";
 
 function useEmptyFleet(ids: string[], block: { config: { select: { mode: string } } }): string | null {
@@ -18,7 +19,15 @@ function useEmptyFleet(ids: string[], block: { config: { select: { mode: string 
 
 /* ------------------------------------------------------------ device cards */
 
-function DeviceCard({ device, metrics }: { device: CanvasDeviceSnapshot; metrics: CanvasBlockOf<"devices">["config"]["metrics"] }) {
+function DeviceCard({
+  device,
+  metrics,
+  color,
+}: {
+  device: CanvasDeviceSnapshot;
+  metrics: CanvasBlockOf<"devices">["config"]["metrics"];
+  color?: string;
+}) {
   const { options } = useCanvasData();
   const up = device.status === "online";
   const summary = device.summary;
@@ -33,13 +42,13 @@ function DeviceCard({ device, metrics }: { device: CanvasDeviceSnapshot; metrics
       </div>
       <div className="mt-2.5 space-y-2">
         {metrics.includes("cpu") ? (
-          <Meter label="CPU" value={up ? (summary.cpuPct ?? null) : null} valueLabel={up ? formatPercent(summary.cpuPct) : "—"} />
+          <Meter label="CPU" color={color} value={up ? (summary.cpuPct ?? null) : null} valueLabel={up ? formatPercent(summary.cpuPct) : "—"} />
         ) : null}
         {metrics.includes("memory") ? (
-          <Meter label="Memory" value={up ? (summary.memPct ?? null) : null} valueLabel={up ? formatPercent(summary.memPct) : "—"} />
+          <Meter label="Memory" color={color} value={up ? (summary.memPct ?? null) : null} valueLabel={up ? formatPercent(summary.memPct) : "—"} />
         ) : null}
         {metrics.includes("disk") ? (
-          <Meter label="Disk" value={summary.diskMaxPct ?? null} valueLabel={formatPercent(summary.diskMaxPct)} />
+          <Meter label="Disk" color={color} value={summary.diskMaxPct ?? null} valueLabel={formatPercent(summary.diskMaxPct)} />
         ) : null}
         {metrics.includes("network") ? (
           <p className="flex justify-between gap-2 text-xs">
@@ -76,7 +85,7 @@ export function DevicesBlock({ block }: { block: CanvasBlockOf<"devices"> }) {
       ) : (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-3">
           {snapshots.map((device) => (
-            <DeviceCard key={device.id} device={device} metrics={block.config.metrics} />
+            <DeviceCard key={device.id} device={device} metrics={block.config.metrics} color={pickerColor(block.config.color) || undefined} />
           ))}
         </div>
       )}

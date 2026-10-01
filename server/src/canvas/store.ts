@@ -5,7 +5,7 @@ import type {
   CanvasPageDto,
   CanvasPageSummaryDto,
 } from "@beacon/shared";
-import { emptyCanvasContent } from "@beacon/shared";
+import { emptyCanvasContent, upgradeCanvasContent } from "@beacon/shared";
 import { db, parseJson } from "../db/index.js";
 import { newId, newToken } from "../utils/ids.js";
 
@@ -44,11 +44,12 @@ export function slugTaken(slug: string, exceptId?: string): boolean {
 }
 
 export function draftOf(row: CanvasRow): CanvasContent {
-  return parseJson<CanvasContent>(row.draft, emptyCanvasContent("Untitled page"));
+  return upgradeCanvasContent(parseJson<CanvasContent>(row.draft, emptyCanvasContent("Untitled page")));
 }
 
 export function liveOf(row: CanvasRow): CanvasContent | null {
-  return parseJson<CanvasContent | null>(row.live, null);
+  const live = parseJson<CanvasContent | null>(row.live, null);
+  return live ? upgradeCanvasContent(live) : null;
 }
 
 export function createCanvas(input: { slug: string; content: CanvasContent; createdBy: string | null }): CanvasRow {

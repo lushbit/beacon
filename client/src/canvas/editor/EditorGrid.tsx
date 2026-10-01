@@ -18,7 +18,7 @@ const DROPPING_ID = "__dropping__";
  */
 const SPARE_ROWS = 4;
 /** The size the + on an empty spot shows wherever it fits. The block picked keeps its own size. */
-const GHOST = { w: 4, h: 4 };
+const GHOST = { w: 6, h: 4 };
 
 interface EditorGridProps {
   blocks: CanvasBlock[];

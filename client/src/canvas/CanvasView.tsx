@@ -15,7 +15,7 @@ export function readingOrder(blocks: CanvasBlock[]): CanvasBlock[] {
 
 /**
  * A page as visitors see it. On a wide screen the blocks sit exactly where the
- * editor put them, on the same 24 column grid. On a narrow one they flow into
+ * editor put them, on the same grid. On a narrow one they flow into
  * two columns in reading order, small blocks side by side and wide ones across.
  * Either way the page fits the width of the window and only ever grows down.
  */
@@ -39,7 +39,7 @@ export function CanvasView({ blocks }: { blocks: CanvasBlock[] }) {
               key={block.id}
               className="min-h-0 min-w-0"
               style={{
-                gridColumn: block.w > 8 ? "span 2" : "span 1",
+                gridColumn: block.w > 16 ? "span 2" : "span 1",
                 gridRow: `span ${block.h}`,
               }}
             >

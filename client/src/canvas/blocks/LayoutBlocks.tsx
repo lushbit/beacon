@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { CanvasBlockOf } from "@beacon/shared";
 import { cn } from "@/lib/utils";
+import { pickerColor } from "../format";
 import { RichDocView } from "../RichDocView";
 import { BlockFrame } from "./BlockFrame";
 
@@ -18,6 +19,7 @@ export function HeadingBlock({ block }: { block: CanvasBlockOf<"heading"> }) {
           size === "lg" && "text-2xl",
           size === "xl" && "text-4xl"
         )}
+        style={{ color: pickerColor(block.config.color) || undefined }}
       >
         {text}
       </h2>
@@ -112,13 +114,16 @@ export function TextBlock({ block }: { block: CanvasBlockOf<"text"> }) {
 }
 
 export function DividerBlock({ block }: { block: CanvasBlockOf<"divider"> }) {
+  const color = pickerColor(block.config.color) || undefined;
   return (
     <BlockFrame block={block} hideTitle bodyClassName="flex items-center gap-3">
-      <span className="h-px flex-1 bg-border" />
+      <span className="h-px flex-1 bg-border" style={{ background: color }} />
       {block.config.label ? (
         <>
-          <span className="shrink-0 text-2xs font-medium uppercase tracking-wider text-muted-foreground">{block.config.label}</span>
-          <span className="h-px flex-1 bg-border" />
+          <span className="shrink-0 text-2xs font-medium uppercase tracking-wider text-muted-foreground" style={{ color }}>
+            {block.config.label}
+          </span>
+          <span className="h-px flex-1 bg-border" style={{ background: color }} />
         </>
       ) : null}
     </BlockFrame>
@@ -151,7 +156,10 @@ export function ClockBlock({ block }: { block: CanvasBlockOf<"clock"> }) {
       <div className="min-h-0 flex-1" style={{ containerType: "size" }}>
         <p
           className="flex h-full items-center font-semibold leading-none tracking-tight text-foreground tabular"
-          style={{ fontSize: `clamp(1rem, min(${showDate ? 55 : 70}cqh, ${seconds ? 15 : 22}cqw), 7rem)` }}
+          style={{
+            fontSize: `clamp(1rem, min(${showDate ? 55 : 70}cqh, ${seconds ? 15 : 22}cqw), 7rem)`,
+            color: pickerColor(block.config.color) || undefined,
+          }}
         >
           {time}
         </p>

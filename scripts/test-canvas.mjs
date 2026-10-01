@@ -230,8 +230,23 @@ async function main() {
   const badSlug = await admin("/canvas", { method: "POST", body: JSON.stringify({ title: "Bad", slug: "Not A Slug!" }) });
   check(badSlug.status === 400, "an address with spaces or capitals is refused");
 
+  // The page above is written on the old 24 column grid, with no `grid` field.
+  check(page.draft.grid === 48, "a page saved on the old grid comes back on the 48 column grid");
+  check(page.draft.blocks[1].x === 8 && page.draft.blocks[1].w === 24, "its blocks keep their place by doubling every column");
+
   console.log("Checking what the editor may save…");
   {
+    const colored = structuredClone(page.draft);
+    colored.blocks[0].config.color = "#3987E5";
+    const saved = await admin(`/canvas/${page.id}/draft`, { method: "PUT", body: JSON.stringify({ content: colored }) });
+    const reread = await (await admin(`/canvas/${page.id}`)).json();
+    check(saved.ok && reread.draft.blocks[0].config.color === "#3987e5", "a value block keeps its colour");
+    check(reread.draft.blocks[1].x === 8, "a page on the new grid is not doubled again");
+    colored.blocks[0].config.color = "blue; x";
+    const badColor = await admin(`/canvas/${page.id}/draft`, { method: "PUT", body: JSON.stringify({ content: colored }) });
+    check(badColor.status === 400, "a colour that is not a colour is refused");
+    await admin(`/canvas/${page.id}/draft`, { method: "PUT", body: JSON.stringify({ content }) });
+
     const wide = structuredClone(content);
     wide.blocks[0].x = 22;
     const res = await admin(`/canvas/${page.id}/draft`, { method: "PUT", body: JSON.stringify({ content: wide }) });

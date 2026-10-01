@@ -179,54 +179,54 @@ export function templateContent(template: CanvasTemplateId, title: string, devic
   };
 
   if (template === "server") {
-    add("heading", { x: 0, y: 0, w: 24, h: 1 }, (block) => {
+    add("heading", { x: 0, y: 0, w: 48, h: 1 }, (block) => {
       if (block.type === "heading") block.config.text = device?.name ?? "Server";
     });
-    add("status", { x: 0, y: 1, w: 6, h: 4 }, (block) => (block.title = ""));
-    add("value", { x: 6, y: 1, w: 6, h: 4 }, (block) => metric(block, "cpu", "CPU"));
-    add("value", { x: 12, y: 1, w: 6, h: 4 }, (block) => metric(block, "memory", "Memory"));
-    add("value", { x: 18, y: 1, w: 6, h: 4 }, (block) => metric(block, "diskSpace", "Disk"));
-    add("chart", { x: 0, y: 5, w: 12, h: 8 }, (block) => metric(block, "cpu", "CPU usage"));
-    add("chart", { x: 12, y: 5, w: 12, h: 8 }, (block) => metric(block, "memory", "Memory usage"));
-    add("chart", { x: 0, y: 13, w: 12, h: 8 }, (block) => metric(block, "network", "Network"));
-    add("chart", { x: 12, y: 13, w: 12, h: 8 }, (block) => metric(block, "load", "Load average"));
-    add("info", { x: 0, y: 21, w: 12, h: 7 });
-    add("volumes", { x: 12, y: 21, w: 12, h: 7 });
+    add("status", { x: 0, y: 1, w: 12, h: 4 }, (block) => (block.title = ""));
+    add("value", { x: 12, y: 1, w: 12, h: 4 }, (block) => metric(block, "cpu", "CPU"));
+    add("value", { x: 24, y: 1, w: 12, h: 4 }, (block) => metric(block, "memory", "Memory"));
+    add("value", { x: 36, y: 1, w: 12, h: 4 }, (block) => metric(block, "diskSpace", "Disk"));
+    add("chart", { x: 0, y: 5, w: 24, h: 8 }, (block) => metric(block, "cpu", "CPU usage"));
+    add("chart", { x: 24, y: 5, w: 24, h: 8 }, (block) => metric(block, "memory", "Memory usage"));
+    add("chart", { x: 0, y: 13, w: 24, h: 8 }, (block) => metric(block, "network", "Network"));
+    add("chart", { x: 24, y: 13, w: 24, h: 8 }, (block) => metric(block, "load", "Load average"));
+    add("info", { x: 0, y: 21, w: 24, h: 7 });
+    add("volumes", { x: 24, y: 21, w: 24, h: 7 });
   } else if (template === "status") {
     // The page's own title bar carries the name, so the blocks start straight away.
     content.description = "Live availability of our machines.";
     const fleetWide = (block: CanvasBlock) => {
       if (block.type === "status" || block.type === "alerts" || block.type === "uptime") block.config.select = { mode: "all", tag: "", ids: [] };
     };
-    add("status", { x: 0, y: 0, w: 12, h: 8 }, fleetWide);
-    add("alerts", { x: 12, y: 0, w: 12, h: 8 }, fleetWide);
-    add("uptime", { x: 0, y: 8, w: 24, h: 10 }, fleetWide);
+    add("status", { x: 0, y: 0, w: 24, h: 8 }, fleetWide);
+    add("alerts", { x: 24, y: 0, w: 24, h: 8 }, fleetWide);
+    add("uptime", { x: 0, y: 8, w: 48, h: 10 }, fleetWide);
   } else if (template === "wall") {
     content.options.maxWidth = 0;
     content.options.showHeader = false;
-    add("clock", { x: 0, y: 0, w: 6, h: 4 });
-    add("value", { x: 6, y: 0, w: 6, h: 4 }, (block) => {
+    add("clock", { x: 0, y: 0, w: 12, h: 4 });
+    add("value", { x: 12, y: 0, w: 12, h: 4 }, (block) => {
       metric(block, "cpu", "Average CPU");
       fleet(block, "avg");
     });
-    add("value", { x: 12, y: 0, w: 6, h: 4 }, (block) => {
+    add("value", { x: 24, y: 0, w: 12, h: 4 }, (block) => {
       metric(block, "memory", "Average memory");
       fleet(block, "avg");
     });
-    add("value", { x: 18, y: 0, w: 6, h: 4 }, (block) => {
+    add("value", { x: 36, y: 0, w: 12, h: 4 }, (block) => {
       metric(block, "network", "Total download");
       fleet(block, "sum");
       if (block.type === "value") block.config.source.field = "netRxBps";
     });
-    add("chart", { x: 0, y: 4, w: 12, h: 9 }, (block) => {
+    add("chart", { x: 0, y: 4, w: 24, h: 9 }, (block) => {
       metric(block, "cpu", "CPU by device");
       fleet(block, "avg", true);
     });
-    add("chart", { x: 12, y: 4, w: 12, h: 9 }, (block) => {
+    add("chart", { x: 24, y: 4, w: 24, h: 9 }, (block) => {
       metric(block, "memory", "Memory by device");
       fleet(block, "avg", true);
     });
-    add("devices", { x: 0, y: 13, w: 24, h: 9 });
+    add("devices", { x: 0, y: 13, w: 48, h: 9 });
   }
 
   content.blocks = blocks;

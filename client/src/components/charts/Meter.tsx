@@ -9,6 +9,8 @@ interface MeterProps {
   sublabel?: string;
   /** "md" is the roomier variant used where a meter is the main thing on show. */
   size?: "sm" | "md";
+  /** Fill below the warning level. Past it the severity colour still shows. */
+  color?: string;
   className?: string;
 }
 
@@ -16,9 +18,9 @@ interface MeterProps {
  * Fill carries severity; the track is the same hue dimmed into the surface, so
  * state reads across the whole bar rather than only where it is filled.
  */
-export function Meter({ value, valueLabel, label, sublabel, size = "sm", className }: MeterProps) {
+export function Meter({ value, valueLabel, label, sublabel, size = "sm", color, className }: MeterProps) {
   const level = levelOf(value);
-  const fill = LEVEL_FILL[level];
+  const fill = level === "ok" && color ? color : LEVEL_FILL[level];
   const percent = value === null ? 0 : Math.max(0, Math.min(100, value));
 
   return (

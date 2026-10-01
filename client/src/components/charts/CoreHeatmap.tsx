@@ -9,6 +9,8 @@ interface CoreHeatmapProps {
   cores: number;
   from: number;
   to: number;
+  /** The shade of a busy core. Defaults to the neutral ink. */
+  color?: string;
   className?: string;
 }
 
@@ -22,7 +24,7 @@ const MARGIN = { top: 4, right: 18, bottom: 22, left: 48 };
  * a core pinned at full load is a bright stripe, and work moving between cores
  * shows as the stripe changing rows.
  */
-export function CoreHeatmap({ points, cores, from, to, className }: CoreHeatmapProps) {
+export function CoreHeatmap({ points, cores, from, to, color = "hsl(var(--series-ink))", className }: CoreHeatmapProps) {
   const [ref, width] = useChartSize<HTMLDivElement>();
   const [hover, setHover] = useState<{ index: number; core: number } | null>(null);
 
@@ -107,7 +109,7 @@ export function CoreHeatmap({ points, cores, from, to, className }: CoreHeatmapP
                     width={cell.width}
                     height={Math.max(1, rowHeight - rowGap)}
                     rx={rowHeight >= 8 && cell.width >= 4 ? 2 : 0}
-                    fill="hsl(var(--series-ink))"
+                    fill={color}
                     // A floor keeps an idle core visible as a row rather than a gap.
                     fillOpacity={0.06 + (load / 100) * 0.94}
                   />
@@ -196,15 +198,14 @@ export function CoreHeatmap({ points, cores, from, to, className }: CoreHeatmapP
 }
 
 /** The key to the shading, drawn beside the chart's title. */
-export function CoreHeatmapScale({ className }: { className?: string }) {
+export function CoreHeatmapScale({ color = "hsl(var(--series-ink))", className }: { color?: string; className?: string }) {
   return (
     <div className={cn("flex items-center gap-1.5 text-2xs text-muted-foreground", className)}>
       <span>0%</span>
       <span
         className="h-2 w-16 rounded-full"
         style={{
-          background:
-            "linear-gradient(to right, hsl(var(--series-ink) / 0.06), hsl(var(--series-ink) / 1))",
+          background: `linear-gradient(to right, color-mix(in srgb, ${color} 6%, transparent), ${color})`,
         }}
         aria-hidden
       />

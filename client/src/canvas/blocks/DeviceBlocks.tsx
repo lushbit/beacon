@@ -9,6 +9,7 @@ import { StatusDot } from "@/components/ui/misc";
 import { formatBytes, formatDateTime, formatDuration, formatPercent, platformName } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useBlockDevices, useBlockRange, useBlockSeries, useCanvasData } from "../data";
+import { pickerColor } from "../format";
 import { useBoxSize } from "../useBoxSize";
 import { BlockFrame, BlockNote } from "./BlockFrame";
 
@@ -196,6 +197,7 @@ export function VolumesBlock({ block }: { block: CanvasBlockOf<"volumes"> }) {
                 label={volume.mount}
                 value={volume.usePct}
                 valueLabel={formatPercent(volume.usePct)}
+                color={pickerColor(block.config.color) || undefined}
                 sublabel={`${formatBytes(volume.usedBytes, options.unitBase)} of ${formatBytes(volume.sizeBytes, options.unitBase)}${volume.type ? ` · ${volume.type}` : ""}`}
               />
             </li>
@@ -277,11 +279,12 @@ export function CoresBlock({ block }: { block: CanvasBlockOf<"cores"> }) {
   const { series } = useBlockSeries(block, range, heatmap && missing === null);
   const perCore = snapshots[0]?.perCore ?? [];
   const cores = Math.max(perCore.length, series?.keys.length ?? 0);
+  const color = pickerColor(block.config.color) || undefined;
 
   return (
     <BlockFrame
       block={block}
-      aside={heatmap && !missing ? <CoreHeatmapScale /> : undefined}
+      aside={heatmap && !missing ? <CoreHeatmapScale color={color} /> : undefined}
       bodyClassName={cn("overflow-y-auto scroll-slim", heatmap && block.frame && "px-1")}
     >
       {missing ? (
@@ -289,10 +292,10 @@ export function CoresBlock({ block }: { block: CanvasBlockOf<"cores"> }) {
       ) : cores === 0 ? (
         <BlockNote icon={Cpu} text="No per-core readings yet." />
       ) : heatmap ? (
-        <CoreHeatmap points={series?.points ?? []} cores={cores} from={series?.from ?? Date.now() - range * 1000} to={series?.to ?? Date.now()} />
+        <CoreHeatmap points={series?.points ?? []} cores={cores} color={color} from={series?.from ?? Date.now() - range * 1000} to={series?.to ?? Date.now()} />
       ) : (
         <div className="flex h-full items-end">
-          <CoreBars cores={perCore} className="w-full" />
+          <CoreBars cores={perCore} color={color} className="w-full" />
         </div>
       )}
     </BlockFrame>

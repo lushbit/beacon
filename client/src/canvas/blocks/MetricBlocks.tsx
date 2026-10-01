@@ -6,7 +6,7 @@ import { ChartLegend, TimeChart, type ChartMarker, type ChartSeries } from "@/co
 import { aggregate, bucketFor, linePaths, linearScale, peakOf } from "@/components/charts/chartUtils";
 import { cn } from "@/lib/utils";
 import { useBlockDevices, useBlockRange, useBlockSeries, useCanvasData } from "../data";
-import { LEVEL_TEXT, MULTI_SERIES, drawColor, formatValue, unitFormatter } from "../format";
+import { LEVEL_TEXT, MULTI_SERIES, drawColor, formatValue, pickerColor, unitFormatter } from "../format";
 import { useBoxSize } from "../useBoxSize";
 import { BlockFrame, BlockNote } from "./BlockFrame";
 
@@ -153,6 +153,9 @@ export function ValueBlock({ block }: { block: CanvasBlockOf<"value"> }) {
     block.title || (metric ? `${metric.label}${metric.fields.length > 1 ? ` ${metric.fields.find((field) => field.key === sourceField(metric, source))?.label.toLowerCase() ?? ""}` : ""}` : "");
   const caption = block.config.caption || sourceCaption(block, ids, snapshots[0]?.name);
   const offline = source.target.kind === "device" && snapshots[0]?.status !== "online";
+  // The chosen colour while the reading is fine, the limit's colour past one.
+  const accent = pickerColor(block.config.color);
+  const numberColor = level === "ok" && accent ? accent : LEVEL_TEXT[level];
 
   return (
     <BlockFrame block={block} hideTitle bodyClassName="flex flex-col">
@@ -165,7 +168,7 @@ export function ValueBlock({ block }: { block: CanvasBlockOf<"value"> }) {
             <p
               className="flex h-full items-center font-semibold leading-none tracking-tight tabular"
               style={{
-                color: offline ? "hsl(var(--muted-foreground))" : LEVEL_TEXT[level],
+                color: offline ? "hsl(var(--muted-foreground))" : numberColor,
                 fontSize: "clamp(1rem, min(62cqh, 19cqw), 6rem)",
               }}
             >
@@ -180,7 +183,7 @@ export function ValueBlock({ block }: { block: CanvasBlockOf<"value"> }) {
           ) : null}
           {wantSpark && series && block.h >= 3 ? (
             <div className="mt-2 h-[28%] min-h-[18px] shrink-0">
-              <Sparkline series={series} color={level === "ok" ? LEVEL_FILL.ok : LEVEL_FILL[level]} clamp={metric?.max} />
+              <Sparkline series={series} color={level === "ok" ? drawColor(block.config.color) : LEVEL_FILL[level]} clamp={metric?.max} />
             </div>
           ) : null}
         </>
