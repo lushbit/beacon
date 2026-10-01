@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import GridLayout, { type Layout } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
 import { Copy, Plus, Trash2 } from "lucide-react";
@@ -68,6 +68,7 @@ export function EditorGrid({
   const [ref, size] = useBoxSize<HTMLDivElement>();
   const [ghost, setGhost] = useState<{ x: number; y: number; w: number; h: number; col: number; row: number } | null>(null);
   const [interacting, setInteracting] = useState(false);
+  const patternId = `canvas-grid-${useId().replace(/:/g, "")}`;
 
   const width = size.width;
   const colWidth = width > 0 ? (width - CANVAS_GAP * (CANVAS_COLUMNS - 1)) / CANVAS_COLUMNS : 0;
@@ -118,23 +119,8 @@ export function EditorGrid({
     );
   };
 
-  /*
-   * A dot wherever four cells meet, in the middle of the gap between them, and
-   * along the outer edges too. Every block's corners sit just inside four dots,
-   * so the dots show exactly where a block can start and end.
-   */
   const tileWidth = colWidth + CANVAS_GAP;
   const tileHeight = CANVAS_ROW_HEIGHT + CANVAS_GAP;
-  const dots =
-    colWidth > 0
-      ? {
-          backgroundImage: "radial-gradient(circle, hsl(0 0% 100% / 0.22) 1.25px, transparent 1.75px)",
-          backgroundSize: `${tileWidth}px ${tileHeight}px`,
-          // The layer starts half a gap before the grid, so its tile corners,
-          // where the dots sit, land in the middle of each gap.
-          backgroundPosition: `${-tileWidth / 2}px ${-tileHeight / 2}px`,
-        }
-      : {};
 
   return (
     <div
@@ -159,11 +145,46 @@ export function EditorGrid({
         }
       }}
     >
-      <div
-        aria-hidden
-        className="pointer-events-none absolute"
-        style={{ left: -CANVAS_GAP / 2, top: -CANVAS_GAP / 2, width: width + CANVAS_GAP, height: height + CANVAS_GAP, ...dots }}
-      />
+      {/*
+        Graph paper, in the style of the shadcn grid pattern: one square per
+        grid cell, its lines running through the middle of the gaps, so every
+        block sits neatly inside the lines it snaps to. The layer starts half a
+        gap outside the grid so the outer edges get their lines too.
+      */}
+      {colWidth > 0 ? (
+        <svg
+          aria-hidden
+          className="pointer-events-none absolute"
+          style={{ left: -CANVAS_GAP / 2, top: -CANVAS_GAP / 2 }}
+          width={width + CANVAS_GAP}
+          height={height + CANVAS_GAP}
+        >
+          <defs>
+            <pattern id={patternId} width={tileWidth} height={tileHeight} patternUnits="userSpaceOnUse">
+              <path d={`M.5 ${tileHeight}V.5H${tileWidth}`} fill="none" stroke="hsl(0 0% 100% / 0.07)" strokeWidth={1} />
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill={`url(#${patternId})`} />
+          {/* The closing lines on the right and at the bottom. */}
+          <path
+            d={`M${width + CANVAS_GAP - 0.5} 0V${height + CANVAS_GAP - 0.5}H0`}
+            fill="none"
+            stroke="hsl(0 0% 100% / 0.07)"
+            strokeWidth={1}
+          />
+          {ghost ? (
+            // The cells the new block would cover, filled in like the
+            // highlighted squares of the pattern.
+            <rect
+              x={ghost.x * tileWidth + 1}
+              y={ghost.y * tileHeight + 1}
+              width={ghost.w * tileWidth - 1}
+              height={ghost.h * tileHeight - 1}
+              fill="hsl(0 0% 100% / 0.035)"
+            />
+          ) : null}
+        </svg>
+      ) : null}
       {ghost && colWidth > 0 ? (
         // Only drawn. The pointer goes straight through to the grid below, so the
         // outline can follow it every step instead of hiding the next move.
