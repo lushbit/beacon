@@ -5,13 +5,17 @@ import cookieParser from "cookie-parser";
 import { BEACON_VERSION } from "@beacon/shared";
 import express from "express";
 import { config } from "./config.js";
-import { loadSession, requireAuth, verifyOrigin } from "./auth/middleware.js";
+import { contentSecurityPolicy } from "./csp.js";
+import { loadSession, requireAdmin, requireAuth, verifyOrigin } from "./auth/middleware.js";
 import { rememberDashboardOrigin } from "./dashboardOrigin.js";
 import { attachHub } from "./hub/index.js";
 import { startJobs } from "./jobs.js";
 import { startUpdateChecks } from "./updates.js";
 import { alertsRouter, rulesRouter } from "./routes/alerts.js";
 import { authRouter } from "./routes/auth.js";
+import { canvasAdminRouter, canvasBadgeRouter, canvasPublicRouter } from "./routes/canvas.js";
+import { frameAncestors } from "./canvas/access.js";
+import { getCanvasBySlug } from "./canvas/store.js";
 import { channelsRouter } from "./routes/channels.js";
 import { agentRouter } from "./routes/agent.js";
 import { devicesRouter, enrollRouter } from "./routes/devices.js";
@@ -33,22 +37,7 @@ app.use((_req, res, next) => {
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "no-referrer");
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-  res.setHeader(
-    "Content-Security-Policy",
-    [
-      "default-src 'self'",
-      "base-uri 'self'",
-      "frame-ancestors 'none'",
-      "object-src 'none'",
-      "script-src 'self'",
-      "style-src 'self' 'unsafe-inline'",
-      // Allow inline data/blob images (generated avatars, chart exports).
-      "img-src 'self' data: blob:",
-      "font-src 'self' data:",
-      "connect-src 'self' ws: wss:",
-      "form-action 'self'",
-    ].join("; ")
-  );
+  res.setHeader("Content-Security-Policy", contentSecurityPolicy());
   next();
 });
 
@@ -72,6 +61,7 @@ app.use("/api", (_req, res, next) => {
 });
 
 app.use(downloadsRouter);
+app.use(canvasBadgeRouter);
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, version: BEACON_VERSION, time: Date.now() });
@@ -88,6 +78,11 @@ app.use("/api/channels", requireAuth, channelsRouter);
 app.use("/api/settings", requireAuth, settingsRouter);
 app.use("/api/version", requireAuth, versionRouter);
 app.use("/api/agent", requireAuth, agentRouter);
+app.use("/api/canvas", requireAuth, requireAdmin, canvasAdminRouter);
+// Canvas pages are read by people without an account, so this is the one part
+// of the API that never asks for a session. What it may hand out is decided
+// page by page in canvas/access.ts.
+app.use("/api/public/canvas", canvasPublicRouter);
 
 app.use("/api", (_req, res) => {
   res.status(404).json({ error: "Unknown endpoint." });
@@ -108,6 +103,15 @@ if (fs.existsSync(indexHtml)) {
       },
     })
   );
+  // A Canvas page may be shown inside another site's frame when its admin
+  // allowed that, so its shell carries that page's own frame-ancestors.
+  app.get(["/p/:slug", "/p/:slug/*"], (req, res) => {
+    const ancestors = frameAncestors(getCanvasBySlug(String(req.params.slug).toLowerCase()));
+    res.setHeader("Content-Security-Policy", contentSecurityPolicy(ancestors));
+    if (ancestors !== "'none'") res.removeHeader("X-Frame-Options");
+    res.setHeader("Cache-Control", "no-store");
+    res.sendFile(indexHtml);
+  });
   app.get("*", (_req, res) => {
     res.setHeader("Cache-Control", "no-store");
     res.sendFile(indexHtml);

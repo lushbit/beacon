@@ -224,3 +224,40 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/*
+ * The Canvas editor's grid. The grid library ships light-theme handles and a
+ * red drop placeholder, so both are redrawn here in the dashboard's greys.
+ */
+@layer components {
+  .canvas-editor .react-grid-item {
+    cursor: grab;
+  }
+
+  .canvas-editor .react-grid-item.react-draggable-dragging {
+    cursor: grabbing;
+    z-index: 20;
+  }
+
+  .canvas-editor .react-grid-item.react-grid-placeholder {
+    background: hsl(var(--foreground) / 0.06);
+    border: 1px dashed hsl(var(--foreground) / 0.45);
+    border-radius: var(--radius);
+    opacity: 1;
+  }
+
+  .canvas-editor .react-grid-item > .react-resizable-handle {
+    opacity: 0;
+    transition: opacity 150ms ease;
+    z-index: 5;
+  }
+
+  .canvas-editor .react-grid-item:hover > .react-resizable-handle,
+  .canvas-editor .react-grid-item.resizing > .react-resizable-handle {
+    opacity: 1;
+  }
+
+  .canvas-editor .react-grid-item > .react-resizable-handle::after {
+    border-color: hsl(var(--foreground) / 0.75);
+  }
+}

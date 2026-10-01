@@ -38,6 +38,11 @@ end a process straight from the dashboard.
 internet. If a new build fails to start, the agent restores the old one by
 itself, so a bad update cannot leave a machine unwatched.
 
+**🖼️ Beacon Canvas** - Build your own pages from blocks on a grid: charts,
+big numbers, gauges, status, uptime bars and more, for one machine or your
+whole fleet. Publish them for anyone, behind a password or a secret link, and
+show them on other sites.
+
 **👥 Users and roles** - Admins can change things and viewers can only look.
 Everything that matters lands in an audit log.
 
@@ -200,6 +205,48 @@ Where they get sent, set under **Settings**:
 
 Each one has its own minimum severity, so you can send everything to ntfy but
 only wake Discord for critical alerts. There is a test button next to each.
+
+## 🖼️ Beacon Canvas
+
+Canvas pages show your stats to people without an account, like a status page
+or a wall display. Admins build them under **Canvas** in the sidebar.
+
+A page is a grid of blocks. Drag a block in from the library, or click an empty
+spot on the grid and pick one. Drag blocks to move them and pull their edges to
+resize them. Blocks pack upwards on their own, and a Spacer holds room open
+where you want a gap. The editor saves as you go, and visitors only see a
+change once you press **Publish**. Open copies of the page then update without
+a reload.
+
+| Block | What it shows |
+| --- | --- |
+| **Chart** | Any metric over time, for one machine, a fleet total or one line per machine |
+| **Value** | One metric as a big number, with a trend line and colour limits |
+| **Gauge** | One metric as a dial or a bar |
+| **Status** | Whether machines are online, and when they were last seen |
+| **System info** | Operating system, processor, memory, hardware and more |
+| **Volumes, Containers, CPU cores** | The same lists and heatmap as the device page |
+| **Device cards** | A card for every machine, or every machine with a tag |
+| **Uptime history** | Daily availability bars for up to 90 days |
+| **Active alerts** | What is firing right now, or an all clear |
+| **Heading, Text, Divider, Spacer, Clock** | Structure for the page |
+
+Every page has its own address, `/p/<name>`, and its own rule for who can open
+it: anyone, only people with a secret link, anyone with a password, or only
+people signed in to Beacon. A page can also be switched off without deleting
+it.
+
+Visitors only receive what the page's blocks show. Hostnames, serial numbers,
+addresses and process lists never leave the hub.
+
+To show a page on another site, allow that site under **Share** and copy the
+embed code. Single blocks can be embedded on their own. Add `?kiosk` to a page
+address to hide its title bar, and `&theme=transparent` to let the site behind
+it show through. Value, gauge and status blocks on public pages also have a
+live badge image at `/p/<name>/badge/<block>.svg`.
+
+Pages can be exported to a file and imported again, on the same hub or another
+one.
 
 ## 🔄 Updating
 

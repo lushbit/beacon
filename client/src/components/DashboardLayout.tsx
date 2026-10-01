@@ -6,6 +6,7 @@ import {
   Bell,
   ExternalLink,
   Gauge,
+  LayoutDashboard,
   LogOut,
   Menu,
   PanelLeftClose,
@@ -117,6 +118,7 @@ interface NavItem {
 const NAVIGATE: NavItem[] = [
   { to: "/", label: "Overview", icon: Gauge },
   { to: "/alerts", label: "Alerts", icon: Bell },
+  { to: "/canvas", label: "Canvas", icon: LayoutDashboard, adminOnly: true },
 ];
 
 const MANAGE: NavItem[] = [

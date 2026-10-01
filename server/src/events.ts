@@ -13,6 +13,8 @@ export interface BeaconEvents {
     log: string[];
     inventory?: OsUpdateInventory | null;
   };
+  /** A Canvas page was published, changed or removed, so open copies have to reload. */
+  canvas_changed: { pageId: string };
 }
 
 /** Thin typed wrapper — composition avoids fighting EventEmitter's own overloads. */

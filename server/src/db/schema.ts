@@ -291,6 +291,28 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts DESC);
 
+/*
+ * Beacon Canvas pages. The editor works on \`draft\`, and publishing copies it to
+ * \`live\`, which is all a visitor ever sees. Both hold the page's content as
+ * JSON. \`live\` stays NULL until the first publish.
+ */
+CREATE TABLE IF NOT EXISTS canvas_pages (
+  id            TEXT PRIMARY KEY,
+  slug          TEXT NOT NULL COLLATE NOCASE UNIQUE,
+  access        TEXT NOT NULL DEFAULT 'public',
+  enabled       INTEGER NOT NULL DEFAULT 1,
+  share_key     TEXT NOT NULL,
+  password_hash TEXT,
+  embed         TEXT NOT NULL DEFAULT 'none',
+  embed_origins TEXT NOT NULL DEFAULT '[]',
+  draft         TEXT NOT NULL,
+  live          TEXT,
+  created_by    TEXT,
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL,
+  published_at  INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS app_settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL

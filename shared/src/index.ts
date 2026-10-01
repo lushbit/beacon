@@ -3,3 +3,4 @@ export * from "./metrics.js";
 export * from "./protocol.js";
 export * from "./api.js";
 export * from "./osUpdates.js";
+export * from "./canvas.js";

@@ -5,6 +5,8 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { startModalWatchdog } from "@/lib/modalWatchdog";
 import { useAuth } from "@/context/AuthContext";
 import { AlertsPage } from "@/pages/Alerts";
+import { CanvasEditorPage } from "@/pages/CanvasEditor";
+import { CanvasPagesPage } from "@/pages/CanvasPages";
 import { DeviceDetailPage } from "@/pages/DeviceDetail";
 import { LoginPage } from "@/pages/Login";
 import { OverviewPage } from "@/pages/Overview";
@@ -20,6 +22,20 @@ function Splash() {
       </span>
     </div>
   );
+}
+
+/**
+ * Signing in from a Canvas page that is only shared with accounts sends people
+ * back to that page. Only addresses under /p/ are followed, so the link cannot
+ * be used to send someone to another site.
+ */
+function AfterSignIn() {
+  const next = new URLSearchParams(window.location.search).get("next") ?? "";
+  if (/^\/p\/[a-z0-9-]+(\/|\?|$)/i.test(next)) {
+    window.location.replace(next);
+    return <Splash />;
+  }
+  return <Navigate to="/" replace />;
 }
 
 export default function App() {
@@ -52,13 +68,15 @@ export default function App() {
 
   return (
     <Routes>
-      <Route path="/login" element={<Navigate to="/" replace />} />
+      <Route path="/login" element={<AfterSignIn />} />
       <Route path="/setup" element={<Navigate to="/" replace />} />
       <Route element={<DashboardLayout />}>
         <Route path="/" element={<OverviewPage />} />
         <Route path="/devices/:id" element={<DeviceDetailPage />} />
         <Route path="/alerts" element={<AlertsPage />} />
         <Route path="/users" element={isAdmin ? <UsersPage /> : <Navigate to="/" replace />} />
+        <Route path="/canvas" element={isAdmin ? <CanvasPagesPage /> : <Navigate to="/" replace />} />
+        <Route path="/canvas/:id" element={isAdmin ? <CanvasEditorPage /> : <Navigate to="/" replace />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

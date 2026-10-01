@@ -39,6 +39,13 @@ steps:
     commands:
       - node scripts/test-live.mjs
 
+  # Canvas pages answer people without an account, so check what a visitor
+  # can reach under each access rule, and that nothing extra leaks out.
+  - name: Canvas pages
+    image: node:20
+    commands:
+      - node scripts/test-canvas.mjs
+
   # Three sources can report the same card and none of them name it the same
   # way, so check a reading still lands on the adapter it belongs to.
   - name: GPU matching

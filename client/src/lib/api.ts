@@ -1,5 +1,15 @@
 import type {
   AgentManifestDto,
+  CanvasAccess,
+  CanvasAlertsDto,
+  CanvasBlock,
+  CanvasContent,
+  CanvasDeviceMeta,
+  CanvasEmbed,
+  CanvasPageDto,
+  CanvasPageSummaryDto,
+  CanvasSeriesDto,
+  CanvasUptimeDto,
   AgentUpdateStateDto,
   AlertDto,
   AlertRuleDto,
@@ -186,4 +196,32 @@ export const api = {
   storage: () => request<{ devices: number; rows: number; sizeBytes: number }>("/settings/storage"),
   pruneStorage: () => post<{ devices: number; rows: number; sizeBytes: number }>("/settings/storage/prune"),
   audit: (limit = 200) => request<AuditEntryDto[]>(`/settings/audit${query({ limit })}`),
+
+  canvasPages: () => request<CanvasPageSummaryDto[]>("/canvas"),
+  canvasPage: (id: string) => request<CanvasPageDto>(`/canvas/${id}`),
+  createCanvasPage: (body: { title: string; slug: string; content?: CanvasContent }) =>
+    post<CanvasPageDto>("/canvas", body),
+  updateCanvasSettings: (
+    id: string,
+    body: {
+      slug?: string;
+      access?: CanvasAccess;
+      enabled?: boolean;
+      password?: string | null;
+      regenerateKey?: boolean;
+      embed?: CanvasEmbed;
+      embedOrigins?: string[];
+    }
+  ) => patch<CanvasPageDto>(`/canvas/${id}`, body),
+  saveCanvasDraft: (id: string, content: CanvasContent) =>
+    request<CanvasPageSummaryDto>(`/canvas/${id}/draft`, { method: "PUT", body: JSON.stringify({ content }) }),
+  publishCanvas: (id: string) => post<CanvasPageDto>(`/canvas/${id}/publish`),
+  discardCanvasDraft: (id: string) => post<CanvasPageDto>(`/canvas/${id}/discard`),
+  duplicateCanvas: (id: string) => post<CanvasPageDto>(`/canvas/${id}/duplicate`),
+  deleteCanvas: (id: string) => remove<{ ok: true }>(`/canvas/${id}`),
+  canvasDevices: () => request<CanvasDeviceMeta[]>("/canvas/devices"),
+  canvasPreviewSeries: (block: CanvasBlock, range: number) =>
+    post<CanvasSeriesDto>("/canvas/preview/series", { block, range }),
+  canvasPreviewUptime: (block: CanvasBlock, tz: number) => post<CanvasUptimeDto>("/canvas/preview/uptime", { block, tz }),
+  canvasPreviewAlerts: (block: CanvasBlock) => post<CanvasAlertsDto>("/canvas/preview/alerts", { block }),
 };

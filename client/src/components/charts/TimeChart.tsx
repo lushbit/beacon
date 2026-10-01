@@ -32,7 +32,21 @@ interface TimeChartProps {
    * The hover names the state with `band.inside` or `band.outside`.
    */
   band?: { spans: { from: number; to: number }[]; inside: string; outside: string };
+  /** Moments to mark with a line, such as alerts raised in the range. */
+  markers?: ChartMarker[];
 }
+
+export interface ChartMarker {
+  ts: number;
+  label: string;
+  tone: "warning" | "danger" | "info";
+}
+
+const MARKER_COLOR: Record<ChartMarker["tone"], string> = {
+  warning: "hsl(var(--warning))",
+  danger: "hsl(var(--danger))",
+  info: "hsl(var(--info))",
+};
 
 const MARGIN = { top: 12, right: 18, bottom: 22, left: 48 };
 
@@ -50,6 +64,7 @@ export function TimeChart({
   className,
   emptyLabel = "No data for this range yet.",
   band,
+  markers,
 }: TimeChartProps) {
   const [ref, width] = useChartSize<HTMLDivElement>();
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
@@ -244,6 +259,18 @@ export function TimeChart({
               );
             })}
 
+            {markers?.map((marker, index) => {
+              if (marker.ts < from || marker.ts > to) return null;
+              const left = x(marker.ts);
+              const color = MARKER_COLOR[marker.tone];
+              return (
+                <g key={`marker-${index}`} className="pointer-events-none">
+                  <line x1={left} x2={left} y1={0} y2={innerHeight} stroke={color} strokeWidth={1} strokeDasharray="3 3" opacity={0.75} />
+                  <path d={`M${left - 4} 0 L${left + 4} 0 L${left} 6 Z`} fill={color} />
+                </g>
+              );
+            })}
+
             {paths.map(({ item, segments }) => (
               <g key={item.key}>
                 {segments.map((segment, index) => (
@@ -349,6 +376,15 @@ export function TimeChart({
               </p>
             );
           })}
+          {markers
+            ?.filter((marker) => Math.abs(marker.ts - hovered.ts) <= Math.max(bucketMs, (to - from) / 80))
+            .slice(0, 3)
+            .map((marker, index) => (
+              <p key={index} className="mt-1 flex items-center gap-1.5 border-t border-border/60 pt-1 text-muted-foreground">
+                <span className="h-2 w-2 rotate-45" style={{ background: MARKER_COLOR[marker.tone] }} aria-hidden />
+                {marker.label}
+              </p>
+            ))}
           {band ? (
             <p className="mt-1 flex items-center gap-1.5 border-t border-border/60 pt-1 text-muted-foreground">
               <span
