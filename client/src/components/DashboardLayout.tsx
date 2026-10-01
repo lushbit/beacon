@@ -176,8 +176,8 @@ function SidebarLink({
 }
 
 /**
- * Collapsed, the heading would not fit, so a row of dots stands in for it. The
- * dots sit in the same box as the text, so every link below stays at the same
+ * Collapsed, the heading would not fit, so a single dot stands in for it. The
+ * dot sits in the same box as the text, so every link below stays at the same
  * height in both widths and nothing jumps when the sidebar opens or closes.
  */
 function SectionLabel({ children, collapsed }: { children: React.ReactNode; collapsed: boolean }) {
@@ -186,11 +186,10 @@ function SectionLabel({ children, collapsed }: { children: React.ReactNode; coll
       <span className="relative block">
         <span className={cn("whitespace-nowrap", collapsed && "invisible")}>{children}</span>
         {collapsed ? (
-          <span className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 gap-[3px]" aria-hidden>
-            {[0, 1, 2].map((dot) => (
-              <span key={dot} className="h-[3px] w-[3px] rounded-full bg-muted-foreground/50" />
-            ))}
-          </span>
+          <span
+            className="absolute left-1/2 top-1/2 h-1 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-muted-foreground/50"
+            aria-hidden
+          />
         ) : null}
       </span>
     </p>
