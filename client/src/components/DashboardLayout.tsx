@@ -149,7 +149,9 @@ function SidebarLink({
       {({ isActive }) => (
         <span
           className={cn(
-            "group relative flex items-center gap-3 rounded-xl py-2.5 text-sm font-medium transition-colors duration-200",
+            // A fixed height rather than padding around the label, because
+            // collapsed there is no label and the row would come out shorter.
+            "group relative flex h-10 items-center gap-3 rounded-xl text-sm font-medium transition-colors duration-200",
             "px-3",
             isActive ? "text-foreground" : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
           )}
