@@ -150,7 +150,7 @@ function SidebarLink({
         <span
           className={cn(
             "group relative flex items-center gap-3 rounded-xl py-2.5 text-sm font-medium transition-colors duration-200",
-            collapsed ? "justify-center px-0" : "px-3",
+            "px-3",
             isActive ? "text-foreground" : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
           )}
         >
@@ -175,10 +175,20 @@ function SidebarLink({
   );
 }
 
+/**
+ * Collapsed, the heading would not fit, so a short rule stands in for it. The
+ * rule sits in the same box as the text, so every link below stays at the same
+ * height in both widths and nothing jumps when the sidebar opens or closes.
+ */
 function SectionLabel({ children, collapsed }: { children: React.ReactNode; collapsed: boolean }) {
-  // Collapsed, the heading would not fit, so a short rule keeps the groups apart.
-  if (collapsed) return <div className="mx-3 mb-2 mt-5 border-t border-border/60" aria-hidden />;
-  return <p className="px-3 pb-2 pt-5 text-2xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">{children}</p>;
+  return (
+    <p className="px-3 pb-2 pt-5 text-2xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
+      <span className="relative block">
+        <span className={cn("whitespace-nowrap", collapsed && "invisible")}>{children}</span>
+        {collapsed ? <span className="absolute inset-x-0 top-1/2 border-t border-border/60" aria-hidden /> : null}
+      </span>
+    </p>
+  );
 }
 
 /**
@@ -211,27 +221,47 @@ function SidebarContent({
 
   return (
     <div className="flex h-full flex-col">
-      <div className={cn("flex items-center gap-1 pb-2 pt-1", collapsed ? "flex-col gap-2" : "pl-3")}>
-        <Link to="/" onClick={onNavigate} title={collapsed ? siteName : undefined} className={cn("flex min-w-0 items-center gap-2.5", collapsed ? "justify-center" : "flex-1")}>
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] ring-1 ring-inset ring-white/10">
-            <RadioTower className="h-4 w-4 text-foreground" />
-          </span>
-          {collapsed ? null : (
-            <span className="truncate text-sm font-semibold tracking-tight text-foreground">{siteName}</span>
-          )}
-        </Link>
-        {onToggleCollapsed ? (
-          <Button
-            variant="ghost"
-            size="icon"
+      {/*
+       * One row of the same height in both widths, with the logo at the same
+       * spot, so the links under it never move. Collapsed, the logo itself is
+       * the button that opens the sidebar again.
+       */}
+      <div className="mb-2 mt-1 flex h-8 items-center gap-1 pl-1">
+        {collapsed && onToggleCollapsed ? (
+          <button
+            type="button"
             onClick={onToggleCollapsed}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className="h-8 w-8 shrink-0 text-muted-foreground"
+            aria-label="Expand sidebar"
+            title="Expand sidebar"
+            className="group flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] ring-1 ring-inset ring-white/10 transition-colors hover:bg-white/[0.1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
           >
-            {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-          </Button>
-        ) : null}
+            <RadioTower className="h-4 w-4 text-foreground group-hover:hidden group-focus-visible:hidden" />
+            <PanelLeftOpen className="hidden h-4 w-4 text-foreground group-hover:block group-focus-visible:block" />
+          </button>
+        ) : (
+          <>
+            <Link to="/" onClick={onNavigate} className="flex min-w-0 flex-1 items-center gap-2.5">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] ring-1 ring-inset ring-white/10">
+                <RadioTower className="h-4 w-4 text-foreground" />
+              </span>
+              <span className="truncate whitespace-nowrap text-sm font-semibold tracking-tight text-foreground">
+                {siteName}
+              </span>
+            </Link>
+            {onToggleCollapsed ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onToggleCollapsed}
+                aria-label="Collapse sidebar"
+                title="Collapse sidebar"
+                className="h-8 w-8 shrink-0 text-muted-foreground"
+              >
+                <PanelLeftClose className="h-4 w-4" />
+              </Button>
+            ) : null}
+          </>
+        )}
       </div>
 
       <nav className="flex-1 overflow-y-auto scroll-slim">
@@ -484,9 +514,9 @@ export function DashboardLayout() {
       <aside
         className={cn(
           "hidden shrink-0 overflow-hidden border-r border-border/60 bg-surface/40 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-[calc(1rem+env(safe-area-inset-top))] transition-[width] duration-200 lg:block",
-          collapsed
-            ? "w-[4.25rem] pl-[calc(0.5rem+env(safe-area-inset-left))] pr-2"
-            : "w-60 pl-[calc(0.75rem+env(safe-area-inset-left))] pr-3"
+          // The same padding in both widths keeps every icon at the same spot.
+          "pl-[calc(0.75rem+env(safe-area-inset-left))] pr-3",
+          collapsed ? "w-16" : "w-60"
         )}
       >
         <SidebarContent
